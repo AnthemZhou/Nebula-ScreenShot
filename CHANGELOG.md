@@ -1,7 +1,8 @@
 # Changelog
 
-## 0.1.10 — 2026-11-14
+## 1.0.0 — 2026-11-14
 
+- First stable release of the native macOS screenshot annotator, including numbered teardrop pins, editable shapes, freehand/local erasing, undo/redo, clipboard output and PNG saving.
 - Remove the entry fade and its animation task. Show the capture interface with its final selection shade on the first frame; no additional animation delay.
 - Update the editor interaction check to verify the initial shade is already final before any input or animation wait.
 
