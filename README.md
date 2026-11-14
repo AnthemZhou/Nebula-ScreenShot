@@ -10,6 +10,12 @@
 
 *上图为合成示例画布；圆圈、箭头、自由画线与编号均由应用的实际导出代码绘制。*
 
+## 窗口
+
+主窗口仅显示 **Nebula ScreenShot、⌃⇧⌘5、版本号**。点击菜单栏 →「关于 Nebula ScreenShot」可再次打开。
+
+![主窗口内容的实际离屏渲染](docs/welcome.png)
+
 ## 功能
 
 - 全局快捷键 **⌃⇧⌘5** 与菜单栏入口。
@@ -36,9 +42,9 @@
 
 **屏幕权限**：打开「系统设置 → 隐私与安全性 → 屏幕与系统音频录制」（部分系统称「屏幕录制」），允许 Nebula ScreenShot。若系统要求，请退出并重新打开应用。应用只请求画面捕获，不录制音频。
 
-**快捷键检查**：默认快捷键为 **⌃⇧⌘5**。如果应用提示冲突，请在「系统设置 → 键盘 → 键盘快捷键」或占用该组合的其他应用中调整对应设置，再点击「重新检测」。应用不会自动更改系统快捷键。
+**快捷键检查**：默认快捷键为 **⌃⇧⌘5**。部分 macOS 配置会将它作为系统截屏快捷键的变体保留。如果检测到冲突，请检查「系统设置 → 键盘 → 键盘快捷键 → 截屏 → 截屏和录制选项」，再通过菜单栏 →「设置」→「重新检测快捷键」重试。应用不会自动更改系统快捷键。Apple 文档说明 **⇧⌘5** 用于打开截屏与录屏工具，但未单独说明加 Control 的变体：[Apple 使用说明](https://support.apple.com/en-euro/guide/mac-help/mh26782/mac)。
 
-即使快捷键被占用，仍可点击菜单栏图标 →「区域截图」。权限和快捷键设置入口都在「设置与使用说明」窗口中。
+即使快捷键被占用，仍可点击菜单栏图标 →「区域截图」。权限和快捷键检查入口统一位于菜单栏 →「设置」。
 
 ## 使用
 
@@ -90,6 +96,7 @@ open "dist/Nebula ScreenShot.app"
 ```sh
 open "dist/Nebula ScreenShot.app" --args --demo
 "dist/Nebula ScreenShot.app/Contents/MacOS/NebulaScreenShot" --render-demo docs/preview.png
+"dist/Nebula ScreenShot.app/Contents/MacOS/NebulaScreenShot" --render-welcome docs/welcome.png
 ```
 
 ### 结构

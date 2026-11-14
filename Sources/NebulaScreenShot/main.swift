@@ -4,6 +4,21 @@ import NebulaCore
 
 MainActor.assumeIsolated {
 let app = NSApplication.shared
+if let index = CommandLine.arguments.firstIndex(of: "--render-welcome"), CommandLine.arguments.count > index + 1 {
+    // Render our own view offscreen; this does not capture the user's desktop.
+    let welcome = WelcomeWindow()
+    if let view = welcome.window?.contentView {
+        view.layoutSubtreeIfNeeded()
+        if let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+            view.cacheDisplay(in: view.bounds, to: bitmap)
+            if let data = bitmap.representation(using: .png, properties: [:]) {
+                do { try data.write(to: URL(fileURLWithPath: CommandLine.arguments[index + 1])); exit(0) }
+                catch { fputs("\(error)\n", stderr); exit(1) }
+            }
+        }
+    }
+    exit(1)
+}
 if let index = CommandLine.arguments.firstIndex(of: "--render-demo"), CommandLine.arguments.count > index + 1 {
     let size = CGSize(width: 1120, height: 700)
     if let image = DemoArtwork.image(size: size, scale: 2),

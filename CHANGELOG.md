@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.2 — 2026-11-14
+
+- Reduce the About window to the app name, capture shortcut and bundle version in a compact centered layout.
+- Move screen recording permissions, keyboard settings and shortcut checks to the menu bar Settings submenu.
+- Show permission guidance only when attempting capture without access.
+- Keep system-reservation diagnostics separate from registration errors; unavailable system data is no longer reported as a confirmed conflict.
+- Add offscreen rendering of the actual About view for visual verification.
+
 ## 0.1.1 — 2026-11-14
 
 - Change the global capture shortcut to Control–Shift–Command–5.

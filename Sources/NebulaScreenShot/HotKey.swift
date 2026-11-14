@@ -34,10 +34,11 @@ import Carbon
         if let handler { RemoveEventHandler(handler); self.handler = nil }
     }
 
-    static var hasSystemConflict: Bool {
+    /// nil means the system reservation list could not be read, not a confirmed conflict.
+    static var systemConflict: Bool? {
         var hotKeys: Unmanaged<CFArray>?
         guard CopySymbolicHotKeys(&hotKeys) == noErr,
-              let entries = hotKeys?.takeRetainedValue() as? [[String: Any]] else { return true }
+              let entries = hotKeys?.takeRetainedValue() as? [[String: Any]] else { return nil }
         return entries.contains { entry in
             (entry[kHISymbolicHotKeyEnabled] as? NSNumber)?.boolValue == true &&
             (entry[kHISymbolicHotKeyCode] as? NSNumber)?.uint32Value == keyCode &&

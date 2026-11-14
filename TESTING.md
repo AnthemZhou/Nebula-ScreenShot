@@ -4,8 +4,9 @@ Run `swift test` first. Launch the packaged `.app`, because screen recording per
 
 ## Capture and permissions
 
-- On first launch, verify the permission and shortcut guidance is readable.
-- With screen recording denied, start capture. Expect permission guidance, no blank overlay or crash.
+- On first launch or via the menu bar About item, verify the window contains only the app name, shortcut and current bundle version. Check that text is centered and not clipped.
+- Use the menu bar Settings submenu to open screen recording settings, keyboard shortcut settings and shortcut detection. System reservations should only appear in the explicit check dialog, not the About window.
+- With screen recording denied, start capture. Expect the contextual permission dialog; its settings action must open Screen Recording settings. No blank overlay or crash.
 - Grant permission through System Settings and relaunch if requested.
 - Click “重新检测” and verify Control–Shift–Command–5 registers when available. Press it from another app; expect a frozen desktop with a crosshair. If a conflicting custom system binding exists, expect guidance for that binding.
 - Begin from the menu bar. Drag a region in all four directions; a very small click should allow retrying.
@@ -30,7 +31,7 @@ Run `swift test` first. Launch the packaged `.app`, because screen recording per
 ## Demo and distribution
 
 - “试用标注” works without granting screen recording permission.
-- `--render-demo` writes a synthetic sample PNG using the production renderer.
+- `--render-demo` writes a synthetic sample PNG using the production renderer. `--render-welcome` renders the actual About view offscreen without capturing the desktop.
 - `scripts/package.sh --universal` produces both CPU architectures (`lipo -archs`).
 - Check signing with `codesign --verify --deep --strict`. Ad-hoc signing does not imply Apple notarization.
 - Smoke-test on an Intel Mac and macOS 14 before claiming those runtime configurations are verified; cross-compilation alone does not verify them.
