@@ -17,13 +17,13 @@ import AppKit
             self?.statusItem.button?.image = NSImage(systemSymbolName: "checkmark.circle", accessibilityDescription: message)
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) { [weak self] in self?.restoreStatusIcon() }
         }
-        hotKey.onPress = { [weak self] in self?.beginCapture() }
+        hotKey.onPress = { [weak self] in self?.captureFromShortcut() }
         hotKey.register()
         NotificationCenter.default.addObserver(self, selector: #selector(displaysChanged),
                                                name: NSApplication.didChangeScreenParametersNotification, object: nil)
         if CommandLine.arguments.contains("--demo") {
             capture.begin(demo: true)
-        } else if !UserDefaults.standard.bool(forKey: "hasLaunched") || hotKey.registrationStatus != noErr {
+        } else if !UserDefaults.standard.bool(forKey: "hasLaunched") {
             UserDefaults.standard.set(true, forKey: "hasLaunched")
             showWelcome()
         }
@@ -75,12 +75,18 @@ import AppKit
 
     @objc private func beginCapture() {
         welcome?.window?.orderOut(nil)
+        capture.begin(afterMenuDismissal: true)
+    }
+
+    private func captureFromShortcut() {
+        statusItem.menu?.cancelTracking()
+        welcome?.window?.orderOut(nil)
         capture.begin()
     }
 
     @objc private func beginDemo() {
         welcome?.window?.orderOut(nil)
-        capture.begin(demo: true)
+        capture.begin(demo: true, afterMenuDismissal: true)
     }
 
     @objc private func showWelcome() {
@@ -104,15 +110,15 @@ import AppKit
         hotKey.register()
         let alert = NSAlert()
         let conflict = HotKey.systemConflict
-        if conflict == true {
-            alert.messageText = "系统占用了 \(HotKey.displayString)"
-            alert.informativeText = "请检查系统设置 → 键盘 → 键盘快捷键 → 截屏中的“截屏和录制选项”。调整后重新检测。"
-        } else if hotKey.registrationStatus != noErr {
+        if hotKey.registrationStatus != noErr {
             alert.messageText = "快捷键暂时无法注册"
-            alert.informativeText = "请检查其他应用或仍在运行的旧版 Nebula 是否占用了该组合。也可从菜单栏开始截图。"
+            alert.informativeText = "请退出占用此组合的其他截图应用，再重新检测。也可从菜单栏开始截图。\n错误代码：\(hotKey.registrationStatus)"
         } else {
             alert.messageText = "快捷键已注册：\(HotKey.displayString)"
-            alert.informativeText = conflict == nil ? "暂时无法读取系统占用情况。可尝试快捷键，或从菜单栏开始截图。" : "可以使用此快捷键开始截图。"
+            alert.informativeText = "按下快捷键即可选择截图区域。首次使用需允许屏幕录制。"
+            if conflict == true {
+                alert.informativeText += "\n\n已以独占方式注册。若仍出现系统截屏面板，请在键盘快捷键 → 截屏中调整“截屏和录制选项”。"
+            }
         }
         alert.addButton(withTitle: "好")
         if conflict == true || hotKey.registrationStatus != noErr { alert.addButton(withTitle: "快捷键设置") }
@@ -147,6 +153,9 @@ import AppKit
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+    func applicationDidBecomeActive(_ notification: Notification) {
+        if !hotKey.isRegistered { hotKey.register() }
+    }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         showWelcome()
         return true

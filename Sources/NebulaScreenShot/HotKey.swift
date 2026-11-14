@@ -6,27 +6,47 @@ import Carbon
     static let displayString = "⌃⇧⌘5"
     private static let keyCode = UInt32(kVK_ANSI_5)
     private static let modifiers = UInt32(controlKey | shiftKey | cmdKey)
+    private static let identifier = EventHotKeyID(signature: OSType(0x4E425353), id: 1)
     private var hotKey: EventHotKeyRef?
     private var handler: EventHandlerRef?
     var onPress: (() -> Void)?
     private(set) var registrationStatus: OSStatus = noErr
+    var isRegistered: Bool { hotKey != nil && handler != nil }
 
     func register() {
-        if let hotKey { UnregisterEventHotKey(hotKey); self.hotKey = nil }
+        // Activation can retry a failed registration without briefly releasing a working one.
+        guard !isRegistered else { return }
         if handler == nil {
             var event = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
             let pointer = Unmanaged.passUnretained(self).toOpaque()
-            InstallEventHandler(GetApplicationEventTarget(), { _, _, userData in
-                guard let userData else { return OSStatus(eventNotHandledErr) }
-                MainActor.assumeIsolated {
-                    Unmanaged<HotKey>.fromOpaque(userData).takeUnretainedValue().onPress?()
+            registrationStatus = InstallEventHandler(GetApplicationEventTarget(), { _, event, userData in
+                guard let event, let userData else { return OSStatus(eventNotHandledErr) }
+                var identifier = EventHotKeyID()
+                let status = GetEventParameter(event, EventParamName(kEventParamDirectObject),
+                                               EventParamType(typeEventHotKeyID), nil,
+                                               MemoryLayout<EventHotKeyID>.size, nil, &identifier)
+                guard status == noErr else { return OSStatus(eventNotHandledErr) }
+                return MainActor.assumeIsolated {
+                    guard identifier.signature == HotKey.identifier.signature,
+                          identifier.id == HotKey.identifier.id else { return OSStatus(eventNotHandledErr) }
+                    let owner = Unmanaged<HotKey>.fromOpaque(userData).takeUnretainedValue()
+                    guard owner.isRegistered else { return OSStatus(eventNotHandledErr) }
+                    owner.onPress?()
+                    return noErr
                 }
-                return noErr
             }, 1, &event, pointer, &handler)
+            guard registrationStatus == noErr else { return }
+            guard handler != nil else {
+                registrationStatus = OSStatus(eventInternalErr)
+                return
+            }
         }
-        let identifier = EventHotKeyID(signature: OSType(0x4E425353), id: 1)
+        // Exclusive delivery prevents other Carbon registrants from responding too.
+        // It does not guarantee that macOS's symbolic shortcut has been disabled.
         registrationStatus = RegisterEventHotKey(Self.keyCode, Self.modifiers,
-                                                 identifier, GetApplicationEventTarget(), 0, &hotKey)
+                                                 Self.identifier, GetApplicationEventTarget(),
+                                                 OptionBits(kEventHotKeyExclusive), &hotKey)
+        if registrationStatus == noErr && hotKey == nil { registrationStatus = OSStatus(eventInternalErr) }
     }
 
     func unregister() {
@@ -34,7 +54,8 @@ import Carbon
         if let handler { RemoveEventHandler(handler); self.handler = nil }
     }
 
-    /// nil means the system reservation list could not be read, not a confirmed conflict.
+    /// An enabled system reservation, not proof that Carbon registration will fail.
+    /// nil means the system reservation list could not be read.
     static var systemConflict: Bool? {
         var hotKeys: Unmanaged<CFArray>?
         guard CopySymbolicHotKeys(&hotKeys) == noErr,

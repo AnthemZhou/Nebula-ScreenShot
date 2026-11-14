@@ -19,10 +19,9 @@ import NebulaCore
     var onPermissionNeeded: (() -> Void)?
     var onComplete: ((String) -> Void)?
 
-    func begin(demo: Bool = false) {
+    func begin(demo: Bool = false, afterMenuDismissal: Bool = false) {
         guard !isActive else { return }
-        if !demo && !CGPreflightScreenCaptureAccess() {
-            CGRequestScreenCaptureAccess()
+        if !demo && !(CGPreflightScreenCaptureAccess() || CGRequestScreenCaptureAccess()) {
             onPermissionNeeded?()
             return
         }
@@ -33,8 +32,8 @@ import NebulaCore
         captureTask = Task { @MainActor [weak self] in
             guard let self else { return }
             do {
-                // Let the menu or welcome window disappear before freezing the desktop.
-                try await Task.sleep(for: .milliseconds(180))
+                // Only a menu action needs time for the menu to close. Hotkeys capture immediately.
+                if afterMenuDismissal { try await Task.sleep(for: .milliseconds(120)) }
                 let snapshots: [(NSScreen, CGImage)]
                 if demo {
                     snapshots = NSScreen.screens.compactMap { screen in

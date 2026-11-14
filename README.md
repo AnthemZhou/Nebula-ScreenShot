@@ -12,13 +12,13 @@
 
 ## 窗口
 
-主窗口仅显示 **Nebula ScreenShot、⌃⇧⌘5、版本号**。点击菜单栏 →「关于 Nebula ScreenShot」可再次打开。
+黑白小窗口仅显示 **Nebula ScreenShot、⌃⇧⌘5、版本号**。点击菜单栏 →「关于 Nebula ScreenShot」可打开；按 Esc 关闭。截图快捷键直接进入选区，不经过此窗口。
 
 ![主窗口内容的实际离屏渲染](docs/welcome.png)
 
 ## 功能
 
-- 全局快捷键 **⌃⇧⌘5** 与菜单栏入口。
+- 全局快捷键 **⌃⇧⌘5** 直接截图，与菜单栏入口；使用独占注册，避免多个 Carbon 快捷键监听者同时响应。
 - 拖动选择屏幕区域，原地显示悬浮标注工具条。
 - 圆圈 / 椭圆、直线、自由画笔、箭头。
 - **连续编号图钉**：选择图钉工具后，在选区内依次点击，生成圆圈内的 1、2、3……；每张新截图从 1 开始。
@@ -42,7 +42,9 @@
 
 **屏幕权限**：打开「系统设置 → 隐私与安全性 → 屏幕与系统音频录制」（部分系统称「屏幕录制」），允许 Nebula ScreenShot。若系统要求，请退出并重新打开应用。应用只请求画面捕获，不录制音频。
 
-**快捷键检查**：默认快捷键为 **⌃⇧⌘5**。部分 macOS 配置会将它作为系统截屏快捷键的变体保留。如果检测到冲突，请检查「系统设置 → 键盘 → 键盘快捷键 → 截屏 → 截屏和录制选项」，再通过菜单栏 →「设置」→「重新检测快捷键」重试。应用不会自动更改系统快捷键。Apple 文档说明 **⇧⌘5** 用于打开截屏与录屏工具，但未单独说明加 Control 的变体：[Apple 使用说明](https://support.apple.com/en-euro/guide/mac-help/mh26782/mac)。
+**快捷键检查**：默认快捷键为 **⌃⇧⌘5**，应用以独占方式注册。部分 macOS 配置会将它作为系统截屏快捷键的变体保留；出现在系统保留列表中，并不等于注册失败。菜单栏 →「设置」→「重新检测快捷键」会显示实际注册结果；其他应用独占此组合时，退出该应用后可重新检测。
+
+如果按下后仍出现系统截屏面板，请检查「系统设置 → 键盘 → 键盘快捷键 → 截屏 → 截屏和录制选项」。独占注册不等于禁用系统快捷键，应用不会修改系统设置或请求额外的键盘监听权限。Apple 文档说明 **⇧⌘5** 用于打开截屏与录屏工具，但未单独说明加 Control 的变体：[Apple 使用说明](https://support.apple.com/en-euro/guide/mac-help/mh26782/mac)。
 
 即使快捷键被占用，仍可点击菜单栏图标 →「区域截图」。权限和快捷键检查入口统一位于菜单栏 →「设置」。
 
@@ -116,4 +118,4 @@ Copyright © 2026 Nebula ScreenShot contributors.
 
 ---
 
-**English:** Nebula ScreenShot is a native, local-only macOS menu bar screenshot annotator. Press Control–Shift–Command–5, select a region, then draw ellipses, lines, freehand strokes, arrows, or sequential numbered pins. Click Confirm or press Enter to copy the annotated image to the clipboard by default. Saving a Retina-resolution PNG is optional. Requires macOS 14+. If the global shortcut is occupied, adjust the conflicting binding and retry. The first release is ad-hoc signed and not notarized. Licensed under GPL-3.0-only.
+**English:** Nebula ScreenShot is a native, local-only macOS menu bar screenshot annotator. Press Control–Shift–Command–5 to capture directly, select a region, then draw ellipses, lines, freehand strokes, arrows, or sequential numbered pins. Click Confirm or press Enter to copy the annotated image to the clipboard by default. Saving a Retina-resolution PNG is optional. The compact About window uses only black, white and neutral gray. Requires macOS 14+. The global shortcut uses exclusive registration; if the system screenshot panel still appears, adjust the conflicting system binding. The app is ad-hoc signed and not notarized. Licensed under GPL-3.0-only.
