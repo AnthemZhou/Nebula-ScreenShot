@@ -7,7 +7,7 @@
 - Add outlined rectangles, including Shift-constrained squares and Retina export.
 - Move color/width controls into a style menu and secondary actions into More; keep undo, cancel and confirm directly accessible.
 - Add actual toolbar rendering previews and rectangle export/history regression tests.
-- Request initial screen recording consent once when needed, so a freshly reset app appears in System Settings; keep ScreenCaptureKit as the actual capture-access check.
+- Explicitly request initial screen recording consent once when needed and document manual addition in System Settings; keep ScreenCaptureKit as the actual capture-access check.
 
 ## 0.1.4 — 2026-11-14
 
