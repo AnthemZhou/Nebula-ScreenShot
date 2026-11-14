@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 import AppKit
 import Carbon
+import OSLog
 
 @MainActor final class HotKey {
+    private let logger = Logger(subsystem: "io.github.anthemzhou.NebulaScreenShot", category: "Shortcut")
     static let displayString = "⌃⇧⌘5"
     private static let keyCode = UInt32(kVK_ANSI_5)
     private static let modifiers = UInt32(controlKey | shiftKey | cmdKey)
@@ -31,6 +33,7 @@ import Carbon
                           identifier.id == HotKey.identifier.id else { return OSStatus(eventNotHandledErr) }
                     let owner = Unmanaged<HotKey>.fromOpaque(userData).takeUnretainedValue()
                     guard owner.isRegistered else { return OSStatus(eventNotHandledErr) }
+                    owner.logger.notice("Capture shortcut received")
                     owner.onPress?()
                     return noErr
                 }
@@ -47,6 +50,7 @@ import Carbon
                                                  Self.identifier, GetApplicationEventTarget(),
                                                  OptionBits(kEventHotKeyExclusive), &hotKey)
         if registrationStatus == noErr && hotKey == nil { registrationStatus = OSStatus(eventInternalErr) }
+        logger.notice("Shortcut registration result: \(self.registrationStatus, privacy: .public)")
     }
 
     func unregister() {

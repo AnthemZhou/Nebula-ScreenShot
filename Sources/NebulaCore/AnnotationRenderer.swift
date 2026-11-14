@@ -14,18 +14,8 @@ extension Ink {
         }
     }
 
-    /// Choose the higher-contrast neutral text color from the actual sRGB fill.
-    public var pinTextColor: NSColor {
-        guard let rgb = color.usingColorSpace(.sRGB) else { return .black }
-        func linear(_ component: CGFloat) -> CGFloat {
-            component <= 0.04045 ? component / 12.92 : pow((component + 0.055) / 1.055, 2.4)
-        }
-        let luminance = 0.2126 * linear(rgb.redComponent) +
-            0.7152 * linear(rgb.greenComponent) + 0.0722 * linear(rgb.blueComponent)
-        let blackContrast = (luminance + 0.05) / 0.05
-        let whiteContrast = 1.05 / (luminance + 0.05)
-        return blackContrast >= whiteContrast ? .black : .white
-    }
+    public var pinTextColor: NSColor { .white }
+
 }
 
 @MainActor public enum AnnotationRenderer {
@@ -43,7 +33,10 @@ extension Ink {
         case .ellipse:
             path.appendOval(in: Geometry.rect(from: start, to: end))
         case .rectangle:
-            path.appendRect(Geometry.rect(from: start, to: end))
+            let rect = Geometry.rect(from: start, to: end)
+            let radius = AnnotationGeometry.cornerRadius(in: rect)
+            path.appendRoundedRect(rect, xRadius: radius, yRadius: radius)
+            path.setLineDash([annotation.lineWidth * 2.4, annotation.lineWidth * 1.8], count: 2, phase: 0)
         case .line, .arrow:
             path.move(to: start)
             path.line(to: end)
@@ -54,6 +47,17 @@ extension Ink {
                     for point in head.dropFirst() { path.line(to: point) }
                 }
             }
+        case .pen:
+            if annotation.points.count == 1 {
+                annotation.ink.color.setFill()
+                NSBezierPath(ovalIn: CGRect(x: start.x - annotation.lineWidth / 2,
+                                           y: start.y - annotation.lineWidth / 2,
+                                           width: annotation.lineWidth, height: annotation.lineWidth)).fill()
+                return
+            }
+            path.move(to: start)
+            for point in annotation.points.dropFirst() { path.line(to: point) }
+        case .eraser: return
         case .pin:
             // Moving or resizing the crop never moves annotations or pulls outside pins inward.
             if let selection, !selection.standardized.contains(start) { return }
@@ -69,25 +73,35 @@ extension Ink {
         let text = "\(number)" as NSString
         let font = NSFont.monospacedDigitSystemFont(ofSize: geometry.fontSize, weight: .bold)
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: font, .foregroundColor: ink.pinTextColor
+            .font: font, .foregroundColor: ink.pinTextColor,
+            .strokeColor: NSColor.darkGray, .strokeWidth: ink == .white ? -5 : 0
         ]
         let textSize = text.size(withAttributes: attributes)
         let outline = NSBezierPath()
-        outline.move(to: geometry.pointsDown ? geometry.tail[2] : geometry.tail[0])
-        outline.appendArc(withCenter: CGPoint(x: geometry.body.midX, y: geometry.body.midY),
-                          radius: geometry.body.width / 2,
-                          startAngle: geometry.pointsDown ? 70 : 250,
-                          endAngle: geometry.pointsDown ? 110 : 290, clockwise: true)
-        outline.line(to: geometry.target)
+        let body = geometry.body
+        let r = body.width / 2
+        // Smooth teardrop, mirrored vertically only when it must fit below a top-edge target.
+        func pinPoint(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+            CGPoint(x: body.midX + x * r,
+                    y: geometry.pointsDown ? body.minY + y * r : body.maxY - y * r)
+        }
+        outline.move(to: pinPoint(0, 0))
+        outline.curve(to: pinPoint(1, 1), controlPoint1: pinPoint(0.5523, 0), controlPoint2: pinPoint(1, 0.4477))
+        outline.curve(to: geometry.target, controlPoint1: pinPoint(1, 1.65),
+                      controlPoint2: CGPoint(x: geometry.target.x + r * 0.5, y: pinPoint(0, 2.05).y))
+        outline.curve(to: pinPoint(-1, 1),
+                      controlPoint1: CGPoint(x: geometry.target.x - r * 0.5, y: pinPoint(0, 2.05).y),
+                      controlPoint2: pinPoint(-1, 1.65))
+        outline.curve(to: pinPoint(0, 0), controlPoint1: pinPoint(-1, 0.4477), controlPoint2: pinPoint(-0.5523, 0))
         outline.close()
         ink.color.setFill()
         outline.fill()
 
-        // Keep the subtle outline inside the silhouette so the tip ends at the click target.
+        // The white outline stays inside the silhouette, preserving the exact target.
         NSGraphicsContext.saveGraphicsState()
         outline.addClip()
-        NSColor.black.withAlphaComponent(ink == .white ? 0.35 : 0.12).setStroke()
-        outline.lineWidth = geometry.body.width * 0.06
+        NSColor.white.setStroke()
+        outline.lineWidth = geometry.body.width * 0.16
         outline.lineJoinStyle = .round
         outline.stroke()
         NSGraphicsContext.restoreGraphicsState()

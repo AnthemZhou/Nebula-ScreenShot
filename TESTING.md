@@ -1,6 +1,6 @@
 # Manual acceptance checks
 
-Run `swift test` first. Install the final ZIP in a fixed Applications directory and launch the `.app` through Finder or `open`, because screen recording permissions are associated with the signed app identity. Running the inner executable from a terminal can attribute the request to that terminal instead.
+Run `swift test` and `./scripts/check-interactions.sh` first. The interaction suite uses hidden windows and synthetic images; it does not request permission or send system input. Install the final ZIP in a fixed Applications directory and launch the `.app` through Finder or `open`, because screen recording permissions are associated with the signed app identity. Running the inner executable from a terminal can attribute the request to that terminal instead.
 
 ## Capture and permissions
 
@@ -22,23 +22,28 @@ Run `swift test` first. Install the final ZIP in a fixed Applications directory 
 
 ## Annotation and export
 
-- Verify the toolbar is one dark opaque row with four drawing groups in this order: pin, ellipse/rectangle, line, arrow. A new capture defaults to pin. There is no pen tool or second instruction row.
-- Use N, O, B, L, A to select each tool. Switch ellipse/rectangle using the shape dropdown, then draw both. Selecting the shape button later must restore the last chosen shape.
+- Verify the toolbar is one dark opaque row with tools in this order: pin, ellipse/rectangle, line, arrow, pen, eraser. Undo, redo and Save PNG are directly accessible; a new capture defaults to pin.
+- Use N, O, B, L, A, P, E to select each tool. Switch ellipse/rectangle using the shape dropdown, then draw both. Selecting the shape button later must restore the last chosen shape.
 - Hold Shift while dragging an ellipse, rectangle, line, or arrow; verify circle / square / axis constraints.
 - Choose each of the six color dots at the front of the toolbar and each stroke width from the width menu. New annotations must use the selected color; earlier annotations keep theirs. The current choices must be marked, including after a keyboard tool change. All menus must appear above the capture overlay and close cleanly when canceled; the overlay must retain its original window level afterwards.
-- Use primary toolbar undo and Save PNG; use More for redo, clear and reselect. Verify their enabled states, then cancel with the cross or confirm with the checkmark. At narrow display widths, controls must remain inside the toolbar and accessible through their labels/tooltips.
-- Click three places. Expect 1, 2, 3 in bubbles with pointed tips at those exact locations. Default color is Dots orange (#EC603B).
+- Use primary toolbar undo, redo and Save PNG; use More for clear and reselect. Verify their enabled states, then cancel with the cross or confirm with the checkmark. At narrow display widths, controls must remain inside the toolbar and accessible through their labels/tooltips.
+- Click three places. Expect 1, 2, 3 in teardrops with white borders/numbers and pointed tips at those exact locations. Default color is Dots orange (#EC603B).
 - In pin mode, left-drag a line and right-drag a rectangle. No stray numbered pin may appear during or after either drag; a drag out and back to its start must not become a click. A drag delivered only by mouse-up must still work.
 - Resize the crop from each of its eight handles and any edge. Keep the opposite edge fixed, clamp to the screen, and preserve every annotation and the next pin number. Shrink around a mark and expand again; it must reappear at its original location.
 - Hold Space and drag inside the crop to move it, including near screen boundaries. Annotations stay attached to the source image, not the crop; export dimensions and origin must reflect the new selection.
 - Compare small and large crops, multi-digit pins, and pins near every edge. Pins shrink with the short edge of the crop, their tip remains exact, their bubble fits inside, and pin size does not change with stroke width.
+- Hover a pin, move onto its minus badge and click. The badge must remain reachable and later numbers must close the gap. Undo/redo restores the exact pins and their numbers; the next new pin continues the sequence.
+- Hover a line/arrow to reveal two white endpoint controls; drag either endpoint or drag the shaft to move the entire object. Hover a box/ellipse to reveal size controls. Edits retain identity and consume only one undo transaction per drag. Press Delete after selection to remove it.
+- Confirm rectangles have rounded corners, dash gaps and no fill. Their dash gaps should remain easy to select/edit.
+- In pen mode, drag through several intermediate points and release; the exported stroke must follow the path. In eraser mode, drag across several objects and release; one undo restores every erased object and the original pin numbers. Empty erasing does not invalidate redo.
+- Hover pins/shapes and export while the badge/handles are visible. UI controls must be absent from the output.
 - Undo the third pin; place another. Expect 3. Undo and redo mixed shapes and pins.
 - Clear annotations, undo clear, and confirm the next number is restored.
 - Try all colors and widths, including multi-digit pin numbers.
 - Click “确认”, repeat with Enter, then with Command–C, and paste each result into Preview or another image-aware app. No save dialog should appear for confirmation. Confirm annotations are present, correctly oriented, and the toolbar / border are absent.
 - Save a PNG. Cancel the save panel and verify the editable region is retained. Retry and save.
 - R reselects; a new selection starts numbering from 1.
-- A second capture starts numbering from 1 and ignores repeat hotkeys while already editing.
+- A second capture starts numbering from 1 and ignores repeat hotkeys while already editing. Repeat hotkey → initial hint → selection → cancel/copy several times; verify the menu bar app remains alive, especially after R reselects to the initial CJK hint. Check DiagnosticReports if it exits.
 
 ## Demo and distribution
 

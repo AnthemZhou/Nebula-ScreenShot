@@ -2,7 +2,7 @@
 import Foundation
 
 public enum AnnotationTool: String, CaseIterable, Sendable {
-    case pin, ellipse, rectangle, line, arrow
+    case pin, ellipse, rectangle, line, arrow, pen, eraser
 
     public var title: String {
         switch self {
@@ -11,6 +11,8 @@ public enum AnnotationTool: String, CaseIterable, Sendable {
         case .rectangle: return "方框"
         case .line: return "直线"
         case .arrow: return "箭头"
+        case .pen: return "画笔"
+        case .eraser: return "橡皮擦"
         }
     }
 
@@ -21,6 +23,8 @@ public enum AnnotationTool: String, CaseIterable, Sendable {
         case .rectangle: return "square"
         case .line: return "line.diagonal"
         case .arrow: return "arrow.up.right"
+        case .pen: return "pencil.tip"
+        case .eraser: return "eraser"
         }
     }
 
@@ -31,6 +35,8 @@ public enum AnnotationTool: String, CaseIterable, Sendable {
         case .rectangle: return "b"
         case .line: return "l"
         case .arrow: return "a"
+        case .pen: return "p"
+        case .eraser: return "e"
         }
     }
 }
@@ -50,6 +56,7 @@ public enum Ink: String, CaseIterable, Sendable {
 }
 
 public struct Annotation: Equatable, Sendable {
+    public let id: UUID
     public var tool: AnnotationTool
     public var points: [CGPoint]
     public var ink: Ink
@@ -57,7 +64,8 @@ public struct Annotation: Equatable, Sendable {
     public var number: Int?
 
     public init(tool: AnnotationTool, points: [CGPoint], ink: Ink = .coral,
-                lineWidth: CGFloat = 3, number: Int? = nil) {
+                lineWidth: CGFloat = 3, number: Int? = nil, id: UUID = UUID()) {
+        self.id = id
         self.tool = tool
         self.points = points
         self.ink = ink
@@ -78,14 +86,39 @@ public struct AnnotationHistory {
     public var nextPinNumber: Int { (annotations.compactMap(\.number).max() ?? 0) + 1 }
 
     public mutating func append(_ annotation: Annotation) {
-        past.append(annotations)
-        future.removeAll()
-        annotations.append(annotation)
+        guard annotation.tool != .eraser else { return }
+        commit(annotations + [annotation])
     }
 
     public mutating func addPin(at point: CGPoint, ink: Ink, lineWidth: CGFloat) {
         append(Annotation(tool: .pin, points: [point], ink: ink,
                           lineWidth: lineWidth, number: nextPinNumber))
+    }
+
+    /// A drag, multi-object erase or deletion is one undoable edit.
+    public mutating func commit(_ state: [Annotation]) {
+        var number = 0
+        let normalized = state.filter { $0.tool != .eraser }.map { item -> Annotation in
+            var item = item
+            if item.tool == .pin { number += 1; item.number = number }
+            else { item.number = nil }
+            return item
+        }
+        guard normalized != annotations else { return }
+        past.append(annotations)
+        future.removeAll()
+        annotations = normalized
+    }
+
+    public mutating func remove(ids: Set<UUID>) {
+        commit(annotations.filter { !ids.contains($0.id) })
+    }
+
+    public mutating func replace(_ annotation: Annotation) {
+        guard let index = annotations.firstIndex(where: { $0.id == annotation.id }) else { return }
+        var state = annotations
+        state[index] = annotation
+        commit(state)
     }
 
     public mutating func undo() {

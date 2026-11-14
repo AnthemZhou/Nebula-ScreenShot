@@ -109,6 +109,8 @@ import NebulaCore
     @objc private func openScreenPermission() {
         guard !permissionFlowActive else { return }
         permissionFlowActive = true
+        // Bring the requesting app forward before presenting native consent.
+        NSApp.activate(ignoringOtherApps: true)
         // A newly reset app may not appear in Settings until it explicitly requests consent.
         _ = permissionPrompt.requestOnce(using: CGRequestScreenCaptureAccess)
         permissionFlowActive = false
@@ -142,6 +144,7 @@ import NebulaCore
     private func showPermissionHelp() {
         guard !permissionFlowActive else { return }
         permissionFlowActive = true
+        NSApp.activate(ignoringOtherApps: true)
         // Request only after ScreenCaptureKit denies a user-initiated capture. Do not
         // use Core Graphics preflight to block a capture that ScreenCaptureKit can perform.
         if permissionPrompt.requestOnce(using: CGRequestScreenCaptureAccess) == true {
@@ -151,7 +154,7 @@ import NebulaCore
         }
         let alert = NSAlert()
         alert.messageText = "需要屏幕录制权限"
-        alert.informativeText = "请在系统设置中允许 Nebula ScreenShot。若开关已打开仍无法截图，“重新授权”会仅清除 Nebula 的旧屏幕录制记录，重启后再次请求授权。"
+        alert.informativeText = "已向 macOS 请求屏幕录制权限。请在系统提示或设置中允许 Nebula ScreenShot；若系统要求，请退出并重新打开。若更新后开关已开仍无法截图，可用“重新授权”清除 Nebula 的旧授权记录。"
         alert.addButton(withTitle: "打开设置")
         alert.addButton(withTitle: "重新授权")
         alert.addButton(withTitle: "稍后").keyEquivalent = "\u{1b}"

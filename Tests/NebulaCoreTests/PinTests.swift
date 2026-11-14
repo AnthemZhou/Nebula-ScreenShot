@@ -107,19 +107,25 @@ import Testing
     #expect(pinBytes(restored) != pinBytes(expandedBaseline))
 }
 
-@Test @MainActor func pinTextHasReadableContrastOnAllSixFills() throws {
-    #expect(Ink.allCases.count == 6)
+@Test @MainActor func pinRendersWhiteOutlineAndNumberWithColoredFill() throws {
+    let image = try pinTestImage(width: 800, height: 800)
+    let selection = CGRect(x: 0, y: 0, width: 400, height: 400)
+    let target = CGPoint(x: 200, y: 200)
+    let geometry = PinGeometry.layout(at: target, number: 1, selection: selection)
     for ink in Ink.allCases {
-        let fill = try #require(ink.color.usingColorSpace(.sRGB))
-        let text = try #require(ink.pinTextColor.usingColorSpace(.sRGB))
-        let fillLuminance = pinLuminance(fill), textLuminance = pinLuminance(text)
-        let contrast = (max(fillLuminance, textLuminance) + 0.05) /
-            (min(fillLuminance, textLuminance) + 0.05)
-        #expect(contrast >= 4.5)
+        let output = try #require(AnnotationRenderer.export(image: image, canvasSize: selection.size,
+            selection: selection, annotations: [Annotation(tool: .pin, points: [target], ink: ink, number: 1)]))
+        let outline = try pinPixel(output, x: 400, y: Int(geometry.body.minY * 2 + 2))
+        #expect(outline.redComponent > 0.9 && outline.greenComponent > 0.9 && outline.blueComponent > 0.9)
+        var whitePixels = 0
+        for x in 394...406 {
+            for y in Int(geometry.body.midY * 2 - 9)...Int(geometry.body.midY * 2 + 9) {
+                let color = try pinPixel(output, x: x, y: y)
+                if color.redComponent > 0.9 && color.greenComponent > 0.9 && color.blueComponent > 0.9 { whitePixels += 1 }
+            }
+        }
+        #expect(whitePixels > 20)
     }
-    #expect(try #require(Ink.coral.pinTextColor.usingColorSpace(.sRGB)).redComponent < 0.05)
-    #expect(try #require(Ink.white.pinTextColor.usingColorSpace(.sRGB)).redComponent < 0.05)
-    #expect(try #require(Ink.purple.pinTextColor.usingColorSpace(.sRGB)).redComponent > 0.95)
 }
 
 private func pinTestImage(width: Int, height: Int) throws -> CGImage {
@@ -137,11 +143,4 @@ private func pinPixel(_ bitmap: NSBitmapImageRep, x: Int, y: Int) throws -> NSCo
 
 private func pinBytes(_ bitmap: NSBitmapImageRep) -> Data {
     Data(bytes: bitmap.bitmapData!, count: bitmap.bytesPerRow * bitmap.pixelsHigh)
-}
-
-private func pinLuminance(_ color: NSColor) -> CGFloat {
-    let components = [color.redComponent, color.greenComponent, color.blueComponent].map {
-        $0 <= 0.04045 ? $0 / 12.92 : pow(($0 + 0.055) / 1.055, 2.4)
-    }
-    return components[0] * 0.2126 + components[1] * 0.7152 + components[2] * 0.0722
 }

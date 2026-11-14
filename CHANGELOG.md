@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.7 — 2026-11-14
+
+- Replace the per-repaint NSString hint drawing with a native, cached-label view. The v0.1.6 crash report identified this font-layout path as the cause of the app exiting and leaving its global shortcut unavailable.
+- Add content-free hotkey registration/delivery logs; bring the app forward when explicitly requesting native screen recording consent, and clarify automatic first-use permission requests versus manual recovery and stable signing.
+- Restyle pins as teardrops with white outlines and white numbers. Hover reveals a minus badge; deleting any pins renumbers the remainder, including through undo/redo.
+- Add shape hover handles, draggable line/arrow endpoints, box/ellipse resizing, and whole-object movement.
+- Draw rectangles with rounded corners and dashed borders.
+- Add freehand pen and object eraser tools, with one history transaction per drag. Expose undo and redo directly in the toolbar.
+- Add core editing/rendering tests and a checked-in hidden AppKit integration harness covering deletion, re-editing, erasing, clean export and 120 initial/selection redraw cycles. Run both suites in CI.
+
 ## 0.1.6 — 2026-11-14
 
 - Use Dots orange (#EC603B) by default and put six color swatches at the front of the single-row toolbar. Keep Save PNG directly accessible.

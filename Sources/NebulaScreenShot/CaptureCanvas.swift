@@ -12,6 +12,20 @@ import NebulaCore
     private var ink: Ink = .coral
     private var lineWidth: CGFloat = 3.5
     private let toolbar = AnnotationToolbar(frame: .zero)
+    private let hint = CaptureHint(frame: .zero)
+    private var hoverID: UUID?
+    private var selectedID: UUID?
+    private var erasedIDs: Set<UUID> = []
+    private var pointer: CGPoint?
+    private var hoverTracking: NSTrackingArea?
+    private var displayAnnotations: [Annotation] {
+        var items = history.annotations.filter { !erasedIDs.contains($0.id) }
+        if let draft {
+            if let index = items.firstIndex(where: { $0.id == draft.id }) { items[index] = draft }
+            else { items.append(draft) }
+        }
+        return items
+    }
     private var interaction: Interaction?
     private var spaceHeld = false
     private var dimOpacity: CGFloat = 0
@@ -24,6 +38,8 @@ import NebulaCore
         case move(original: CGRect, start: CGPoint)
         case draw(start: CGPoint, tool: AnnotationTool, ink: Ink, width: CGFloat, right: Bool, dragged: Bool)
         case rightOutside(start: CGPoint, dragged: Bool)
+        case edit(original: Annotation, handle: AnnotationHandle?, start: CGPoint)
+        case erase(last: CGPoint)
     }
 
     var onCancel: (() -> Void)?
@@ -42,8 +58,9 @@ import NebulaCore
         self.background = NSImage(cgImage: screenshot, size: frame.size)
         super.init(frame: frame)
         toolbar.isHidden = true
+        addSubview(hint)
         addSubview(toolbar)
-        toolbar.onTool = { [weak self] in self?.tool = $0; self?.refresh() }
+        toolbar.onTool = { [weak self] in self?.tool = $0; self?.selectedID = nil; self?.hoverID = nil; self?.refresh() }
         toolbar.onInk = { [weak self] in self?.ink = $0; self?.refresh() }
         toolbar.onWidth = { [weak self] in self?.lineWidth = $0; self?.refresh() }
         toolbar.onUndo = { [weak self] in self?.history.undo(); self?.refresh() }
@@ -53,6 +70,7 @@ import NebulaCore
         toolbar.onCancel = { [weak self] in self?.onCancel?() }
         toolbar.onCopy = { [weak self] in self?.export(save: false) }
         toolbar.onSave = { [weak self] in self?.export(save: true) }
+        updateHint()
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -101,6 +119,9 @@ import NebulaCore
         interaction = nil
         draft = nil
         history = AnnotationHistory()
+        hoverID = nil
+        selectedID = nil
+        erasedIDs.removeAll()
         toolbar.isHidden = true
         refresh()
     }
@@ -115,8 +136,8 @@ import NebulaCore
         if let selection {
             NSGraphicsContext.saveGraphicsState()
             NSBezierPath(rect: selection).addClip()
-            for annotation in history.annotations { AnnotationRenderer.draw(annotation, selection: selection) }
-            if let draft { AnnotationRenderer.draw(draft, selection: selection) }
+            for annotation in displayAnnotations { AnnotationRenderer.draw(annotation, selection: selection) }
+            drawEditingControls(selection: selection)
             NSGraphicsContext.restoreGraphicsState()
             Ink.coral.color.setStroke()
             let outline = NSBezierPath(rect: selection)
@@ -133,25 +154,88 @@ import NebulaCore
                     edge.stroke()
                 }
             }
-            let sx = CGFloat(screenshot.width) / bounds.width
-            let sy = CGFloat(screenshot.height) / bounds.height
-            let label = "\(Int((selection.width * sx).rounded())) × \(Int((selection.height * sy).rounded())) px"
-            drawPill(label, at: CGPoint(x: min(max(selection.minX, 10), max(10, bounds.width - 180)),
-                                       y: selection.minY >= 36 ? selection.minY - 32 : selection.minY + 10))
-        } else {
-            drawPill("拖动选择区域 · 右键 / Esc 取消", at: CGPoint(x: max(10, bounds.midX - 125), y: 52))
         }
     }
 
-    private func drawPill(_ text: String, at origin: CGPoint) {
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedSystemFont(ofSize: 12, weight: .medium), .foregroundColor: NSColor.white
-        ]
-        let size = (text as NSString).size(withAttributes: attributes)
-        NSColor(white: 0.08, alpha: 0.94).setFill()
-        NSBezierPath(roundedRect: CGRect(origin: origin, size: CGSize(width: size.width + 22, height: 26)),
-                     xRadius: 8, yRadius: 8).fill()
-        (text as NSString).draw(at: CGPoint(x: origin.x + 11, y: origin.y + 5), withAttributes: attributes)
+    private func updateHint() {
+        if let selection {
+            let sx = CGFloat(screenshot.width) / bounds.width
+            let sy = CGFloat(screenshot.height) / bounds.height
+            hint.update("\(Int((selection.width * sx).rounded())) × \(Int((selection.height * sy).rounded())) px",
+                origin: CGPoint(x: min(max(selection.minX, 10), max(10, bounds.width - 180)),
+                                y: selection.minY >= 36 ? selection.minY - 32 : selection.minY + 10))
+        } else {
+            hint.update("拖动选择区域 · 右键 / Esc 取消", origin: CGPoint(x: max(10, bounds.midX - 125), y: 52))
+        }
+        hint.isHidden = !toolbar.isHidden && toolbar.frame.intersects(hint.frame)
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverTracking { removeTrackingArea(hoverTracking) }
+        let tracking = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self, userInfo: nil)
+        addTrackingArea(tracking)
+        hoverTracking = tracking
+    }
+
+    private func item(id: UUID?) -> Annotation? { displayAnnotations.first { $0.id == id } }
+    private func hitItem(at point: CGPoint) -> Annotation? {
+        guard let selection else { return nil }
+        return displayAnnotations.reversed().first { AnnotationGeometry.hit($0, at: point, selection: selection) }
+    }
+    private func editHandle(at point: CGPoint) -> (Annotation, AnnotationHandle)? {
+        for id in [hoverID, selectedID] {
+            if let item = item(id: id), let handle = AnnotationGeometry.hitHandle(at: point, item: item) { return (item, handle) }
+        }
+        return nil
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        guard interaction == nil else { return }
+        let point = point(for: event)
+        pointer = point
+        if !toolbar.isHidden && toolbar.frame.contains(point) { hoverID = nil }
+        else if let selection, let item = item(id: hoverID),
+                let badge = AnnotationGeometry.badge(for: item, selection: selection), badge.insetBy(dx: -3, dy: -3).contains(point) {
+            // Keep the badge reachable while moving from the pin to its minus button.
+        } else if let (item, _) = editHandle(at: point) { hoverID = item.id }
+        else { hoverID = hitItem(at: point)?.id }
+        needsDisplay = true
+    }
+    override func mouseExited(with event: NSEvent) { hoverID = nil; pointer = nil; needsDisplay = true }
+
+    private func drawEditingControls(selection: CGRect) {
+        let ids = Set([selectedID, hoverID].compactMap { $0 })
+        if tool != .eraser && tool != .pen {
+            for annotation in displayAnnotations where ids.contains(annotation.id) {
+                for control in AnnotationGeometry.handles(for: annotation) {
+                    let circle = NSBezierPath(ovalIn: CGRect(x: control.point.x - 4, y: control.point.y - 4, width: 8, height: 8))
+                    NSColor.white.setFill(); circle.fill()
+                    annotation.ink.color.setStroke(); circle.lineWidth = 1.5; circle.stroke()
+                }
+            }
+            if let pin = item(id: hoverID), let badge = AnnotationGeometry.badge(for: pin, selection: selection) {
+                let circle = NSBezierPath(ovalIn: badge)
+                NSColor.white.setFill(); circle.fill()
+                NSColor(white: 0.65, alpha: 1).setStroke(); circle.lineWidth = 0.7; circle.stroke()
+                let minus = NSBezierPath()
+                minus.move(to: CGPoint(x: badge.minX + badge.width * 0.28, y: badge.midY))
+                minus.line(to: CGPoint(x: badge.maxX - badge.width * 0.28, y: badge.midY))
+                minus.lineWidth = 1.5; minus.lineCapStyle = .round
+                NSColor.darkGray.setStroke(); minus.stroke()
+            }
+        } else if let pointer, selection.contains(pointer) {
+            NSColor.white.setStroke()
+            let cursor = NSBezierPath(ovalIn: CGRect(x: pointer.x - 7, y: pointer.y - 7, width: 14, height: 14))
+            cursor.lineWidth = 1; cursor.stroke()
+        }
+    }
+
+    private func erase(at point: CGPoint) {
+        guard let selection else { return }
+        for item in history.annotations where AnnotationGeometry.hit(item, at: point, selection: selection, tolerance: 7) {
+            erasedIDs.insert(item.id)
+        }
     }
 
     private func point(for event: NSEvent) -> CGPoint {
@@ -177,12 +261,32 @@ import NebulaCore
             if spaceHeld, selection.contains(point) {
                 interaction = .move(original: selection, start: point)
                 toolbar.isHidden = true
+            } else if tool != .eraser && tool != .pen, let pin = item(id: hoverID),
+                      let badge = AnnotationGeometry.badge(for: pin, selection: selection), badge.contains(point) {
+                history.remove(ids: [pin.id])
+                hoverID = nil; selectedID = nil
+                refresh()
+                return
+            } else if tool != .eraser && tool != .pen, let (annotation, handle) = editHandle(at: point), selection.contains(point) {
+                selectedID = annotation.id
+                interaction = .edit(original: annotation, handle: handle, start: point)
             } else if let handle = SelectionGeometry.hitHandle(at: point, in: selection) {
                 interaction = .resize(original: selection, handle: handle, start: point)
                 toolbar.isHidden = true
             } else if selection.contains(point) {
-                interaction = .draw(start: point, tool: tool == .pin ? .line : tool,
-                                    ink: ink, width: lineWidth, right: false, dragged: false)
+                if tool == .eraser {
+                    erasedIDs.removeAll()
+                    interaction = .erase(last: point)
+                    erase(at: point)
+                } else if tool != .pen, let annotation = hitItem(at: point) {
+                    selectedID = annotation.id
+                    interaction = .edit(original: annotation, handle: nil, start: point)
+                } else {
+                    selectedID = nil
+                    interaction = .draw(start: point, tool: tool == .pin ? .line : tool,
+                                        ink: ink, width: lineWidth, right: false, dragged: false)
+                    if tool == .pen { draft = Annotation(tool: .pen, points: [point], ink: ink, lineWidth: lineWidth) }
+                }
             } else {
                 interaction = .select(start: point, previous: selection)
                 self.selection = CGRect(origin: point, size: .zero)
@@ -219,6 +323,7 @@ import NebulaCore
     private func updateInteraction(with event: NSEvent) {
         guard let interaction else { return }
         let point = point(for: event)
+        pointer = point
         switch interaction {
         case .select(let start, _):
             selection = Geometry.rect(from: start, to: point).intersection(bounds)
@@ -232,6 +337,13 @@ import NebulaCore
             guard let selection else { return }
             let dragged = wasDragged || hypot(point.x - start.x, point.y - start.y) >= Self.dragThreshold
             self.interaction = .draw(start: start, tool: tool, ink: ink, width: width, right: right, dragged: dragged)
+            if tool == .pen {
+                let end = Geometry.clamp(point, to: selection)
+                if draft == nil { draft = Annotation(tool: .pen, points: [start], ink: ink, lineWidth: width) }
+                if let last = draft?.points.last, hypot(last.x - end.x, last.y - end.y) >= 0.5 { draft?.points.append(end) }
+                needsDisplay = true
+                return
+            }
             guard dragged else { return }
             var end = Geometry.clamp(point, to: selection)
             if event.modifierFlags.contains(.shift) {
@@ -242,10 +354,22 @@ import NebulaCore
                 } else if abs(dx) > abs(dy) { end.y = start.y } else { end.x = start.x }
             }
             draft = Annotation(tool: tool, points: [start, end], ink: ink, lineWidth: width)
+        case .edit(let original, let handle, let start):
+            if hypot(point.x - start.x, point.y - start.y) >= Self.dragThreshold || draft != nil {
+                draft = AnnotationGeometry.edited(original, handle: handle, from: start, to: point, within: bounds)
+            }
+        case .erase(let last):
+            let count = max(1, Int(ceil(hypot(point.x - last.x, point.y - last.y) / 4)))
+            for i in 1...count {
+                let t = CGFloat(i) / CGFloat(count)
+                erase(at: CGPoint(x: last.x + (point.x - last.x) * t, y: last.y + (point.y - last.y) * t))
+            }
+            self.interaction = .erase(last: point)
         case .rightOutside(let start, let wasDragged):
             self.interaction = .rightOutside(start: start,
                                             dragged: wasDragged || hypot(point.x - start.x, point.y - start.y) >= Self.dragThreshold)
         }
+        updateHint()
         needsDisplay = true
     }
 
@@ -278,8 +402,9 @@ import NebulaCore
                     by: CGSize(width: selection.minX.rounded() - original.minX,
                                height: selection.minY.rounded() - original.minY), within: bounds)
             }
-        case .draw(let start, _, let ink, let width, let right, let dragged):
-            if dragged {
+        case .draw(let start, let drawingTool, let ink, let width, let right, let dragged):
+            if drawingTool == .pen, let draft { history.append(draft) }
+            else if dragged {
                 if let draft, let end = draft.points.last,
                    hypot(end.x - start.x, end.y - start.y) >= 2 { history.append(draft) }
             } else if right {
@@ -290,6 +415,12 @@ import NebulaCore
                 // Commit on release so a drag can never leave an accidental numbered pin.
                 history.addPin(at: start, ink: ink, lineWidth: width)
             }
+        case .edit:
+            if let draft { history.replace(draft) }
+        case .erase:
+            history.remove(ids: erasedIDs)
+            erasedIDs.removeAll()
+            hoverID = nil; selectedID = nil
         case .rightOutside(_, let dragged):
             if !dragged { onCancel?(); return }
         }
@@ -312,6 +443,9 @@ import NebulaCore
     }
 
     private func refresh() {
+        if !history.annotations.contains(where: { $0.id == hoverID }) { hoverID = nil }
+        if !history.annotations.contains(where: { $0.id == selectedID }) { selectedID = nil }
+        updateHint()
         toolbar.update(tool: tool, ink: ink, lineWidth: lineWidth, history: history)
         needsDisplay = true
         window?.invalidateCursorRects(for: self)
@@ -337,6 +471,10 @@ import NebulaCore
             return
         }
         guard interaction == nil else { return }
+        if event.keyCode == 51 || event.keyCode == 117 {
+            if let selectedID { history.remove(ids: [selectedID]); self.selectedID = nil; hoverID = nil; refresh() }
+            return
+        }
         if event.modifierFlags.contains(.command) {
             switch key {
             case "c": export(save: false)
@@ -350,6 +488,7 @@ import NebulaCore
         else if key == "r" { onReselect?() }
         else if let selected = AnnotationTool.allCases.first(where: { $0.shortcut == key }) {
             tool = selected
+            selectedID = nil; hoverID = nil
             refresh()
         } else { super.keyDown(with: event) }
     }

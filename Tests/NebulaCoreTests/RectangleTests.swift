@@ -3,7 +3,7 @@ import AppKit
 import Testing
 @testable import NebulaCore
 
-@Test @MainActor func rectangleExportsFourUnfilledEdgesAtRetinaScaleInEveryDragDirection() throws {
+@Test @MainActor func roundedDashedRectangleExportsEdgesGapsAndEmptyCornersInEveryDirection() throws {
     let input = try #require(CGContext(data: nil, width: 200, height: 160, bitsPerComponent: 8,
                                       bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
@@ -28,12 +28,21 @@ import Testing
         #expect(bitmap.pixelsWide == 160)
         #expect(bitmap.pixelsHigh == 120)
 
-        // Sample away from edge midpoints so an ellipse cannot satisfy the rectangle check.
-        for (x, y) in [(40, 20), (120, 100), (20, 40), (140, 80), (20, 20), (140, 100)] {
-            let edge = try #require(bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB))
-            #expect(edge.greenComponent > 0.8 && edge.redComponent < 0.4)
+        // Every straight edge contains both colored dashes and untouched gaps.
+        let edges = [(40...120).map { ($0, 20) }, (40...120).map { ($0, 100) },
+                     (40...80).map { (20, $0) }, (40...80).map { (140, $0) }]
+        for samples in edges {
+            var colored = 0, gaps = 0
+            for (x, y) in samples {
+                let pixel = try #require(bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB))
+                let base = try #require(unannotated.colorAt(x: x, y: y)?.usingColorSpace(.sRGB))
+                if pixel.greenComponent > 0.8 && pixel.redComponent < 0.4 { colored += 1 }
+                if abs(pixel.greenComponent - base.greenComponent) < 0.01 { gaps += 1 }
+            }
+            #expect(colored > 5)
+            #expect(gaps > 2)
         }
-        for (x, y) in [(80, 60), (30, 30), (130, 90), (8, 8)] {
+        for (x, y) in [(80, 60), (30, 30), (130, 90), (8, 8), (20, 20), (140, 100)] {
             let background = try #require(bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB))
             let baseline = try #require(unannotated.colorAt(x: x, y: y)?.usingColorSpace(.sRGB))
             #expect(abs(background.redComponent - baseline.redComponent) < 0.01)

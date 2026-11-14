@@ -131,9 +131,9 @@ import NebulaCore
 }
 
 @MainActor final class AnnotationToolbar: NSView {
-    static let preferredWidth: CGFloat = 712
+    static let preferredWidth: CGFloat = 868
     static let height: CGFloat = 44
-    private static let compactWidth: CGFloat = 477
+    private static let compactWidth: CGFloat = 568
 
     static func preferredSize(for availableWidth: CGFloat) -> CGSize {
         let width = availableWidth >= preferredWidth ? preferredWidth : min(compactWidth, max(1, availableWidth))
@@ -163,6 +163,9 @@ import NebulaCore
     private var shapeMenuButton: ToolbarButton!
     private var lineButton: ToolbarButton!
     private var arrowButton: ToolbarButton!
+    private var penButton: ToolbarButton!
+    private var eraserButton: ToolbarButton!
+    private var redoButton: ToolbarButton!
     private var styleButton: ToolbarButton!
     private var moreButton: ToolbarButton!
     private var undoButton: ToolbarButton!
@@ -192,10 +195,16 @@ import NebulaCore
         shapeMenuButton = ToolbarButton(title: "", symbol: "chevron.down", help: "选择圆圈或方框") { [weak self] in self?.showShapeMenu() }
         lineButton = toolButton(.line)
         arrowButton = toolButton(.arrow)
+        penButton = toolButton(.pen)
+        eraserButton = toolButton(.eraser)
+        eraserButton.toolTip = "橡皮擦（E）· 拖动擦除标注，一次拖动可整体撤销"
+        eraserButton.setAccessibilityLabel(eraserButton.toolTip)
         styleButton = ToolbarButton(title: "", symbol: "slider.horizontal.3", help: "标注粗细") { [weak self] in self?.showStyleMenu() }
-        moreButton = ToolbarButton(title: "", symbol: "ellipsis", help: "更多：重做、重选、清空") { [weak self] in self?.showMoreMenu() }
+        moreButton = ToolbarButton(title: "", symbol: "ellipsis", help: "更多：重选、清空") { [weak self] in self?.showMoreMenu() }
         undoButton = ToolbarButton(title: "", symbol: "arrow.uturn.backward", help: "撤销（⌘Z）") { [weak self] in self?.onUndo?() }
         undoButton.isEnabled = false
+        redoButton = ToolbarButton(title: "", symbol: "arrow.uturn.forward", help: "重做（⇧⌘Z）") { [weak self] in self?.onRedo?() }
+        redoButton.isEnabled = false
         cancelButton = ToolbarButton(title: "", symbol: "xmark", help: "取消截图（Esc）") { [weak self] in self?.onCancel?() }
         saveButton = ToolbarButton(title: "保存", symbol: "square.and.arrow.down", help: "保存 PNG（⌘S）") { [weak self] in self?.onSave?() }
         confirmButton = ToolbarButton(title: "确认", symbol: "checkmark", help: "确认并复制到剪贴板（Enter / ⌘C）") { [weak self] in self?.onCopy?() }
@@ -210,8 +219,8 @@ import NebulaCore
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     private var rowButtons: [ToolbarButton] {
-        [pinButton, shapeButton, shapeMenuButton, lineButton, arrowButton,
-         styleButton, moreButton, undoButton, cancelButton, saveButton, confirmButton]
+        [pinButton, shapeButton, shapeMenuButton, lineButton, arrowButton, penButton, eraserButton,
+         styleButton, moreButton, undoButton, redoButton, cancelButton, saveButton, confirmButton]
     }
 
     private func toolButton(_ tool: AnnotationTool) -> ToolbarButton {
@@ -223,8 +232,8 @@ import NebulaCore
     override func layout() {
         super.layout()
         let compact = bounds.width < Self.preferredWidth
-        let widths: [CGFloat] = compact ? [28, 28, 14, 28, 28, 26, 26, 26, 26, 28, 30] : [62, 60, 18, 60, 60, 28, 28, 28, 28, 58, 58]
-        let gaps: [CGFloat] = compact ? [3, 0, 3, 3, 8, 3, 3, 8, 3, 3] : [4, 0, 4, 4, 10, 4, 4, 10, 4, 4]
+        let widths: [CGFloat] = compact ? [28, 28, 14, 28, 28, 28, 28, 26, 26, 26, 26, 26, 28, 30] : [62, 60, 18, 60, 60, 58, 58, 28, 28, 28, 28, 28, 58, 58]
+        let gaps: [CGFloat] = compact ? [3, 0, 3, 3, 3, 3, 8, 3, 3, 3, 8, 3, 3] : [4, 0, 4, 4, 4, 4, 10, 4, 4, 4, 10, 4, 4]
         let padding: CGFloat = compact ? 6 : 8
         let inkHitWidth: CGFloat = compact ? 22 : 24
         let inkGroupWidth = CGFloat(inkButtons.count) * inkHitWidth
@@ -247,7 +256,7 @@ import NebulaCore
             x += widths[index] * scale
             if index < gaps.count {
                 let gap = gaps[index] * scale
-                if index == 4 || index == 7 {
+                if index == 6 || index == 10 {
                     separators.append(NSRect(x: x + gap / 2, y: (bounds.height - 18) / 2, width: 0.5, height: 18))
                 }
                 x += gap
@@ -285,6 +294,8 @@ import NebulaCore
         canClear = !history.annotations.isEmpty
         undoButton.isEnabled = history.canUndo
         undoButton.needsDisplay = true
+        redoButton.isEnabled = history.canRedo
+        redoButton.needsDisplay = true
         pinButton.toolTip = "图钉（N）· 点击打钉 · 左键拖动直线 · 右键拖动方框 · 下一枚：\(history.nextPinNumber)"
         pinButton.setAccessibilityLabel(pinButton.toolTip)
         styleButton.toolTip = "标注粗细 · \(widthTitle(lineWidth))"
@@ -321,7 +332,8 @@ import NebulaCore
         shapeButton.setAccessibilityLabel(shapeButton.toolTip)
         let shapeSelected = selectedTool == .ellipse || selectedTool == .rectangle
         for (button, selected) in [(pinButton, selectedTool == .pin), (shapeButton, shapeSelected),
-                                    (shapeMenuButton, shapeSelected), (lineButton, selectedTool == .line), (arrowButton, selectedTool == .arrow)] {
+                                    (shapeMenuButton, shapeSelected), (lineButton, selectedTool == .line), (arrowButton, selectedTool == .arrow),
+                                    (penButton, selectedTool == .pen), (eraserButton, selectedTool == .eraser)] {
             button?.state = selected ? .on : .off
             button?.needsDisplay = true
         }
@@ -353,11 +365,6 @@ import NebulaCore
 
     private func showMoreMenu() {
         let menu = makeMenu()
-        let redo = makeItem("重做", symbol: "arrow.uturn.forward", action: #selector(performRedo))
-        redo.isEnabled = canRedo
-        redo.keyEquivalent = "z"
-        redo.keyEquivalentModifierMask = [.command, .shift]
-        menu.addItem(redo)
         let reselect = makeItem("重新选择区域", symbol: "crop", action: #selector(performReselect))
         reselect.keyEquivalent = "r"
         reselect.keyEquivalentModifierMask = []

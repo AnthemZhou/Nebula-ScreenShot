@@ -1,0 +1,499 @@
+// SPDX-License-Identifier: GPL-3.0-only
+import AppKit
+import NebulaCore
+
+// Calls only this process's own AppKit view methods. No posted system events,
+// visible windows, screen capture, pasteboard access, or changes to the installed app.
+final class HiddenHarnessWindow: NSWindow {
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
+    override func makeKey() {}
+}
+
+enum HarnessError: Error, CustomStringConvertible {
+    case failed(String)
+    var description: String { switch self { case .failed(let message): return message } }
+}
+
+@MainActor final class CanvasHarness {
+    let window: HiddenHarnessWindow
+    let canvas: CaptureCanvas
+    private(set) var exported: NSBitmapImageRep?
+    private(set) var saved: NSBitmapImageRep?
+    private(set) var copyCount = 0
+    private(set) var saveCount = 0
+    private(set) var cancelCount = 0
+    private var backgroundColor: NSColor?
+    private var eventNumber = 0
+    let initialCrop = CGRect(x: 40, y: 40, width: 820, height: 460)
+
+    init() throws {
+        let size = CGSize(width: 900, height: 640)
+        guard let context = CGContext(data: nil, width: 1800, height: 1280,
+                                      bitsPerComponent: 8, bytesPerRow: 0,
+                                      space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+            throw HarnessError.failed("Cannot create synthetic image")
+        }
+        context.setFillColor(CGColor(red: 0.03, green: 0.03, blue: 0.04, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: 1800, height: 1280))
+        guard let image = context.makeImage() else { throw HarnessError.failed("Cannot finish synthetic image") }
+        window = HiddenHarnessWindow(contentRect: CGRect(origin: .zero, size: size),
+                                      styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        canvas = CaptureCanvas(frame: CGRect(origin: .zero, size: size), screenshot: image)
+        window.contentView = canvas
+        canvas.onCopy = { [weak self] in self?.exported = $0; self?.copyCount += 1 }
+        canvas.onSave = { [weak self] in self?.saved = $0; self?.saveCount += 1 }
+        canvas.onCancel = { [weak self] in self?.cancelCount += 1 }
+    }
+
+    func check(_ condition: @autoclosure () throws -> Bool, _ message: String) throws {
+        guard try condition() else { throw HarnessError.failed(message) }
+    }
+
+    private func mouse(_ type: NSEvent.EventType, _ point: CGPoint,
+                       flags: NSEvent.ModifierFlags = []) throws -> NSEvent {
+        eventNumber += 1
+        guard let event = NSEvent.mouseEvent(with: type, location: canvas.convert(point, to: nil),
+                                             modifierFlags: flags, timestamp: Double(eventNumber),
+                                             windowNumber: window.windowNumber, context: nil,
+                                             eventNumber: eventNumber, clickCount: 1, pressure: 1) else {
+            throw HarnessError.failed("Cannot construct internal mouse event")
+        }
+        return event
+    }
+
+    func drag(from start: CGPoint, through waypoints: [CGPoint] = [], to end: CGPoint,
+              right: Bool = false, flags: NSEvent.ModifierFlags = []) throws {
+        if right {
+            canvas.rightMouseDown(with: try mouse(.rightMouseDown, start, flags: flags))
+            for point in waypoints + [end] {
+                canvas.rightMouseDragged(with: try mouse(.rightMouseDragged, point, flags: flags))
+            }
+            canvas.rightMouseUp(with: try mouse(.rightMouseUp, end, flags: flags))
+        } else {
+            canvas.mouseDown(with: try mouse(.leftMouseDown, start, flags: flags))
+            for point in waypoints + [end] {
+                canvas.mouseDragged(with: try mouse(.leftMouseDragged, point, flags: flags))
+            }
+            canvas.mouseUp(with: try mouse(.leftMouseUp, end, flags: flags))
+        }
+        canvas.layoutSubtreeIfNeeded()
+    }
+
+    func click(_ point: CGPoint, right: Bool = false) throws {
+        if right {
+            canvas.rightMouseDown(with: try mouse(.rightMouseDown, point))
+            canvas.rightMouseUp(with: try mouse(.rightMouseUp, point))
+        } else {
+            canvas.mouseDown(with: try mouse(.leftMouseDown, point))
+            canvas.mouseUp(with: try mouse(.leftMouseUp, point))
+        }
+    }
+
+    func key(_ characters: String, code: UInt16 = 0, flags: NSEvent.ModifierFlags = [], up: Bool = false) throws {
+        guard let event = NSEvent.keyEvent(with: up ? .keyUp : .keyDown, location: .zero,
+                                           modifierFlags: flags, timestamp: Double(eventNumber),
+                                           windowNumber: window.windowNumber, context: nil,
+                                           characters: characters, charactersIgnoringModifiers: characters,
+                                           isARepeat: false, keyCode: code) else {
+            throw HarnessError.failed("Cannot construct internal key event")
+        }
+        if up { canvas.keyUp(with: event) } else { canvas.keyDown(with: event) }
+    }
+
+    @discardableResult func copy(commandC: Bool = false) throws -> NSBitmapImageRep {
+        let before = copyCount
+        if commandC { try key("c", code: 8, flags: [.command]) }
+        else { try key("\r", code: 36) }
+        try check(copyCount == before + 1, "Keyboard copy must invoke callback exactly once")
+        guard let exported, let selection = canvas.selection else {
+            throw HarnessError.failed("Copy did not receive a selected bitmap")
+        }
+        try check(exported.pixelsWide == Int(selection.width * 2) &&
+                  exported.pixelsHigh == Int(selection.height * 2), "Export dimensions must follow current Retina crop")
+        return exported
+    }
+
+    func color(at point: CGPoint) throws -> NSColor {
+        guard let exported, let selection = canvas.selection,
+              let color = exported.colorAt(x: Int((point.x - selection.minX) * 2),
+                                            y: Int((point.y - selection.minY) * 2))?.usingColorSpace(.sRGB) else {
+            throw HarnessError.failed("Invalid export sample at \(point)")
+        }
+        return color
+    }
+
+    func bytes(_ bitmap: NSBitmapImageRep) -> Data {
+        Data(bytes: bitmap.bitmapData!, count: bitmap.bytesPerRow * bitmap.pixelsHigh)
+    }
+
+    func expectColor(_ point: CGPoint, _ expected: NSColor, _ message: String) throws {
+        let actual = try color(at: point)
+        try check(abs(actual.redComponent - expected.redComponent) < 0.025 &&
+                  abs(actual.greenComponent - expected.greenComponent) < 0.025 &&
+                  abs(actual.blueComponent - expected.blueComponent) < 0.025,
+                  "\(message); sampled \(actual), expected \(expected)")
+    }
+
+    func referenceColor(_ ink: Ink) throws -> NSColor {
+        guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 16, pixelsHigh: 16,
+                                            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+                                            isPlanar: false, colorSpaceName: .calibratedRGB,
+                                            bytesPerRow: 0, bitsPerPixel: 0),
+              let context = NSGraphicsContext(bitmapImageRep: bitmap) else {
+            throw HarnessError.failed("Cannot construct color reference")
+        }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = context
+        ink.color.setFill()
+        NSBezierPath(rect: CGRect(x: 0, y: 0, width: 16, height: 16)).fill()
+        NSGraphicsContext.restoreGraphicsState()
+        return bitmap.colorAt(x: 8, y: 8)!.usingColorSpace(.sRGB)!
+    }
+
+    func pinSample(at target: CGPoint, number: Int) throws -> CGPoint {
+        guard let selection = canvas.selection else { throw HarnessError.failed("Missing selection") }
+        let geometry = PinGeometry.layout(at: target, number: number, selection: selection)
+        return CGPoint(x: geometry.body.midX - geometry.body.width * 0.28, y: geometry.body.midY)
+    }
+
+    func descendants(of view: NSView) -> [NSView] {
+        view.subviews.flatMap { [$0] + descendants(of: $0) }
+    }
+
+    func button(labelPrefix: String) throws -> NSButton {
+        let buttons = descendants(of: canvas).compactMap { $0 as? NSButton }
+        guard let button = buttons.first(where: {
+            ($0.accessibilityLabel() ?? $0.toolTip ?? $0.title).hasPrefix(labelPrefix)
+        }) else {
+            throw HarnessError.failed("Missing button \(labelPrefix); labels: \(buttons.map { $0.accessibilityLabel() ?? $0.toolTip ?? $0.title })")
+        }
+        return button
+    }
+
+    func expectNextPin(_ number: Int) throws {
+        let pinButton = try button(labelPrefix: "图钉")
+        try check((pinButton.accessibilityLabel() ?? "").contains("下一枚：\(number)"),
+                  "Visible next-pin indicator must remain \(number)")
+    }
+
+    func renderedCanvasColor(at point: CGPoint) throws -> NSColor {
+        canvas.layoutSubtreeIfNeeded()
+        guard let bitmap = canvas.bitmapImageRepForCachingDisplay(in: canvas.bounds) else {
+            throw HarnessError.failed("Cannot create offscreen view bitmap")
+        }
+        canvas.cacheDisplay(in: canvas.bounds, to: bitmap)
+        let sx = CGFloat(bitmap.pixelsWide) / canvas.bounds.width
+        let sy = CGFloat(bitmap.pixelsHigh) / canvas.bounds.height
+        guard let color = bitmap.colorAt(x: Int(point.x * sx), y: Int(point.y * sy))?.usingColorSpace(.sRGB) else {
+            throw HarnessError.failed("Cannot read offscreen view pixel")
+        }
+        return color
+    }
+
+    func hover(_ point: CGPoint) throws { canvas.mouseMoved(with: try mouse(.mouseMoved, point)) }
+
+    func runEditingChecks() throws {
+        canvas.resetSelection()
+        try key("n")
+        try button(labelPrefix: "标注颜色：Dots 橙").performClick(nil)
+        try drag(from: initialCrop.origin, to: CGPoint(x: initialCrop.maxX, y: initialCrop.maxY))
+        let targets = [CGPoint(x: 120, y: 130), CGPoint(x: 220, y: 130), CGPoint(x: 320, y: 130)]
+        for target in targets { try click(target) }
+        let originalPins = bytes(try copy())
+        let pin = Annotation(tool: .pin, points: [targets[0]], number: 1)
+        let bubble = PinGeometry.layout(at: targets[0], number: 1, selection: canvas.selection).body
+        try hover(CGPoint(x: bubble.midX, y: bubble.midY))
+        let badge = AnnotationGeometry.badge(for: pin, selection: canvas.selection!)!
+        let badgeCenter = CGPoint(x: badge.midX, y: badge.midY)
+        try hover(badgeCenter)
+        // Controls are visible in the view but must never be included in the export.
+        _ = try renderedCanvasColor(at: badgeCenter)
+        try check(bytes(try copy()) == originalPins, "Hover delete badge must not enter exported image")
+        try click(badgeCenter)
+        try expectNextPin(3)
+        let afterDelete = bytes(try copy())
+        try expectColor(targets[0], backgroundColor!, "Delete badge removes first pin")
+        try check(afterDelete != originalPins, "Pin delete changes output")
+        try button(labelPrefix: "撤销").performClick(nil)
+        try check(bytes(try copy()) == originalPins, "Undo deletion restores all pins and original numbers")
+        try button(labelPrefix: "重做").performClick(nil)
+        try check(bytes(try copy()) == afterDelete, "Redo deletion restores renumbered output")
+        print("PASS: pin hover badge, deletion, renumbering, primary undo/redo and clean export")
+
+        canvas.resetSelection()
+        try drag(from: initialCrop.origin, to: CGPoint(x: initialCrop.maxX, y: initialCrop.maxY))
+        try key("a")
+        try drag(from: CGPoint(x: 150, y: 200), to: CGPoint(x: 350, y: 200))
+        let originalArrow = bytes(try copy())
+        try hover(CGPoint(x: 250, y: 200))
+        _ = try renderedCanvasColor(at: CGPoint(x: 350, y: 200))
+        try check(bytes(try copy()) == originalArrow, "Hover endpoint handles must not enter export")
+        try hover(CGPoint(x: 350, y: 200))
+        try drag(from: CGPoint(x: 350, y: 200), to: CGPoint(x: 350, y: 300))
+        let changedArrow = bytes(try copy())
+        try check(changedArrow != originalArrow, "Endpoint dragging updates the arrow")
+        let orange = try referenceColor(.coral)
+        try expectColor(CGPoint(x: 250, y: 250), orange, "Arrow shaft follows edited endpoint")
+        try expectNextPin(1)
+        try key("z", flags: [.command])
+        try check(bytes(try copy()) == originalArrow, "Endpoint edit is one undo step")
+        try key("z", flags: [.command, .shift])
+        try check(bytes(try copy()) == changedArrow, "Redo restores endpoint edit")
+        try hover(CGPoint(x: 250, y: 250))
+        try drag(from: CGPoint(x: 250, y: 250), to: CGPoint(x: 300, y: 250))
+        try copy()
+        try expectColor(CGPoint(x: 300, y: 250), orange, "Dragging shaft moves the entire arrow")
+        print("PASS: hover handles, endpoint editing, object movement and transaction undo/redo")
+
+        try drag(from: CGPoint(x: 500, y: 170), to: CGPoint(x: 650, y: 280), right: true)
+        let originalBox = bytes(try copy())
+        try hover(CGPoint(x: 550, y: 170))
+        try hover(CGPoint(x: 650, y: 280))
+        try drag(from: CGPoint(x: 650, y: 280), to: CGPoint(x: 700, y: 330))
+        try check(bytes(try copy()) != originalBox, "Box corner resizes the existing rectangle")
+        try key("z", flags: [.command])
+        try check(bytes(try copy()) == originalBox, "Box resize undoes exactly")
+        print("PASS: rounded dashed box can be resized after drawing")
+
+        canvas.resetSelection()
+        try key("n")
+        try drag(from: initialCrop.origin, to: CGPoint(x: initialCrop.maxX, y: initialCrop.maxY))
+        try click(CGPoint(x: 100, y: 200))
+        try click(CGPoint(x: 450, y: 200))
+        try button(labelPrefix: "画笔").performClick(nil)
+        try drag(from: CGPoint(x: 250, y: 180), through: [CGPoint(x: 270, y: 220)], to: CGPoint(x: 300, y: 180))
+        try copy()
+        try expectColor(CGPoint(x: 270, y: 220), orange, "Freehand brush follows intermediate points")
+        try expectNextPin(3)
+        let beforeErase = bytes(try copy())
+        try button(labelPrefix: "橡皮擦").performClick(nil)
+        try drag(from: CGPoint(x: 100, y: 180), through: [CGPoint(x: 270, y: 220)], to: CGPoint(x: 450, y: 180))
+        try expectNextPin(1)
+        try copy()
+        try expectColor(CGPoint(x: 270, y: 220), backgroundColor!, "Eraser removes the freehand stroke")
+        try button(labelPrefix: "撤销").performClick(nil)
+        try expectNextPin(3)
+        try check(bytes(try copy()) == beforeErase, "One undo restores all objects removed by one eraser drag")
+        try key("n")
+        print("PASS: freehand brush, object eraser and grouped undo with pin numbering")
+
+        // Exercise the initial CJK hint and changing dimensions through native AppKit layout.
+        // The reported v0.1.6 crash was inside repeated NSString hint font layout.
+        for i in 0..<120 {
+            try autoreleasepool {
+                canvas.resetSelection()
+                canvas.layoutSubtreeIfNeeded()
+                canvas.displayIfNeeded()
+                _ = try renderedCanvasColor(at: CGPoint(x: 440, y: 60))
+                try drag(from: CGPoint(x: 40, y: 40), to: CGPoint(x: 240 + i, y: 240 + i))
+                _ = try renderedCanvasColor(at: CGPoint(x: 50, y: 20))
+            }
+        }
+        print("PASS: 120 initial/selected canvas redraw cycles using the native hint label")
+    }
+
+    func run(outputURL: URL) throws {
+        try check(!window.isVisible, "Harness window must remain hidden")
+        try drag(from: initialCrop.origin, to: CGPoint(x: initialCrop.maxX, y: initialCrop.maxY))
+        try check(canvas.selection == initialCrop, "Selection must follow drag")
+        try copy()
+        backgroundColor = try color(at: CGPoint(x: 60, y: 60))
+        let orange = try referenceColor(.coral)
+        let pin1 = CGPoint(x: 120, y: 130), pin2 = CGPoint(x: 200, y: 130)
+        try click(pin1)
+        try click(pin2)
+        try copy(commandC: true)
+        try expectColor(try pinSample(at: pin1, number: 1), orange, "Click must create first orange pin")
+        try expectColor(try pinSample(at: pin2, number: 2), orange, "Click must create second orange pin")
+        try expectNextPin(3)
+        print("PASS: click pins 1/2, Enter and Command-C copy callbacks, Retina dimensions")
+
+        try drag(from: CGPoint(x: 280, y: 180), to: CGPoint(x: 430, y: 180))
+        try copy()
+        try expectColor(CGPoint(x: 350, y: 180), orange, "Left drag in default mode must draw a line")
+        try expectColor(CGPoint(x: 280, y: 160), backgroundColor!, "Left drag must not leave a pin bubble at its start")
+        try expectNextPin(3)
+        try key("z", flags: [.command])
+        try copy()
+        try expectColor(CGPoint(x: 350, y: 180), backgroundColor!, "Keyboard undo must remove the line")
+        try key("z", flags: [.command, .shift])
+        try copy()
+        try expectColor(CGPoint(x: 350, y: 180), orange, "Keyboard redo must restore the line")
+        print("PASS: left drag draws line without stray pin; keyboard undo/redo")
+
+        try drag(from: CGPoint(x: 500, y: 170), to: CGPoint(x: 650, y: 280), right: true)
+        try copy()
+        let samples = try (520...630).map { try color(at: CGPoint(x: $0, y: 170)) }
+        try check(samples.contains { abs($0.redComponent - orange.redComponent) < 0.025 }, "Rectangle edge has colored dashes")
+        try check(samples.contains { abs($0.redComponent - backgroundColor!.redComponent) < 0.025 }, "Rectangle edge has gaps")
+        try expectColor(CGPoint(x: 570, y: 220), backgroundColor!, "Right-drag rectangle must remain unfilled")
+        try expectNextPin(3)
+        print("PASS: right drag creates unfilled rectangle without changing pin numbering")
+
+        let beforeOutAndBack = bytes(try copy())
+        let beforeCancel = cancelCount
+        try drag(from: CGPoint(x: 700, y: 320), through: [CGPoint(x: 730, y: 350)],
+                 to: CGPoint(x: 700, y: 320))
+        try check(bytes(try copy()) == beforeOutAndBack, "Out-and-back left drag must leave no accidental pin")
+        try drag(from: CGPoint(x: 710, y: 320), through: [CGPoint(x: 735, y: 350)],
+                 to: CGPoint(x: 710, y: 320), right: true)
+        try check(bytes(try copy()) == beforeOutAndBack, "Out-and-back right drag must leave no rectangle")
+        try drag(from: CGPoint(x: 10, y: 10), through: [CGPoint(x: 25, y: 25)],
+                 to: CGPoint(x: 10, y: 10), right: true)
+        try check(cancelCount == beforeCancel, "An ever-dragged right gesture must not become a cancel click")
+        try expectNextPin(3)
+        print("PASS: left/right out-and-back gestures remain drags, no stray pin or cancellation")
+
+        let colorButtons = descendants(of: canvas).compactMap { $0 as? NSButton }.filter {
+            ($0.accessibilityLabel() ?? "").hasPrefix("标注颜色：")
+        }
+        try check(colorButtons.count == 6, "Toolbar must expose six main-row colors")
+        for (index, ink) in Ink.allCases.enumerated() {
+            let colorButton = try button(labelPrefix: "标注颜色：\(ink.title)")
+            try check(!colorButton.isHiddenOrHasHiddenAncestor, "Palette color must be visible in toolbar")
+            colorButton.performClick(nil)
+            let target = CGPoint(x: 160 + index * 100, y: 430)
+            try click(target)
+            try copy()
+            try expectColor(try pinSample(at: target, number: index + 3), try referenceColor(ink),
+                            "Selecting \(ink.title) must color the subsequent pin")
+            try expectColor(try pinSample(at: pin1, number: 1), orange,
+                            "Changing color must preserve existing annotations")
+            try check(colorButton.state == .on, "Selected color must have visible selected state")
+        }
+        try expectNextPin(9)
+        print("PASS: six visible color buttons affect subsequent pins and preserve existing colors")
+
+        try key("a")
+        try drag(from: CGPoint(x: 500, y: 340), to: CGPoint(x: 700, y: 340))
+        try copy()
+        try expectColor(CGPoint(x: 600, y: 340), try referenceColor(.white), "A must still draw an arrow with selected color")
+        let saveButton = try button(labelPrefix: "保存")
+        try check(!saveButton.isHiddenOrHasHiddenAncestor, "Save must be directly available in toolbar")
+        let copiesBeforeSave = copyCount
+        saveButton.performClick(nil)
+        try check(saveCount == 1 && saved != nil, "Main Save button must invoke save callback")
+        try check(copyCount == copiesBeforeSave, "Save must not invoke copy callback")
+        let beforeConfirm = copyCount
+        try button(labelPrefix: "确认").performClick(nil)
+        try check(copyCount == beforeConfirm + 1, "Confirm must still copy")
+        print("PASS: main Save invokes save callback, Confirm invokes copy callback, A draws arrow")
+
+        try drag(from: CGPoint(x: 860, y: 500), to: CGPoint(x: 780, y: 560))
+        let resized = CGRect(x: 40, y: 40, width: 740, height: 520)
+        try check(canvas.selection == resized, "Dragging bottom-right handle must resize the existing crop")
+        try copy()
+        try check(exported?.pixelsWide == 1480 && exported?.pixelsHigh == 1040,
+                  "Resized crop must change exported pixel dimensions")
+        try expectColor(CGPoint(x: 350, y: 180), orange, "Resize must retain line at original screen coordinates")
+        try expectColor(try pinSample(at: pin1, number: 1), orange, "Resize must retain pin target")
+        try expectNextPin(9)
+        try key(" ", code: 49)
+        try drag(from: CGPoint(x: 400, y: 300), to: CGPoint(x: 450, y: 330))
+        try key(" ", code: 49, up: true)
+        try check(canvas.selection == CGRect(x: 90, y: 70, width: 740, height: 520),
+                  "Space-drag must translate crop by the drag delta")
+        try copy()
+        try expectColor(CGPoint(x: 350, y: 180), orange, "Space move must leave annotations at their original coordinates")
+        try expectColor(CGPoint(x: 400, y: 210), backgroundColor!, "Space move must not translate the line with the crop")
+        try expectNextPin(9)
+        print("PASS: resize changes Retina export size; Space moves crop while annotations stay in screen coordinates")
+
+        let sizeBeforeFractionalMoves = canvas.selection!.size
+        try key(" ", code: 49)
+        for _ in 0..<5 {
+            try drag(from: CGPoint(x: 400, y: 300), to: CGPoint(x: 400.5, y: 300.5))
+            try check(canvas.selection?.size == sizeBeforeFractionalMoves,
+                      "Repeated half-point Space moves must preserve crop size exactly")
+            try copy()
+            try check(exported?.pixelsWide == 1480 && exported?.pixelsHigh == 1040,
+                      "Repeated half-point moves must not enlarge Retina output")
+        }
+        try key(" ", code: 49, up: true)
+        try expectColor(CGPoint(x: 350, y: 180), orange,
+                        "Repeated half-point Space moves must not move annotations")
+        print("PASS: five repeated 0.5pt Space moves preserve crop and export dimensions")
+
+        let beforeOffsetResize = canvas.selection!
+        let beforeOffsetPixels = bytes(try copy())
+        let grabPoint = CGPoint(x: beforeOffsetResize.minX + 4, y: beforeOffsetResize.midY)
+        try click(grabPoint)
+        try check(canvas.selection == beforeOffsetResize,
+                  "Clicking four points inside a resize hit area must not change crop")
+        try expectNextPin(9)
+        try drag(from: grabPoint, to: CGPoint(x: grabPoint.x + 12, y: grabPoint.y))
+        try check(canvas.selection?.minX == beforeOffsetResize.minX + 12 &&
+                  canvas.selection?.maxX == beforeOffsetResize.maxX &&
+                  canvas.selection?.width == beforeOffsetResize.width - 12,
+                  "Dragging an offset edge grab must apply the pointer delta without snapping")
+        try copy()
+        let restorePoint = CGPoint(x: canvas.selection!.minX + 4, y: canvas.selection!.midY)
+        try drag(from: restorePoint, to: CGPoint(x: restorePoint.x - 12, y: restorePoint.y))
+        try check(canvas.selection == beforeOffsetResize, "Reverse offset edge drag must restore the crop")
+        try check(bytes(try copy()) == beforeOffsetPixels,
+                  "Edge resizing and restoring must preserve the existing annotations")
+        print("PASS: 4pt-offset edge click is stable; 12pt drag uses delta without snapping")
+
+        let cancellationsBeforeClicks = cancelCount
+        try click(CGPoint(x: 10, y: 10), right: true)
+        try check(cancelCount == cancellationsBeforeClicks + 1, "Right click outside crop must cancel")
+        try click(CGPoint(x: 750, y: 300), right: true)
+        try check(cancelCount == cancellationsBeforeClicks + 2, "Right click blank area inside crop must cancel")
+        try check(!window.isVisible, "Internal interaction must never display the harness window")
+        print("PASS: blank right clicks inside and outside crop cancel; window stayed hidden")
+
+        let frameBeforeDim = window.frame
+        let alphaBeforeDim = window.alphaValue
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        canvas.animateDimIn()
+        let beforeDim = try renderedCanvasColor(at: CGPoint(x: 10, y: 10))
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.24))
+        let afterDim = try renderedCanvasColor(at: CGPoint(x: 10, y: 10))
+        try check(window.frame == frameBeforeDim && window.alphaValue == alphaBeforeDim && !window.isVisible,
+                  "Dimming must keep hidden window frame and alpha unchanged")
+        if !reduceMotion {
+            let beforeBrightness = beforeDim.redComponent + beforeDim.greenComponent + beforeDim.blueComponent
+            let afterBrightness = afterDim.redComponent + afterDim.greenComponent + afterDim.blueComponent
+            try check(afterBrightness < beforeBrightness, "Animation must darken the outside-crop view pixels")
+            print("PASS: dim animation darkens outside-crop pixels after 240ms without changing window frame/alpha")
+        } else {
+            print("PASS: Reduce Motion uses immediate dim; window frame/alpha stayed unchanged")
+        }
+
+        guard let data = exported?.representation(using: .png, properties: [:]) else {
+            throw HarnessError.failed("Cannot encode synthetic result")
+        }
+        try data.write(to: outputURL)
+        // Preview real hover controls using only this process's synthetic canvas.
+        try hover(CGPoint(x: 600, y: 340))
+        try click(CGPoint(x: 600, y: 340))
+        let firstPinBody = PinGeometry.layout(at: pin1, number: 1, selection: canvas.selection).body
+        try hover(CGPoint(x: firstPinBody.midX, y: firstPinBody.midY))
+        canvas.layoutSubtreeIfNeeded()
+        if let viewBitmap = canvas.bitmapImageRepForCachingDisplay(in: canvas.bounds) {
+            canvas.cacheDisplay(in: canvas.bounds, to: viewBitmap)
+            if let viewData = viewBitmap.representation(using: .png, properties: [:]) {
+                try viewData.write(to: outputURL.deletingPathExtension().appendingPathExtension("editor.png"))
+            }
+        }
+        print("Synthetic artifact: \(outputURL.path)")
+        try runEditingChecks()
+        print("PASS: all checks completed; copy callbacks=\(copyCount), save callbacks=\(saveCount), cancel callbacks=\(cancelCount)")
+    }
+}
+
+MainActor.assumeIsolated {
+    let app = NSApplication.shared
+    app.setActivationPolicy(.prohibited)
+    do {
+        let harness = try CanvasHarness()
+        try harness.run(outputURL: URL(fileURLWithPath: CommandLine.arguments[1]))
+        exit(0)
+    } catch {
+        fputs("FAIL: \(error)\n", stderr)
+        exit(1)
+    }
+}

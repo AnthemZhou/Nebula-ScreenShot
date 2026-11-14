@@ -12,13 +12,19 @@
 
 ## 标注工具条
 
-深色单行工具条，最前方放置 **六个色点**，随后是 **图钉、圆圈 / 方框、直线、箭头**。默认使用 Dots 橙（`#EC603B`）；切换颜色只影响后续标注。**保存 PNG** 直接位于主栏，粗细和其他操作保留在菜单中。
+深色单行工具条，最前方放置 **六个色点**，随后是 **图钉、圆圈 / 方框、直线、箭头、画笔、橡皮擦**。默认使用 Dots 橙（`#EC603B`）；切换颜色只影响后续标注。**撤销、重做、保存 PNG** 直接位于主栏，粗细和其他操作保留在菜单中。
 
 ![实际标注工具条的离屏渲染](docs/toolbar.png)
 
 图钉的尖角落在点击位置，大小随选区短边变化。以下合成示例使用实际渲染器、保持同一显示比例：
 
 ![小选区与大选区中的图钉比例](docs/pins.png)
+
+## 二次编辑
+
+鼠标停在图钉上显示删除按钮；停在线条或图形上显示控制点。下面是实际编辑器在合成画布上的状态，删除按钮和控制点不会进入导出图片。
+
+![实际编辑器的悬停删除与端点控制点](docs/editor.png)
 
 ## 窗口
 
@@ -30,11 +36,13 @@
 
 - 全局快捷键 **⌃⇧⌘5** 直接截图，与菜单栏入口；使用独占注册，避免多个 Carbon 快捷键监听者同时响应。
 - 进入截图时仅渐变暗色遮罩，窗口保持位置和大小；拖动选择屏幕区域，原地显示悬浮标注工具条。
-- 四组标注工具：编号图钉、圆圈 / 方框、直线、箭头。
-- **连续编号图钉**：在选区内依次点击，生成 1、2、3……；小尖角精确落在点击位置。图钉随当前选区大小缩放，靠近边缘时自动避让；每张新截图从 1 开始。
+- 标注工具：编号图钉、圆圈 / 圆角虚线方框、直线、箭头、手动画笔，以及对象橡皮擦。
+- **连续编号图钉**：在选区内依次点击，生成 1、2、3……；水滴形图钉使用白色边框与白色数字，尖角精确落在点击位置。图钉随当前选区大小缩放，靠近边缘时自动避让；每张新截图从 1 开始。
+- 鼠标悬停图钉时显示「−」删除按钮；删除后，其余图钉按创建顺序连续编号。悬停线条、箭头或图框会显示编辑控制点；拖动控制点调整端点 / 大小，拖动边线平移整个标注。
+- 画笔记录手动轨迹；橡皮擦按整条标注对象擦除，一次连续拖动只占一个撤销步骤。删除、改形、移动、擦除和编号变化都可撤销 / 重做。
 - 默认图钉模式支持 **点击打钉、按住左键拖动直线、按住右键拖动方框**；切换圆圈或箭头工具后，左键拖动绘制对应形状。
 - 标注中仍可拖动选区四边和八个控制点调整大小，或按住 **空格 + 左键拖动** 平移选区。原有标记保留在原画面位置，导出按最终选区裁剪。
-- 主栏提供橙、黄、绿、蓝、紫、白六色；粗细菜单提供三档线宽，主栏可撤销，更多菜单可重做、清空标注、重新选区。
+- 主栏提供橙、黄、绿、蓝、紫、白六色；粗细菜单提供三档线宽，主栏可撤销 / 重做，更多菜单可清空标注、重新选区。
 - 编辑后点击「确认」或按 Enter，默认将 PNG / TIFF 复制到剪贴板；也可主动保存 PNG，保留 Retina 分辨率。
 - 可在任意一块显示器上选择区域；一次选区限制在单块显示器内。
 - 自带无需屏幕录制权限的示例画布，便于试用标注。
@@ -52,6 +60,8 @@
 
 ### 首次设置
 
+首次使用的正常流程是：点击截图 → 应用发起 macOS 原生权限请求 → 用户允许并按系统提示重新打开。**不应要求每位新用户手动添加应用**；列表「＋」是系统记录异常时的补救入口。应用不能代替用户允许权限。[Apple 官方示例的首次授权流程](https://developer.apple.com/documentation/screencapturekit/capturing-screen-content-in-macos)。
+
 **屏幕权限**：打开「系统设置 → 隐私与安全性 → 屏幕与系统音频录制」（部分系统称「屏幕录制」），允许 Nebula ScreenShot。若系统要求，请退出并重新打开应用。应用只请求画面捕获，不录制音频。
 
 首次截图或打开屏幕录制设置时，应用会在需要时显式请求一次系统授权。如果列表仍没有 Nebula，点击列表底部「＋」，选择实际安装的 `Nebula ScreenShot.app`；安装在 `~/Applications` 时，可在文件选择窗口按 ⇧⌘G 输入该目录。[Apple 添加应用说明](https://support.apple.com/guide/mac-help/control-access-screen-system-audio-recording-mchld6aa7d23/mac)。
@@ -63,6 +73,8 @@
 **快捷键检查**：默认快捷键为 **⌃⇧⌘5**，应用以独占方式注册。部分 macOS 配置会将它作为系统截屏快捷键的变体保留；出现在系统保留列表中，并不等于注册失败。菜单栏 →「设置」→「重新检测快捷键」会显示实际注册结果；其他应用独占此组合时，退出该应用后可重新检测。
 
 如果按下后仍出现系统截屏面板，请检查「系统设置 → 键盘 → 键盘快捷键 → 截屏 → 截屏和录制选项」。独占注册不等于禁用系统快捷键，应用不会修改系统设置或请求额外的键盘监听权限。Apple 文档说明 **⇧⌘5** 用于打开截屏与录屏工具，但未单独说明加 Control 的变体：[Apple 使用说明](https://support.apple.com/en-euro/guide/mac-help/mh26782/mac)。
+
+如果快捷键突然无反应且菜单栏图标也消失，请先重新打开应用：这表示应用可能已退出。v0.1.7 修复了 v0.1.6 在截图提示文字排版中崩溃的问题，并新增快捷键注册 / 收到事件的诊断日志。
 
 即使快捷键被占用，仍可点击菜单栏图标 →「区域截图」。权限和快捷键检查入口统一位于菜单栏 →「设置」。
 
@@ -80,6 +92,8 @@
 | 直线 | L |
 | 箭头 | A |
 | 连续编号图钉 | N |
+| 手动画笔 / 对象橡皮擦 | P / E |
+| 删除当前选中标注 | Delete |
 | 撤销 / 重做 | ⌘Z / ⇧⌘Z |
 | 确认并复制到剪贴板 | Enter / ⌘C |
 | 保存 PNG | ⌘S |
@@ -88,6 +102,8 @@
 | 调整选区大小，保留标注 | 拖动选区边缘或八个控制点 |
 | 平移选区，保留标注位置 | 空格 + 左键拖动 |
 | 正圆 / 正方形 / 水平或垂直线、箭头 | 拖动时按住 Shift |
+
+空白处单击打钉；在已有标注上按下则选中并可拖动编辑。画笔模式下按住左键绘制轨迹。
 
 “按住拖动”不需要等待计时；鼠标松开后提交标注，拖动不会额外生成图钉。右键单击画布可退出截图，右键拖动选区内则绘制矩形。工具快捷键仅在截图编辑期间生效。撤销图钉后继续点击，会使用当前下一个序号。取消保存对话框会回到原选区，保留已有标注。工具条与选区边框不会进入导出图片。
 
@@ -99,6 +115,7 @@
 git clone https://github.com/AnthemZhou/Nebula-ScreenShot.git
 cd Nebula-ScreenShot
 swift test
+./scripts/check-interactions.sh
 ./scripts/build.sh
 open "dist/Nebula ScreenShot.app"
 ```
@@ -135,8 +152,9 @@ open "dist/Nebula ScreenShot.app" --args --demo
 
 - `Sources/NebulaCore`：标注数据、事务式撤销/重做、坐标换算、预览与导出共用渲染器。
 - `Sources/NebulaScreenShot`：菜单栏、快捷键、屏幕捕获、选区、工具条与引导窗口。
-- `Tests/NebulaCoreTests`：编号及分支撤销、可调整选区几何、图钉比例与尖角、六色对比度、Retina 裁剪与导出位置、权限错误分类测试。
-- `.github/workflows/build.yml`：macOS 自动测试、Universal 构建和构建产物上传。
+- `Tests/NebulaCoreTests`：编号及分支撤销、可调整选区几何、图钉比例与尖角、白色图钉边框与数字、编辑命中和重编号、Retina 裁剪与导出位置、权限错误分类测试。
+- `Tests/InteractionChecks`：实际 AppKit 控件的隐藏窗口手势回归与反复绘制检查；不捕获桌面、不注入系统输入、不写系统剪贴板。
+- `.github/workflows/build.yml`：macOS 核心 / 编辑器交互测试、Universal 构建和构建产物上传。
 
 手动验收步骤见 [TESTING.md](TESTING.md)。欢迎提交 Issue 与 Pull Request。
 
@@ -148,4 +166,4 @@ Copyright © 2026 Nebula ScreenShot contributors.
 
 ---
 
-**English:** Nebula ScreenShot is a native, local-only macOS menu bar screenshot annotator. Press Control–Shift–Command–5 to capture directly, select a region, then use the compact dark toolbar for numbered pins, ellipses/rectangles, lines and arrows. Click the checkmark or press Enter to copy the annotated image to the clipboard by default. Six color dots lead the toolbar, with Dots orange as the default; Save PNG is directly accessible. Click to pin, left-drag to draw a line in pin mode, and right-drag to draw a rectangle. Pins scale with the crop and have an exact-position pointed tip. Resize the selection using its edges, or Space-drag to move it while keeping annotations in place. Right-click the canvas to cancel. Only the dim overlay fades on entry. The compact About window uses only black, white and neutral gray. Requires macOS 14+. The global shortcut uses exclusive registration; if the system screenshot panel still appears, adjust the conflicting system binding. The app is ad-hoc signed and not notarized. Licensed under GPL-3.0-only.
+**English:** Nebula ScreenShot is a native, local-only macOS menu bar screenshot annotator. Press Control–Shift–Command–5 to capture directly, select a region, then use the compact dark toolbar for numbered pins, ellipses/rectangles, lines and arrows. Click the checkmark or press Enter to copy the annotated image to the clipboard by default. Six color dots lead the toolbar, with Dots orange as the default; Save PNG is directly accessible. Click to pin, left-drag to draw a line in pin mode, and right-drag to draw a rectangle. Pins scale with the crop, have white outlines/numbers and an exact-position teardrop tip. Hover to delete a pin and renumber the others, or edit shape endpoints and bounds. Rectangles use rounded dashed borders. Freehand drawing, object erasing and primary undo/redo controls are included. Resize the selection using its edges, or Space-drag to move it while keeping annotations in place. Right-click the canvas to cancel. Only the dim overlay fades on entry. The compact About window uses only black, white and neutral gray. Requires macOS 14+. The global shortcut uses exclusive registration; if the system screenshot panel still appears, adjust the conflicting system binding. The app is ad-hoc signed and not notarized. Licensed under GPL-3.0-only.
