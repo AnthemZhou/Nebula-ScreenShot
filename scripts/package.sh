@@ -5,6 +5,7 @@ cd "$(dirname "$0")/.."
 VERSION=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' Resources/Info.plist)
 if [[ "${1:-}" == "--universal" ]]; then ARCH=universal; else ARCH="$(uname -m)"; fi
 ARCHIVE="dist/Nebula-ScreenShot-${VERSION}-${ARCH}.zip"
-ditto -c -k --sequesterRsrc --keepParent "dist/Nebula ScreenShot.app" "$ARCHIVE"
+# Finder / cloud-provider metadata is not part of the signed app and must not ship.
+ditto -c -k --norsrc --noextattr --noqtn --keepParent "dist/Nebula ScreenShot.app" "$ARCHIVE"
 shasum -a 256 "$ARCHIVE" > "${ARCHIVE}.sha256"
 echo "Packaged: $ARCHIVE"
