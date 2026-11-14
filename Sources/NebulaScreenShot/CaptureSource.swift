@@ -15,6 +15,7 @@ import NebulaCore
     private var loading: Task<DisplayFilters, Error>?
     private var warmup: Task<Void, Never>?
     private var generation = 0
+    private let exclusion = CaptureExclusion()
 
     func prepareIfAllowed() {
         // This preflight controls optional metadata warmup only, never a user-requested capture.
@@ -72,7 +73,8 @@ import NebulaCore
         let task = Task { @MainActor in
             let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
             try Task.checkCancellation()
-            let ownApps = content.applications.filter { $0.processID == ProcessInfo.processInfo.processIdentifier }
+            let ownApp = try await self.exclusion.resolve(applications: content.applications, windows: content.windows)
+            let ownApps = ownApp.map { [$0] } ?? []
             let values = Dictionary(uniqueKeysWithValues: content.displays.map {
                 ($0.displayID, SCContentFilter(display: $0, excludingApplications: ownApps, exceptingWindows: []))
             })

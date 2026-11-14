@@ -119,6 +119,7 @@ git clone https://github.com/AnthemZhou/Nebula-ScreenShot.git
 cd Nebula-ScreenShot
 swift test
 ./scripts/check-interactions.sh
+python3 scripts/check-exclusion.py
 ./scripts/check-relaunch.sh
 ./scripts/build.sh
 open "dist/Nebula ScreenShot.app"

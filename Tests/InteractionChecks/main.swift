@@ -36,7 +36,8 @@ enum HarnessError: Error, CustomStringConvertible {
                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
             throw HarnessError.failed("Cannot create synthetic image")
         }
-        context.setFillColor(CGColor(red: 0.03, green: 0.03, blue: 0.04, alpha: 1))
+        context.setFillColor(pending ? CGColor(red: 0.8, green: 0.7, blue: 0.6, alpha: 1)
+                                    : CGColor(red: 0.03, green: 0.03, blue: 0.04, alpha: 1))
         context.fill(CGRect(x: 0, y: 0, width: 1800, height: 1280))
         guard let image = context.makeImage() else { throw HarnessError.failed("Cannot finish synthetic image") }
         syntheticImage = image
@@ -218,7 +219,11 @@ enum HarnessError: Error, CustomStringConvertible {
         try copy()
         let pinPoint = try pinSample(at: CGPoint(x: 160, y: 160), number: 1)
         try expectColor(pinPoint, referenceColor(.coral), "Pending annotations survive pixel arrival")
-        try expectColor(CGPoint(x: 60, y: 60), NSColor(red: 0.03, green: 0.03, blue: 0.04, alpha: 1),
+        // Compare like-for-like export color spaces; a raw CGImage bitmap can be color-converted differently.
+        let cleanReference = AnnotationRenderer.export(image: syntheticImage, canvasSize: canvas.bounds.size,
+                                                       selection: initialCrop, annotations: [])!
+        let sourceColor = cleanReference.colorAt(x: 40, y: 40)!.usingColorSpace(.sRGB)!
+        try expectColor(CGPoint(x: 60, y: 60), sourceColor,
                         "Clipboard output must contain the original image without dimming")
 
         canvas.resetSelection()
