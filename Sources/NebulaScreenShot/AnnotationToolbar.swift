@@ -132,9 +132,12 @@ import NebulaCore
         second.addArrangedSubview(divider())
         second.addArrangedSubview(ActionButton(title: "取消", symbol: "xmark", help: "取消截图（Esc）") { [weak self] in self?.onCancel?() })
         second.addArrangedSubview(ActionButton(title: "保存", symbol: "square.and.arrow.down", help: "保存 PNG（⌘S）") { [weak self] in self?.onSave?() })
-        let copy = ActionButton(title: "复制", symbol: "doc.on.doc", help: "复制到剪贴板并完成（⌘C / Enter）") { [weak self] in self?.onCopy?() }
-        copy.contentTintColor = NSColor(srgbRed: 0.48, green: 0.84, blue: 1, alpha: 1)
-        second.addArrangedSubview(copy)
+        let confirm = ActionButton(title: "确认", symbol: "checkmark", help: "确认并复制到剪贴板（Enter / ⌘C）") { [weak self] in self?.onCopy?() }
+        confirm.isBordered = true
+        confirm.bezelColor = NSColor(srgbRed: 0.24, green: 0.42, blue: 0.85, alpha: 1)
+        confirm.keyEquivalent = "\r"
+        confirm.keyEquivalentModifierMask = []
+        second.addArrangedSubview(confirm)
 
         let rows = NSStackView(views: [first, second])
         rows.orientation = .vertical

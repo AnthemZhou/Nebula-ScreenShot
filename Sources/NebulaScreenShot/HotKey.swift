@@ -3,6 +3,9 @@ import AppKit
 import Carbon
 
 @MainActor final class HotKey {
+    static let displayString = "⌃⇧⌘5"
+    private static let keyCode = UInt32(kVK_ANSI_5)
+    private static let modifiers = UInt32(controlKey | shiftKey | cmdKey)
     private var hotKey: EventHotKeyRef?
     private var handler: EventHandlerRef?
     var onPress: (() -> Void)?
@@ -22,7 +25,7 @@ import Carbon
             }, 1, &event, pointer, &handler)
         }
         let identifier = EventHotKeyID(signature: OSType(0x4E425353), id: 1)
-        registrationStatus = RegisterEventHotKey(UInt32(kVK_ANSI_4), UInt32(controlKey | shiftKey | cmdKey),
+        registrationStatus = RegisterEventHotKey(Self.keyCode, Self.modifiers,
                                                  identifier, GetApplicationEventTarget(), 0, &hotKey)
     }
 
@@ -31,14 +34,14 @@ import Carbon
         if let handler { RemoveEventHandler(handler); self.handler = nil }
     }
 
-    static var systemScreenshotConflict: Bool {
+    static var hasSystemConflict: Bool {
         var hotKeys: Unmanaged<CFArray>?
         guard CopySymbolicHotKeys(&hotKeys) == noErr,
               let entries = hotKeys?.takeRetainedValue() as? [[String: Any]] else { return true }
         return entries.contains { entry in
             (entry[kHISymbolicHotKeyEnabled] as? NSNumber)?.boolValue == true &&
-            (entry[kHISymbolicHotKeyCode] as? NSNumber)?.intValue == kVK_ANSI_4 &&
-            (entry[kHISymbolicHotKeyModifiers] as? NSNumber)?.uint32Value == UInt32(controlKey | shiftKey | cmdKey)
+            (entry[kHISymbolicHotKeyCode] as? NSNumber)?.uint32Value == keyCode &&
+            (entry[kHISymbolicHotKeyModifiers] as? NSNumber)?.uint32Value == modifiers
         }
     }
 }

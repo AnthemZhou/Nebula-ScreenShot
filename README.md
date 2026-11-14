@@ -2,7 +2,7 @@
 
 **截取灵感，标记重点。** 一个轻量的 macOS 原生菜单栏截图工具。
 
-按 **Control + Shift + Command + 4**，拖动选区，然后直接圈画、拉线、画箭头，或点击放置连续编号的圆形图钉 **① ② ③**。
+按 **Control + Shift + Command + 5**，拖动选区，然后直接圈画、拉线、画箭头，或点击放置连续编号的圆形图钉 **① ② ③**。
 
 [下载](https://github.com/AnthemZhou/Nebula-ScreenShot/releases) · [使用说明](#使用) · [从源码构建](#开发) · [GPL 3.0](LICENSE)
 
@@ -12,12 +12,12 @@
 
 ## 功能
 
-- 全局快捷键 **⌃⇧⌘4** 与菜单栏入口。
+- 全局快捷键 **⌃⇧⌘5** 与菜单栏入口。
 - 拖动选择屏幕区域，原地显示悬浮标注工具条。
 - 圆圈 / 椭圆、直线、自由画笔、箭头。
 - **连续编号图钉**：选择图钉工具后，在选区内依次点击，生成圆圈内的 1、2、3……；每张新截图从 1 开始。
 - 五种颜色、三档线宽；撤销、重做、清空标注、重新选区。
-- 复制 PNG / TIFF 到剪贴板，或保存 PNG；保留 Retina 分辨率。
+- 编辑后点击「确认」或按 Enter，默认将 PNG / TIFF 复制到剪贴板；也可主动保存 PNG，保留 Retina 分辨率。
 - 可在任意一块显示器上选择区域；一次选区限制在单块显示器内。
 - 自带无需屏幕录制权限的示例画布，便于试用标注。
 - 截图仅在本机内存中处理。没有账户、联网上传、埋点或第三方依赖。
@@ -36,16 +36,16 @@
 
 **屏幕权限**：打开「系统设置 → 隐私与安全性 → 屏幕与系统音频录制」（部分系统称「屏幕录制」），允许 Nebula ScreenShot。若系统要求，请退出并重新打开应用。应用只请求画面捕获，不录制音频。
 
-**快捷键冲突**：macOS 默认也使用 **⌃⇧⌘4** 将所选区域截图拷贝到剪贴板。在「系统设置 → 键盘 → 键盘快捷键 → 截屏」中，取消这一项或改为其他组合，然后回到应用点击「重新检测」。不同系统语言下，该项名称略有不同，请核对按键组合。应用不会自动更改系统快捷键。
+**快捷键检查**：默认快捷键为 **⌃⇧⌘5**。如果应用提示冲突，请在「系统设置 → 键盘 → 键盘快捷键」或占用该组合的其他应用中调整对应设置，再点击「重新检测」。应用不会自动更改系统快捷键。
 
 即使快捷键被占用，仍可点击菜单栏图标 →「区域截图」。权限和快捷键设置入口都在「设置与使用说明」窗口中。
 
 ## 使用
 
-1. 按 **⌃⇧⌘4** 或点击菜单栏「区域截图」。
+1. 按 **⌃⇧⌘5** 或点击菜单栏「区域截图」。
 2. 按住鼠标拖出截图区域，松开后出现工具条。
 3. 选择工具并在选区内标注。选择「图钉」后，每点击一次添加一个带递增数字的圆圈。
-4. 按 **Enter / ⌘C** 复制并结束，或按 **⌘S** 保存 PNG。
+4. 点击工具条中的 **「确认」**，或按 **Enter / ⌘C**，截图即复制到剪贴板并结束编辑，可直接 **⌘V** 粘贴。需要文件时，再主动点击「保存」或按 **⌘S**。
 
 | 操作 | 快捷键 |
 | --- | --- |
@@ -55,7 +55,7 @@
 | 箭头 | A |
 | 连续编号图钉 | N |
 | 撤销 / 重做 | ⌘Z / ⇧⌘Z |
-| 复制并结束 | ⌘C / Enter |
+| 确认并复制到剪贴板 | Enter / ⌘C |
 | 保存 PNG | ⌘S |
 | 重新选择区域并清空标注 | R |
 | 取消截图 | Esc |
@@ -109,4 +109,4 @@ Copyright © 2026 Nebula ScreenShot contributors.
 
 ---
 
-**English:** Nebula ScreenShot is a native, local-only macOS menu bar screenshot annotator. Press Control–Shift–Command–4, select a region, then draw ellipses, lines, freehand strokes, arrows, or sequential numbered pins. Copy to the clipboard or save a Retina-resolution PNG. Requires macOS 14+. Disable the conflicting built-in screenshot shortcut before using the global hotkey. The first release is ad-hoc signed and not notarized. Licensed under GPL-3.0-only.
+**English:** Nebula ScreenShot is a native, local-only macOS menu bar screenshot annotator. Press Control–Shift–Command–5, select a region, then draw ellipses, lines, freehand strokes, arrows, or sequential numbered pins. Click Confirm or press Enter to copy the annotated image to the clipboard by default. Saving a Retina-resolution PNG is optional. Requires macOS 14+. If the global shortcut is occupied, adjust the conflicting binding and retry. The first release is ad-hoc signed and not notarized. Licensed under GPL-3.0-only.

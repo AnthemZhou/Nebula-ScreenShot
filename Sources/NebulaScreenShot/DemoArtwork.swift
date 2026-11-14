@@ -43,7 +43,7 @@ import NebulaCore
             text(card.1, x: x + 20, y: 423, size: 16, weight: .medium)
             text(card.2, x: x + 20, y: 459, size: 13, color: .lightGray)
         }
-        text("⌃ ⇧ ⌘ 4", x: 68, y: 635, size: 19, weight: .medium)
+        text(HotKey.displayString, x: 68, y: 635, size: 19, weight: .medium)
         text("LOCAL FIRST    /    OPEN SOURCE    /    GPL 3.0", x: 638, y: 641, size: 11, color: .gray)
         NSGraphicsContext.restoreGraphicsState()
         return bitmap.cgImage

@@ -48,7 +48,7 @@ import AppKit
         let title = NSMenuItem(title: "Nebula ScreenShot", action: nil, keyEquivalent: "")
         title.isEnabled = false
         menu.addItem(title)
-        let captureItem = NSMenuItem(title: "区域截图  ⌃⇧⌘4", action: #selector(beginCapture), keyEquivalent: "")
+        let captureItem = NSMenuItem(title: "区域截图  \(HotKey.displayString)", action: #selector(beginCapture), keyEquivalent: "")
         captureItem.target = self
         menu.addItem(captureItem)
         menu.addItem(withTitle: "试用标注…", action: #selector(beginDemo), keyEquivalent: "")
@@ -63,7 +63,7 @@ import AppKit
 
     private func restoreStatusIcon() {
         statusItem.button?.image = NSImage(systemSymbolName: "viewfinder", accessibilityDescription: "Nebula ScreenShot")
-        statusItem.button?.toolTip = "Nebula ScreenShot · ⌃⇧⌘4"
+        statusItem.button?.toolTip = "Nebula ScreenShot · \(HotKey.displayString)"
     }
 
     @objc private func beginCapture() {

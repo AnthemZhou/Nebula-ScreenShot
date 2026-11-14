@@ -130,7 +130,7 @@ import NebulaCore
             return
         }
         finish()
-        onComplete?("截图已复制")
+        onComplete?("截图已复制到剪贴板")
     }
 
     private func save(_ bitmap: NSBitmapImageRep) {

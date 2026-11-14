@@ -23,7 +23,7 @@ import AppKit
         let heading = label("截取灵感，标记重点。", size: 30, weight: .bold)
         let description = label("拖出区域，即刻圈画。用连续编号图钉，把步骤说清楚。", size: 13)
         description.textColor = .secondaryLabelColor
-        let shortcut = label("⌃  ⇧  ⌘  4", size: 34, weight: .medium)
+        let shortcut = label(HotKey.displayString, size: 34, weight: .medium)
         shortcut.font = .monospacedSystemFont(ofSize: 34, weight: .medium)
         let tools = label("○ 圆圈     ╱ 直线     ✎ 画笔     ↗ 箭头     ① ② ③ 图钉", size: 14, weight: .medium)
 
@@ -54,7 +54,7 @@ import AppKit
         let demo = ActionButton(title: "试用标注", symbol: "pencil.and.outline", help: "用示例画布试用，无需屏幕权限") { [weak self] in self?.onDemo?() }
         let actions = NSStackView(views: [start, demo])
         actions.spacing = 16
-        let footnote = label("运行后常驻菜单栏 · 截图仅在本机处理 · GPL 3.0 开源", size: 11)
+        let footnote = label("确认后自动复制到剪贴板 · 截图仅在本机处理 · GPL 3.0 开源", size: 11)
         footnote.textColor = .tertiaryLabelColor
 
         let stack = NSStackView(views: [eyebrow, heading, description, shortcut, tools,
@@ -91,10 +91,10 @@ import AppKit
         let permission = CGPreflightScreenCaptureAccess()
         permissionLabel.stringValue = permission ? "✓ 屏幕录制权限已开启" : "1. 首次截图前，请在系统设置 → 隐私与安全性 → 屏幕与系统音频录制中允许 Nebula ScreenShot。授权后可能需要重启应用。"
         permissionLabel.textColor = permission ? .systemGreen : .secondaryLabelColor
-        let conflict = HotKey.systemScreenshotConflict
+        let conflict = HotKey.hasSystemConflict
         shortcutLabel.stringValue = conflict
-            ? "2. ⌃⇧⌘4 与系统截图快捷键重叠。请在键盘 → 键盘快捷键 → 截屏中，取消“将所选区域的图片拷贝到剪贴板”，再点“重新检测”。"
-            : registrationFailed ? "快捷键暂时无法注册，可能被其他应用占用。仍可从菜单栏开始截图。" : "✓ 快捷键 ⌃⇧⌘4 已就绪，也可通过菜单栏开始截图。"
+            ? "\(HotKey.displayString) 已被系统快捷键占用。请在键盘 → 键盘快捷键中调整使用这一组合的项目，再点“重新检测”。"
+            : registrationFailed ? "快捷键暂时无法注册，可能被其他应用占用。仍可从菜单栏开始截图。" : "✓ 快捷键 \(HotKey.displayString) 已就绪，也可通过菜单栏开始截图。"
         shortcutLabel.textColor = conflict || registrationFailed ? .systemOrange : .systemGreen
     }
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.1 — 2026-11-14
+
+- Change the global capture shortcut to Control–Shift–Command–5.
+- Make “确认” the default editor action: clicking it or pressing Enter copies the annotated image to the clipboard and closes the editor. Command–C also copies; saving a PNG remains an explicit action.
+- Update onboarding, menu labels, demo artwork and shortcut conflict guidance for the new shortcut.
+- Sign and package in temporary staging directories to avoid synced-folder Finder metadata invalidating release builds.
+
 ## 0.1.0 — 2026-11-14
 
 First preview release.
