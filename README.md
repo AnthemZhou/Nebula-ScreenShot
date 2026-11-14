@@ -48,6 +48,8 @@
 
 **屏幕权限**：打开「系统设置 → 隐私与安全性 → 屏幕与系统音频录制」（部分系统称「屏幕录制」），允许 Nebula ScreenShot。若系统要求，请退出并重新打开应用。应用只请求画面捕获，不录制音频。
 
+首次截图或打开屏幕录制设置时，应用会在需要时显式请求一次系统授权。如果列表仍没有 Nebula，点击列表底部「＋」，选择实际安装的 `Nebula ScreenShot.app`；安装在 `~/Applications` 时，可在文件选择窗口按 ⇧⌘G 输入该目录。[Apple 添加应用说明](https://support.apple.com/guide/mac-help/control-access-screen-system-audio-recording-mchld6aa7d23/mac)。
+
 **开关已开，却反复提示权限**：预览版使用 ad-hoc 签名，更新后系统可能仍保存旧版的签名授权；仅切换开关不能保证清除旧记录。请使用菜单栏 →「设置」→「重新授权屏幕录制…」，确认后应用只清除 **Nebula 自己的屏幕录制授权**，重新启动并请求授权。允许当前版本后再截图。也可在权限失败提示中点击「重新授权」。不会修改其他应用的权限。
 
 正式的跨版本授权需要稳定的 Apple 代码签名身份；固定安装目录本身不能消除 ad-hoc 签名变化。[Apple 对此问题的说明](https://developer.apple.com/forums/thread/819406)。

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 import AppKit
+import NebulaCore
 
 @MainActor final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
@@ -7,6 +8,7 @@ import AppKit
     private let capture = CaptureCoordinator()
     private var welcome: WelcomeWindow?
     private var permissionFlowActive = false
+    private var permissionPrompt = ScreenPermissionPrompt()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -105,6 +107,11 @@ import AppKit
     }
 
     @objc private func openScreenPermission() {
+        guard !permissionFlowActive else { return }
+        permissionFlowActive = true
+        // A newly reset app may not appear in Settings until it explicitly requests consent.
+        _ = permissionPrompt.requestOnce(using: CGRequestScreenCaptureAccess)
+        permissionFlowActive = false
         NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
     }
 
@@ -135,6 +142,13 @@ import AppKit
     private func showPermissionHelp() {
         guard !permissionFlowActive else { return }
         permissionFlowActive = true
+        // Request only after ScreenCaptureKit denies a user-initiated capture. Do not
+        // use Core Graphics preflight to block a capture that ScreenCaptureKit can perform.
+        if permissionPrompt.requestOnce(using: CGRequestScreenCaptureAccess) == true {
+            permissionFlowActive = false
+            capture.begin()
+            return
+        }
         let alert = NSAlert()
         alert.messageText = "需要屏幕录制权限"
         alert.informativeText = "请在系统设置中允许 Nebula ScreenShot。若开关已打开仍无法截图，“重新授权”会仅清除 Nebula 的旧屏幕录制记录，重启后再次请求授权。"
