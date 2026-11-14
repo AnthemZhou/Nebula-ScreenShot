@@ -18,6 +18,7 @@ enum HarnessError: Error, CustomStringConvertible {
 @MainActor final class CanvasHarness {
     let window: HiddenHarnessWindow
     let canvas: CaptureCanvas
+    let syntheticImage: CGImage
     private(set) var exported: NSBitmapImageRep?
     private(set) var saved: NSBitmapImageRep?
     private(set) var copyCount = 0
@@ -27,7 +28,7 @@ enum HarnessError: Error, CustomStringConvertible {
     private var eventNumber = 0
     let initialCrop = CGRect(x: 40, y: 40, width: 820, height: 460)
 
-    init() throws {
+    init(pending: Bool = false) throws {
         let size = CGSize(width: 900, height: 640)
         guard let context = CGContext(data: nil, width: 1800, height: 1280,
                                       bitsPerComponent: 8, bytesPerRow: 0,
@@ -38,10 +39,11 @@ enum HarnessError: Error, CustomStringConvertible {
         context.setFillColor(CGColor(red: 0.03, green: 0.03, blue: 0.04, alpha: 1))
         context.fill(CGRect(x: 0, y: 0, width: 1800, height: 1280))
         guard let image = context.makeImage() else { throw HarnessError.failed("Cannot finish synthetic image") }
+        syntheticImage = image
         window = HiddenHarnessWindow(contentRect: CGRect(origin: .zero, size: size),
                                       styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        canvas = CaptureCanvas(frame: CGRect(origin: .zero, size: size), screenshot: image)
+        canvas = CaptureCanvas(frame: CGRect(origin: .zero, size: size), screenshot: pending ? nil : image, pixelScale: 2)
         window.contentView = canvas
         canvas.onCopy = { [weak self] in self?.exported = $0; self?.copyCount += 1 }
         canvas.onSave = { [weak self] in self?.saved = $0; self?.saveCount += 1 }
@@ -195,6 +197,74 @@ enum HarnessError: Error, CustomStringConvertible {
 
     func hover(_ point: CGPoint) throws { canvas.mouseMoved(with: try mouse(.mouseMoved, point)) }
 
+    func runPendingCaptureChecks() throws {
+        try check(canvas.screenshot == nil, "Pending canvas must not contain a placeholder screenshot")
+        let shade = try renderedCanvasColor(at: CGPoint(x: 10, y: 10))
+        try check(abs(shade.alphaComponent - 0.48) < 0.02, "Pending shade must be translucent immediately")
+        try hover(CGPoint(x: 80, y: 90))
+        let labels = descendants(of: canvas).compactMap { $0 as? NSTextField }
+        try check(labels.contains { $0.stringValue == "160, 180" }, "Pixel coordinates must follow the pointer")
+        try check(CaptureCursor.selection.hotSpot == CGPoint(x: 14, y: 14), "Crosshair center must target the exact selection point")
+        try drag(from: initialCrop.origin, to: CGPoint(x: initialCrop.maxX, y: initialCrop.maxY))
+        try check(!(try button(labelPrefix: "确认")).isEnabled && !(try button(labelPrefix: "保存")).isEnabled,
+                  "Clipboard and Save must stay disabled until fresh pixels arrive")
+        try key("\r", code: 36)
+        try check(copyCount == 0, "A pending canvas must never export its shade")
+        try click(CGPoint(x: 160, y: 160))
+        canvas.installScreenshot(syntheticImage)
+        try check(canvas.selection == initialCrop, "Installing pixels must preserve a completed selection")
+        try check((try button(labelPrefix: "确认")).isEnabled, "Pixel arrival must enable confirmation")
+        try expectNextPin(2)
+        try copy()
+        let pinPoint = try pinSample(at: CGPoint(x: 160, y: 160), number: 1)
+        try expectColor(pinPoint, referenceColor(.coral), "Pending annotations survive pixel arrival")
+        try expectColor(CGPoint(x: 60, y: 60), NSColor(red: 0.03, green: 0.03, blue: 0.04, alpha: 1),
+                        "Clipboard output must contain the original image without dimming")
+
+        canvas.resetSelection()
+        let start = CGPoint(x: 70, y: 80), middle = CGPoint(x: 240, y: 220), end = CGPoint(x: 480, y: 360)
+        canvas.mouseDown(with: try mouse(.leftMouseDown, start))
+        canvas.mouseDragged(with: try mouse(.leftMouseDragged, middle))
+        canvas.installScreenshot(syntheticImage)
+        canvas.mouseDragged(with: try mouse(.leftMouseDragged, end))
+        canvas.mouseUp(with: try mouse(.leftMouseUp, end))
+        try check(canvas.selection == Geometry.rect(from: start, to: end), "Pixel handoff must not interrupt an in-flight drag")
+        try key("", code: 53)
+        try check(cancelCount == 1 && !window.isVisible, "Esc remains available throughout the pending flow")
+        print("PASS: immediate translucent shade, pointer coordinates, pending export guard, clean pixels and uninterrupted selection")
+    }
+
+    func runToolbarChecks() throws {
+        guard let toolbar = descendants(of: canvas).first(where: { $0 is AnnotationToolbar }) as? AnnotationToolbar else {
+            throw HarnessError.failed("Missing compact toolbar")
+        }
+        let buttons = descendants(of: toolbar).compactMap { $0 as? NSButton }
+        let labels = buttons.map { $0.accessibilityLabel() ?? "" }
+        for removed in ["圆圈", "直线", "箭头", "选择圆圈", "取消截图", "更多"] {
+            try check(!labels.contains { $0.hasPrefix(removed) }, "Removed row button must stay absent: \(removed)")
+        }
+        try check(buttons.count == 14, "Toolbar must contain six colors and eight actions")
+        let confirm = try button(labelPrefix: "确认"), pin = try button(labelPrefix: "图钉")
+        try check(confirm.frame.width <= 28 && confirm.frame.width < pin.frame.width, "Confirmation must be smaller than a tool button")
+        for tool in [AnnotationTool.ellipse, .rectangle, .line, .arrow] {
+            let menu = toolbar.optionsMenu()
+            guard let item = menu.items.first(where: { $0.representedObject as? String == tool.rawValue }), let action = item.action else {
+                throw HarnessError.failed("Missing shape menu action: \(tool.title)")
+            }
+            try check(NSApp.sendAction(action, to: item.target, from: item), "Shape menu action must be callable")
+            let selected = toolbar.optionsMenu().items.filter { $0.state == .on }
+            try check(selected.count == 1 && selected[0].representedObject as? String == tool.rawValue,
+                      "Menu must show the actual selected tool")
+            try check((try button(labelPrefix: "形状与设置")).state == .on, "Nested tool selection must highlight the settings icon")
+        }
+        try key("n")
+        try check((try button(labelPrefix: "形状与设置")).state == .off, "Returning to pin clears the settings highlight")
+        let menu = toolbar.optionsMenu()
+        try check(menu.items.contains { $0.title == "重新选择区域" } && menu.items.contains { $0.title == "清空标注" },
+                  "Settings menu must retain reselect and clear actions")
+        print("PASS: compact toolbar, smaller confirm, consolidated shape menu and selected-tool state")
+    }
+
     func runEditingChecks() throws {
         canvas.resetSelection()
         try key("n")
@@ -323,9 +393,10 @@ enum HarnessError: Error, CustomStringConvertible {
         let initialWindowAlpha = window.alphaValue
         try drag(from: initialCrop.origin, to: CGPoint(x: initialCrop.maxX, y: initialCrop.maxY))
         try check(canvas.selection == initialCrop, "Selection must follow drag")
+        try runToolbarChecks()
         for button in descendants(of: canvas).compactMap({ $0 as? NSButton }) {
             let label = button.accessibilityLabel() ?? ""
-            if !label.hasPrefix("标注颜色") && label != "选择圆圈或方框" {
+            if !label.hasPrefix("标注颜色") {
                 try check(abs(button.frame.width - button.frame.height) < 0.01, "Tool highlight must be square and centered on its icon")
             }
         }
@@ -514,6 +585,8 @@ MainActor.assumeIsolated {
     do {
         let harness = try CanvasHarness()
         try harness.run(outputURL: URL(fileURLWithPath: CommandLine.arguments[1]))
+        let pending = try CanvasHarness(pending: true)
+        try pending.runPendingCaptureChecks()
         exit(0)
     } catch {
         fputs("FAIL: \(error)\n", stderr)

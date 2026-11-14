@@ -4,6 +4,7 @@ import ScreenCaptureKit
 import UniformTypeIdentifiers
 import NebulaCore
 import OSLog
+import QuartzCore
 
 @MainActor final class CapturePanel: NSPanel {
     override var canBecomeKey: Bool { true }
@@ -32,25 +33,33 @@ import OSLog
         let session = UUID()
         sessionID = session
         previousApplication = NSWorkspace.shared.frontmostApplication
+        let screens = NSScreen.screens
+        if !afterMenuDismissal { presentShade(screens, started: started) }
         captureTask = Task { @MainActor [weak self] in
             guard let self else { return }
             do {
-                // Only a menu action needs time for the menu to close. Hotkeys capture immediately.
-                if afterMenuDismissal { try await Task.sleep(for: .milliseconds(120)) }
+                // Hotkeys submit the interactive shade synchronously, before any capture work.
+                // Only a menu action needs time for its menu to close.
+                if afterMenuDismissal {
+                    try await Task.sleep(for: .milliseconds(120))
+                    guard self.sessionID == session else { return }
+                    self.presentShade(screens, started: started)
+                }
+                try Task.checkCancellation()
                 let snapshots: [(NSScreen, CGImage)]
                 if demo {
-                    snapshots = NSScreen.screens.compactMap { screen in
+                    snapshots = screens.compactMap { screen in
                         DemoArtwork.image(size: screen.frame.size, scale: screen.backingScaleFactor).map { (screen, $0) }
                     }
                 } else {
                     self.logger.notice("ScreenCaptureKit capture requested")
-                    snapshots = try await self.source.capture(NSScreen.screens)
+                    snapshots = try await self.source.capture(screens)
                 }
                 guard !snapshots.isEmpty else { throw CaptureError.noDisplay }
                 try Task.checkCancellation()
                 guard self.sessionID == session else { return }
                 let captured = ProcessInfo.processInfo.systemUptime
-                self.present(snapshots)
+                self.installSnapshots(snapshots)
                 if !demo {
                     self.onCaptureReady?()
                     let totalMS = Int((ProcessInfo.processInfo.systemUptime - started) * 1000)
@@ -76,9 +85,9 @@ import OSLog
     func prepare() { source.prepareIfAllowed() }
     func displaysChanged() { source.invalidate(); prepare() }
 
-    private func present(_ snapshots: [(NSScreen, CGImage)]) {
+    private func presentShade(_ screens: [NSScreen], started: TimeInterval) {
         let mouse = NSEvent.mouseLocation
-        for (screen, image) in snapshots {
+        for screen in screens {
             // Take keyboard focus without activating Nebula or changing the underlying app's Space.
             let panel = CapturePanel(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel],
                                      backing: .buffered, defer: false)
@@ -86,13 +95,13 @@ import OSLog
             panel.setFrame(screen.frame, display: false)
             panel.level = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 1)
             panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
-            panel.isOpaque = true
-            panel.backgroundColor = .black
+            panel.isOpaque = false
+            panel.backgroundColor = .clear
             panel.hasShadow = false
             panel.hidesOnDeactivate = false
             panel.acceptsMouseMovedEvents = true
             panel.isReleasedWhenClosed = false
-            let canvas = CaptureCanvas(frame: CGRect(origin: .zero, size: screen.frame.size), screenshot: image)
+            let canvas = CaptureCanvas(frame: CGRect(origin: .zero, size: screen.frame.size), pixelScale: screen.backingScaleFactor)
             canvas.onCancel = { [weak self] in self?.finish() }
             canvas.onCopy = { [weak self] in self?.copy($0) }
             canvas.onSave = { [weak self] in self?.save($0) }
@@ -107,10 +116,27 @@ import OSLog
             panel.makeFirstResponder(canvas)
             panels.append(panel)
         }
-        // Finish every display's geometry before ordering any of the frozen snapshots onscreen.
-        for panel in panels { panel.orderFrontRegardless() }
+        for panel in panels { panel.orderFrontRegardless(); panel.displayIfNeeded() }
         let keyPanel = panels.first(where: { $0.frame.contains(mouse) }) ?? panels.first
         keyPanel?.makeKey()
+        if let panel = keyPanel, let canvas = panel.contentView as? CaptureCanvas {
+            canvas.showInitialPointer(at: canvas.convert(panel.convertPoint(fromScreen: mouse), from: nil))
+            panel.displayIfNeeded()
+        }
+        CATransaction.flush()
+        let elapsedMS = Int((ProcessInfo.processInfo.systemUptime - started) * 1000)
+        logger.notice("Capture shade submitted; displays: \(screens.count, privacy: .public); \(elapsedMS, privacy: .public) ms; awaiting fresh pixels")
+    }
+
+    private func installSnapshots(_ snapshots: [(NSScreen, CGImage)]) {
+        for (screen, image) in snapshots {
+            guard let panel = panels.first(where: { $0.frame == screen.frame }),
+                  let canvas = panel.contentView as? CaptureCanvas else { continue }
+            canvas.installScreenshot(image)
+            panel.isOpaque = true
+            panel.displayIfNeeded()
+        }
+        CATransaction.flush()
     }
 
     func finish(restoreFocus: Bool = true) {
@@ -124,6 +150,7 @@ import OSLog
             panel.close()
         }
         panels.removeAll()
+        if isActive { NSCursor.arrow.set() }
         isActive = false
         // Nonactivating capture panels normally leave the original application active.
         if restoreFocus, let previousApplication,
@@ -186,11 +213,12 @@ import OSLog
     }
 
     enum CaptureError: LocalizedError {
-        case noDisplay, encoding
+        case noDisplay, encoding, missingOverlayExclusion
         var errorDescription: String? {
             switch self {
             case .noDisplay: return "没有找到可捕获的显示器。"
             case .encoding: return "PNG 编码失败。"
+            case .missingOverlayExclusion: return "暂时无法从截图中排除选区遮罩，请重试。"
             }
         }
     }

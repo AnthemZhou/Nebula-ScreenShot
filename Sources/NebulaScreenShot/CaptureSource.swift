@@ -7,14 +7,18 @@ import NebulaCore
 /// Reuses display filters only. Every capture requests fresh pixels; no background screen stream.
 @MainActor final class CaptureSource {
     private let logger = Logger(subsystem: "io.github.anthemzhou.NebulaScreenShot", category: "Capture")
-    private var filters: [CGDirectDisplayID: SCContentFilter] = [:]
-    private var loading: Task<[CGDirectDisplayID: SCContentFilter], Error>?
+    private struct DisplayFilters {
+        let values: [CGDirectDisplayID: SCContentFilter]
+        let excludesOwnApplication: Bool
+    }
+    private var filters: DisplayFilters?
+    private var loading: Task<DisplayFilters, Error>?
     private var warmup: Task<Void, Never>?
     private var generation = 0
 
     func prepareIfAllowed() {
         // This preflight controls optional metadata warmup only, never a user-requested capture.
-        guard filters.isEmpty, loading == nil, warmup == nil, CGPreflightScreenCaptureAccess() else { return }
+        guard filters == nil, loading == nil, warmup == nil, CGPreflightScreenCaptureAccess() else { return }
         warmup = Task { @MainActor [weak self] in
             guard let self else { return }
             _ = try? await self.loadFilters()
@@ -24,16 +28,16 @@ import NebulaCore
 
     func invalidate() {
         generation += 1
-        filters.removeAll()
+        filters = nil
         loading?.cancel(); loading = nil
         warmup?.cancel(); warmup = nil
     }
 
     func capture(_ screens: [NSScreen]) async throws -> [(NSScreen, CGImage)] {
         let started = ProcessInfo.processInfo.systemUptime
-        let usedCache = !filters.isEmpty
+        let usedCache = filters?.excludesOwnApplication == true
         do {
-            let displayFilters = try await loadFilters()
+            let displayFilters = try await safeFilters()
             let setupFinished = ProcessInfo.processInfo.systemUptime
             let output = try await capture(screens, filters: displayFilters)
             let setupMS = Int((setupFinished - started) * 1000)
@@ -46,21 +50,33 @@ import NebulaCore
             // permission errors must go straight to the normal native consent flow.
             guard usedCache, !ScreenCaptureFailure.isPermissionDenied(error), !(error is CancellationError) else { throw error }
             logger.notice("Refreshing stale display filters once")
-            return try await capture(screens, filters: loadFilters())
+            return try await capture(screens, filters: safeFilters())
         }
     }
 
-    private func loadFilters() async throws -> [CGDirectDisplayID: SCContentFilter] {
-        if !filters.isEmpty { return filters }
+    private func safeFilters() async throws -> [CGDirectDisplayID: SCContentFilter] {
+        var result = try await loadFilters()
+        if !result.excludesOwnApplication {
+            // Warmup can precede our first visible window. Reload after the shade is shown.
+            invalidate()
+            result = try await loadFilters()
+        }
+        guard result.excludesOwnApplication else { throw CaptureCoordinator.CaptureError.missingOverlayExclusion }
+        return result.values
+    }
+
+    private func loadFilters() async throws -> DisplayFilters {
+        if let filters { return filters }
         if let loading { return try await loading.value }
         let expectedGeneration = generation
         let task = Task { @MainActor in
             let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
             try Task.checkCancellation()
             let ownApps = content.applications.filter { $0.processID == ProcessInfo.processInfo.processIdentifier }
-            return Dictionary(uniqueKeysWithValues: content.displays.map {
+            let values = Dictionary(uniqueKeysWithValues: content.displays.map {
                 ($0.displayID, SCContentFilter(display: $0, excludingApplications: ownApps, exceptingWindows: []))
             })
+            return DisplayFilters(values: values, excludesOwnApplication: !ownApps.isEmpty)
         }
         loading = task
         do {

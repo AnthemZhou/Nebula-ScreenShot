@@ -3,8 +3,9 @@ import AppKit
 import NebulaCore
 
 @MainActor final class CaptureCanvas: NSView {
-    let screenshot: CGImage
-    private let background: NSImage
+    private(set) var screenshot: CGImage?
+    private var background: NSImage?
+    private let pixelScale: CGFloat
     private(set) var selection: CGRect?
     private var draft: Annotation?
     private var history = AnnotationHistory()
@@ -60,12 +61,26 @@ import NebulaCore
     override var needsPanelToBecomeKey: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
-    init(frame: NSRect, screenshot: CGImage) {
+    init(frame: NSRect, screenshot: CGImage? = nil, pixelScale: CGFloat = 1) {
         self.screenshot = screenshot
-        self.background = NSImage(cgImage: screenshot, size: frame.size)
+        self.background = screenshot.map { NSImage(cgImage: $0, size: frame.size) }
+        self.pixelScale = pixelScale
         super.init(frame: frame)
         addSubview(hint)
         updateHint()
+    }
+
+    /// Keep the same view, selection and in-flight drag when fresh pixels arrive.
+    func installScreenshot(_ image: CGImage) {
+        screenshot = image
+        background = NSImage(cgImage: image, size: bounds.size)
+        refresh()
+    }
+
+    func showInitialPointer(at point: CGPoint) {
+        pointer = Geometry.clamp(point, to: bounds)
+        updateHint()
+        if window?.isVisible == true { CaptureCursor.selection.set() }
     }
 
     private func makeToolbar() -> AnnotationToolbar {
@@ -79,7 +94,6 @@ import NebulaCore
         toolbar.onRedo = { [weak self] in self?.history.redo(); self?.refresh() }
         toolbar.onClear = { [weak self] in self?.history.clear(); self?.refresh() }
         toolbar.onReselect = { [weak self] in self?.onReselect?() }
-        toolbar.onCancel = { [weak self] in self?.onCancel?() }
         toolbar.onCopy = { [weak self] in self?.export(save: false) }
         toolbar.onSave = { [weak self] in self?.export(save: true) }
         return toolbar
@@ -108,7 +122,12 @@ import NebulaCore
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        background.draw(in: bounds, from: .zero, operation: .copy, fraction: 1, respectFlipped: true, hints: nil)
+        if let background {
+            background.draw(in: bounds, from: .zero, operation: .copy, fraction: 1, respectFlipped: true, hints: nil)
+        } else {
+            NSColor.clear.setFill()
+            dirtyRect.fill(using: .copy)
+        }
         let shade = NSBezierPath(rect: bounds)
         if let selection { shade.appendRect(selection); shade.windingRule = .evenOdd }
         NSColor.black.withAlphaComponent(0.48).setFill()
@@ -139,22 +158,30 @@ import NebulaCore
     }
 
     private func updateHint() {
+        let sx = screenshot.map { CGFloat($0.width) / bounds.width } ?? pixelScale
+        let sy = screenshot.map { CGFloat($0.height) / bounds.height } ?? pixelScale
         if let selection {
-            let sx = CGFloat(screenshot.width) / bounds.width
-            let sy = CGFloat(screenshot.height) / bounds.height
+            let origin: CGPoint
+            if case .select = interaction, let pointer { origin = CGPoint(x: pointer.x + 18, y: pointer.y + 18) }
+            else { origin = CGPoint(x: max(selection.minX, 10), y: selection.minY >= 36 ? selection.minY - 32 : selection.minY + 10) }
             hint.update("\(Int((selection.width * sx).rounded())) × \(Int((selection.height * sy).rounded())) px",
-                origin: CGPoint(x: min(max(selection.minX, 10), max(10, bounds.width - 180)),
-                                y: selection.minY >= 36 ? selection.minY - 32 : selection.minY + 10))
+                        origin: origin)
+        } else if let pointer {
+            hint.update("\(Int((pointer.x * sx).rounded())), \(Int((pointer.y * sy).rounded()))",
+                        origin: CGPoint(x: pointer.x + 18, y: pointer.y + 18))
         } else {
-            hint.update("拖动选择区域 · 右键 / Esc 取消", origin: CGPoint(x: max(10, bounds.midX - 125), y: 52))
+            hint.isHidden = true
+            return
         }
+        hint.frame.origin.x = min(max(hint.frame.minX, 8), max(8, bounds.width - hint.frame.width - 8))
+        hint.frame.origin.y = min(max(hint.frame.minY, 8), max(8, bounds.height - hint.frame.height - 8))
         hint.isHidden = hasToolbar && !toolbar.isHidden && toolbar.frame.intersects(hint.frame)
     }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let hoverTracking { removeTrackingArea(hoverTracking) }
-        let tracking = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self, userInfo: nil)
+        let tracking = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .cursorUpdate, .activeAlways, .inVisibleRect], owner: self, userInfo: nil)
         addTrackingArea(tracking)
         hoverTracking = tracking
     }
@@ -181,9 +208,29 @@ import NebulaCore
             // Keep the badge reachable while moving from the pin to its minus button.
         } else if let (item, _) = editHandle(at: point) { hoverID = item.id }
         else { hoverID = hitItem(at: point)?.id }
+        updateHint()
+        updatePointerCursor(at: point)
         needsDisplay = true
     }
-    override func mouseExited(with event: NSEvent) { hoverID = nil; pointer = nil; needsDisplay = true }
+    override func mouseEntered(with event: NSEvent) { mouseMoved(with: event) }
+    override func cursorUpdate(with event: NSEvent) { updatePointerCursor(at: point(for: event)) }
+    override func mouseExited(with event: NSEvent) { hoverID = nil; pointer = nil; updateHint(); needsDisplay = true }
+
+    private func updatePointerCursor(at point: CGPoint) {
+        guard window?.isVisible == true else { return }
+        if hasToolbar && !toolbar.isHidden && toolbar.frame.contains(point) { NSCursor.arrow.set(); return }
+        if let selection {
+            if spaceHeld && selection.contains(point) { NSCursor.openHand.set(); return }
+            if let handle = SelectionGeometry.hitHandle(at: point, in: selection) {
+                switch handle {
+                case .left, .right: NSCursor.resizeLeftRight.set(); return
+                case .top, .bottom: NSCursor.resizeUpDown.set(); return
+                default: break
+                }
+            }
+        }
+        CaptureCursor.selection.set()
+    }
 
     private func drawEditingControls(selection: CGRect) {
         let ids = Set([selectedID, hoverID].compactMap { $0 })
@@ -440,13 +487,14 @@ import NebulaCore
         if !history.annotations.contains(where: { $0.id == hoverID }) { hoverID = nil }
         if !history.annotations.contains(where: { $0.id == selectedID }) { selectedID = nil }
         updateHint()
-        if hasToolbar { toolbar.update(tool: tool, ink: ink, lineWidth: lineWidth, history: history) }
+        if hasToolbar { toolbar.update(tool: tool, ink: ink, lineWidth: lineWidth, history: history, canExport: screenshot != nil) }
         needsDisplay = true
         window?.invalidateCursorRects(for: self)
         window?.makeFirstResponder(self)
     }
 
     private func export(save: Bool) {
+        guard let screenshot else { return }
         guard interaction == nil, draft == nil, let selection,
               let bitmap = AnnotationRenderer.export(image: screenshot, canvasSize: bounds.size,
                                                       selection: selection, annotations: history.annotations) else {
@@ -503,7 +551,7 @@ import NebulaCore
     }
 
     override func resetCursorRects() {
-        addCursorRect(bounds, cursor: .crosshair)
+        addCursorRect(bounds, cursor: CaptureCursor.selection)
         guard let selection else { return }
         if spaceHeld {
             addCursorRect(selection, cursor: .openHand)

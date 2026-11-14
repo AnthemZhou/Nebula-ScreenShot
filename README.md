@@ -12,7 +12,7 @@
 
 ## 标注工具条
 
-深色单行工具条，最前方放置 **六个色点**，随后是 **图钉、圆圈 / 方框、直线、箭头、画笔、橡皮擦**。主栏仅显示图标，选中背景与图标居中对齐；悬停提示和辅助功能名称保留。图钉按钮使用与画面相同的水滴形。默认使用 Dots 橙（`#EC603B`）；切换颜色只影响后续标注。**撤销、重做、保存 PNG** 直接位于主栏，粗细和其他操作保留在菜单中。
+深色单行工具条，最前方是 **六个色点**，随后是 **图钉、画笔、橡皮擦、形状与设置、撤销、重做、保存 PNG、确认**。**圆圈、圆角方框、直线、箭头** 收入滑杆图标的菜单，粗细、重选和清空也在这里；不再显示省略号和叉号按钮。主栏仅显示图标，确认按钮缩小，选中背景与图标居中对齐。图钉按钮使用与画面相同的水滴形。默认使用 Dots 橙（`#EC603B`）；切换颜色只影响后续标注。按 **Esc** 或在画布空白处右键单击退出截图。
 
 ![实际标注工具条的离屏渲染](docs/toolbar.png)
 
@@ -35,8 +35,8 @@
 ## 功能
 
 - 全局快捷键 **⌃⇧⌘5** 直接截图，与菜单栏入口；使用独占注册，避免多个 Carbon 快捷键监听者同时响应。
-- 已授权时预加载显示器过滤信息，截图时复用这些信息并为各显示器并发请求当前画面；不缓存旧截图、不在后台持续录屏。选区完成后才创建工具条，减少进入截图时的初始化工作。
-- 进入截图时立即显示选区界面与静态暗色遮罩，没有渐变或窗口动画；拖动选择屏幕区域，原地显示悬浮标注工具条。
+- 已授权时预加载显示器过滤信息，截图时复用安全的过滤信息并为各显示器并发请求当前画面；必须排除 Nebula 自身窗口，避免把先出现的遮罩截进图片。不缓存旧截图、不在后台持续录屏。选区完成后才创建工具条，减少进入截图时的初始化工作。
+- 按下快捷键先立即显示可拖选的静态暗色遮罩和十字准星，再准备当前截图；画面就绪时原位更新，已开始的拖选不受影响。没有渐变或窗口动画，截图就绪前暂不可复制或保存。
 - 标注工具：编号图钉、圆圈 / 圆角虚线方框、直线、箭头、手动画笔，以及橡皮擦。
 - **连续编号图钉**：在选区内依次点击，生成 1、2、3……；水滴形图钉使用白色边框与白色数字，尖角精确落在点击位置。图钉随当前选区大小缩放，靠近边缘时自动避让；每张新截图从 1 开始。
 - 鼠标悬停图钉时显示「−」删除按钮；删除后，其余图钉按创建顺序连续编号。悬停线条、箭头或图框会显示编辑控制点；拖动控制点调整端点 / 大小，拖动边线平移整个标注。
@@ -85,7 +85,7 @@
 
 1. 按 **⌃⇧⌘5** 或点击菜单栏「区域截图」。
 2. 按住鼠标拖出截图区域，松开后出现工具条。
-3. 默认点击打钉、左键拖圆角方框、右键拖直线。可从工具条选择颜色、圆圈或箭头。拖动选区边缘继续调整，已有标记不会清空。
+3. 默认点击打钉、左键拖圆角方框、右键拖直线。颜色在工具条前方；圆圈、方框、直线、箭头位于滑杆图标菜单。拖动选区边缘继续调整，已有标记不会清空。
 4. 点击工具条右侧的 **勾号（确认）**，或按 **Enter / ⌘C**，截图即复制到剪贴板并结束编辑，可直接 **⌘V** 粘贴。需要文件时，点击主栏 **保存图标（向下箭头）** 或按 **⌘S**。
 
 | 操作 | 快捷键 |
@@ -171,4 +171,4 @@ Copyright © 2026 Nebula ScreenShot contributors.
 
 ---
 
-**English:** Nebula ScreenShot is a native, local-only macOS menu bar screenshot annotator. Press Control–Shift–Command–5 to capture directly, select a region, then use the compact icon-only dark toolbar for numbered pins, ellipses/rectangles, lines and arrows. Click the checkmark or press Enter to copy the annotated image to the clipboard by default. Six color dots lead the toolbar, with Dots orange as the default; Save PNG is directly accessible. Click to pin, left-drag to draw a rounded rectangle in pin mode, and right-drag to draw a line. Pins scale with the crop, have white outlines/numbers and an exact-position teardrop tip. Hover to delete a pin and renumber the others, or edit shape endpoints and bounds. Rectangles use thin 2 pt rounded dashed borders. The eraser removes only brushed regions of freehand strokes and whole objects for other annotation types; each sweep supports undo/redo. Resize the selection using its edges, or Space-drag to move it while keeping annotations in place. Right-click the canvas to cancel. The capture interface and static selection shade appear immediately, with no fade or window animation. Display-filter metadata is reused and toolbar creation is deferred; every capture still requests fresh pixels, without background recording. The compact About window uses only black, white and neutral gray. Requires macOS 14+. The global shortcut uses exclusive registration; if the system screenshot panel still appears, adjust the conflicting system binding. Permission requests use the native macOS prompt without a duplicate in-app alert. A temporary helper restores the app and hotkey after consent, reuses any instance macOS has already reopened, and respects explicit quit, force quit and logout. A changed ad-hoc build can repair its own stale screen-permission record once after a real denial, then relaunch for native consent; later denials do not trigger repeated resets. The app is ad-hoc signed and not notarized. Licensed under GPL-3.0-only.
+**English:** Nebula ScreenShot is a native, local-only macOS menu bar screenshot annotator. Press Control–Shift–Command–5 to capture directly, select a region, then use the compact icon-only dark toolbar for pins, pen and eraser; ellipses, rectangles, lines and arrows are available in the slider menu alongside width, reselect and clear. The ellipsis and cancel buttons are removed and confirmation is smaller. Click the checkmark or press Enter to copy the annotated image to the clipboard by default. Six color dots lead the toolbar, with Dots orange as the default; Save PNG is directly accessible. Click to pin, left-drag to draw a rounded rectangle in pin mode, and right-drag to draw a line. Pins scale with the crop, have white outlines/numbers and an exact-position teardrop tip. Hover to delete a pin and renumber the others, or edit shape endpoints and bounds. Rectangles use thin 2 pt rounded dashed borders. The eraser removes only brushed regions of freehand strokes and whole objects for other annotation types; each sweep supports undo/redo. Resize the selection using its edges, or Space-drag to move it while keeping annotations in place. Right-click the canvas to cancel. An interactive translucent shade and a high-contrast crosshair appear before screenshot acquisition, with pointer-following coordinates and no fade or window animation. Fresh pixels replace the background in place without interrupting a drag; export stays disabled until they arrive. The capture filter must exclude Nebula itself so the shade never enters exported pixels. Display-filter metadata is reused and toolbar creation is deferred; every capture still requests fresh pixels, without background recording. The compact About window uses only black, white and neutral gray. Requires macOS 14+. The global shortcut uses exclusive registration; if the system screenshot panel still appears, adjust the conflicting system binding. Permission requests use the native macOS prompt without a duplicate in-app alert. A temporary helper restores the app and hotkey after consent, reuses any instance macOS has already reopened, and respects explicit quit, force quit and logout. A changed ad-hoc build can repair its own stale screen-permission record once after a real denial, then relaunch for native consent; later denials do not trigger repeated resets. The app is ad-hoc signed and not notarized. Licensed under GPL-3.0-only.
