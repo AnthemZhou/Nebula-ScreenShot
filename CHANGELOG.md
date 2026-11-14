@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.2 — 2026-11-14
+
+- Fix a permission-relaunch race where LaunchServices briefly lists the exited parent as running, causing the helper to incorrectly report that macOS has already reopened the app.
+- Exclude the exited parent and helper from replacement candidates, verify that the replacement PID is alive, and retry a stale launch result within a bounded handoff. Keep normal single-instance launching.
+- Add a regression check for the stale-parent result seen on the desktop and an isolated LaunchServices fixture that primes the app list before exit and verifies ten actual relaunches.
+
 ## 1.0.1 — 2026-11-14
 
 - Automatically restore the app and capture hotkey after native screen-recording consent. Arm a temporary same-bundle helper before requesting consent, and restart once when access becomes available while the old process remains alive.

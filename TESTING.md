@@ -24,9 +24,11 @@ Run `swift test`, `./scripts/check-interactions.sh`, and `./scripts/check-relaun
 
 ## Permission relaunch
 
+- In an interactive macOS session, run `python3 scripts/check-launchservices.py` for ten actual LaunchServices handoffs using a temporary, uniquely identified fixture app. The helper's application list is primed before parent exit to exercise stale records. It does not launch Nebula, request screen access, change permissions or post input; it removes its temporary bundle and registration afterward.
 - Test a fresh request and an ad-hoc upgrade repair. The helper must be ready before the native prompt. Grant access and let macOS quit Nebula; without Finder/open/manual relaunch, expect exactly one menu-bar instance and a working ⌃⇧⌘5.
 - Grant access while leaving the old process running. On a denied-to-granted preflight transition, expect one automatic restart into normal operation, without another consent prompt or an automatic screenshot.
 - If macOS has already reopened Nebula, the helper must reuse that instance. It must not create an extra application instance, register a hotkey itself, or open About.
+- Keep a stale LaunchServices entry for the just-exited parent: it must never count as a successful relaunch, even if the entry still says running. Verify a distinct live PID in the handoff log. A stale open completion must retry within the bounded handoff instead of reporting success.
 - Deny access, explicitly Quit through Nebula’s menu / Command–Q, force quit, or log out while waiting: do not resurrect the app. The helper checks clean exit status, current consent and a single-use cancellation token before launch. A successful capture cancels any pending watcher. No login item or launch agent is installed.
 - The native helper waits at most 10 minutes during consent (15 seconds during the explicit repair restart). Cancellation and timeout must remove temporary handoff files. A later Settings activation can resume the app-side permission check, but there is no perpetual helper or restart loop.
 - Inspect Permission logs for native-request readiness, handoff, launch success/reuse and restored hotkey status. The unit and process suites cover policy and normal/signal/cancel/timeout exits without changing real permissions; the OS prompt and real hotkey require a desktop check.

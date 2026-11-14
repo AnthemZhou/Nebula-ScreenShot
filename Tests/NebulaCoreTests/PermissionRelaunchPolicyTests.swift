@@ -36,3 +36,18 @@ import Testing
     #expect(!PermissionRelaunchPolicy.isCleanExit(15))
     #expect(!PermissionRelaunchPolicy.isCleanExit(1 << 8))
 }
+
+@Test func staleLaunchServicesParentIsNotASuccessfulRelaunch() {
+    // Reproduce a cleanly exited parent whose cached application entry still says running.
+    let oldPID: Int32 = 50531, helperPID: Int32 = 55245, newPID: Int32 = 55246
+    #expect(!PermissionRelaunchPolicy.isReplacementProcess(oldPID, exitedPID: oldPID,
+        helperPID: helperPID, isTerminated: false, isAlive: true))
+    #expect(!PermissionRelaunchPolicy.isReplacementProcess(helperPID, exitedPID: oldPID,
+        helperPID: helperPID, isTerminated: false, isAlive: true))
+    #expect(!PermissionRelaunchPolicy.isReplacementProcess(newPID, exitedPID: oldPID,
+        helperPID: helperPID, isTerminated: false, isAlive: false))
+    #expect(!PermissionRelaunchPolicy.isReplacementProcess(newPID, exitedPID: oldPID,
+        helperPID: helperPID, isTerminated: true, isAlive: true))
+    #expect(PermissionRelaunchPolicy.isReplacementProcess(newPID, exitedPID: oldPID,
+        helperPID: helperPID, isTerminated: false, isAlive: true))
+}

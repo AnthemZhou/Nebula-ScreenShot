@@ -85,23 +85,49 @@ import NebulaCore
         try? FileManager.default.removeItem(at: token)
         try? FileManager.default.removeItem(at: ready)
         let application = Bundle.main.bundleURL.resolvingSymlinksInPath()
-        let existing = NSWorkspace.shared.runningApplications.contains {
-            $0.processIdentifier != ProcessInfo.processInfo.processIdentifier && !$0.isTerminated &&
-            $0.bundleIdentifier == bundleIdentifier && $0.bundleURL?.resolvingSymlinksInPath() == application
+        Task { @MainActor in exit(await reopen(application: application, exitedPID: pid, mode: mode)) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 15) {
+            logger.error("Permission relaunch timed out without a verified replacement process")
+            exit(1)
         }
-        if existing { logger.notice("Permission relaunch already handled by macOS"); return 0 }
+        RunLoop.main.run()
+        return 1
+    }
+
+    private static func isReplacement(_ app: NSRunningApplication, application: URL, exitedPID: Int32) -> Bool {
+        PermissionRelaunchPolicy.isReplacementProcess(app.processIdentifier, exitedPID: exitedPID,
+            helperPID: ProcessInfo.processInfo.processIdentifier, isTerminated: app.isTerminated,
+            isAlive: kill(app.processIdentifier, 0) == 0) &&
+            app.bundleIdentifier == bundleIdentifier && app.bundleURL?.resolvingSymlinksInPath() == application
+    }
+
+    private static func reopen(application: URL, exitedPID: Int32, mode: Mode) async -> Int32 {
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.createsNewApplicationInstance = false
         configuration.activates = mode == .requestPermission
         configuration.arguments = [mode.rawValue]
-        let logger = self.logger
-        NSWorkspace.shared.openApplication(at: application, configuration: configuration) { _, error in
-            if let error { logger.error("Permission relaunch failed: \(error.localizedDescription, privacy: .public)") }
-            else { logger.notice("Application reopened after permission handoff") }
-            exit(error == nil ? 0 : 1)
+        // Both the workspace list and an open completion can briefly contain the old PID.
+        // Let LaunchServices process termination before retrying; never force a duplicate instance.
+        for attempt in 1...4 {
+            if let existing = NSWorkspace.shared.runningApplications.first(where: {
+                isReplacement($0, application: application, exitedPID: exitedPID)
+            }) {
+                logger.notice("Permission relaunch reused live process: \(existing.processIdentifier, privacy: .public); previous: \(exitedPID, privacy: .public)")
+                return 0
+            }
+            do {
+                let opened = try await NSWorkspace.shared.openApplication(at: application, configuration: configuration)
+                if isReplacement(opened, application: application, exitedPID: exitedPID) {
+                    logger.notice("Application reopened after permission handoff; new PID: \(opened.processIdentifier, privacy: .public); previous: \(exitedPID, privacy: .public)")
+                    return 0
+                }
+                logger.notice("LaunchServices returned an old or unavailable process; retry: \(attempt, privacy: .public)")
+            } catch {
+                logger.error("Permission relaunch attempt \(attempt, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
+            }
+            if attempt < 4 { try? await Task.sleep(for: .milliseconds(250)) }
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 15) { exit(1) }
-        RunLoop.main.run()
+        logger.error("Permission relaunch failed: no live replacement process")
         return 1
     }
 

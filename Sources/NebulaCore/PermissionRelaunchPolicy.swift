@@ -30,4 +30,11 @@ public struct PermissionRelaunchPolicy {
 
     /// kqueue NOTE_EXITSTATUS supplies a wait(2) status. Force quit/signals must stay quit.
     public static func isCleanExit(_ status: Int) -> Bool { status == 0 }
+
+    /// LaunchServices may still report the exited parent as running for a short time.
+    /// A successful handoff requires a different, live application process.
+    public static func isReplacementProcess(_ pid: Int32, exitedPID: Int32, helperPID: Int32,
+                                            isTerminated: Bool, isAlive: Bool) -> Bool {
+        pid > 1 && pid != exitedPID && pid != helperPID && !isTerminated && isAlive
+    }
 }
