@@ -310,7 +310,7 @@ import Carbon
         let frontmost = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         let ending = sessionEnding || reason.map { endReasons.contains($0) } == true || origin == "com.apple.loginwindow"
         func isSettings(_ id: String?) -> Bool {
-            id?.hasPrefix("com.apple.systempreferences") == true || id?.hasPrefix("com.apple.systemsettings") == true
+            PermissionRelaunchPolicy.isSystemSettings(id)
         }
         let consentService = ["com.apple.coreservices.uiagent", "com.apple.SecurityAgent"].contains(origin ?? "")
         let settingsQuit = isSettings(origin) || consentService ||

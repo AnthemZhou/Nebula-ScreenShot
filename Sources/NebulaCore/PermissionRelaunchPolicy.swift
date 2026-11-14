@@ -31,6 +31,14 @@ public struct PermissionRelaunchPolicy {
     /// kqueue NOTE_EXITSTATUS supplies a wait(2) status. Force quit/signals must stay quit.
     public static func isCleanExit(_ status: Int) -> Bool { status == 0 }
 
+    /// Recent macOS versions send the consent quit from the Privacy & Security extension.
+    public static func isSystemSettings(_ identifier: String?) -> Bool {
+        guard let identifier else { return false }
+        return identifier == "com.apple.settings.PrivacySecurity.extension" ||
+            identifier.hasPrefix("com.apple.systempreferences") ||
+            identifier.hasPrefix("com.apple.systemsettings")
+    }
+
     /// LaunchServices may still report the exited parent as running for a short time.
     /// A successful handoff requires a different, live application process.
     public static func isReplacementProcess(_ pid: Int32, exitedPID: Int32, helperPID: Int32,

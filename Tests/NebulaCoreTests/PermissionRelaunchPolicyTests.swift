@@ -51,3 +51,18 @@ import Testing
     #expect(PermissionRelaunchPolicy.isReplacementProcess(newPID, exitedPID: oldPID,
         helperPID: helperPID, isTerminated: false, isAlive: true))
 }
+
+@Test func privacySecurityExtensionKeepsTheConsentHandoffArmed() {
+    var policy = PermissionRelaunchPolicy()
+    policy.begin(granted: false)
+    for origin in ["com.apple.settings.PrivacySecurity.extension", "com.apple.systempreferences",
+                   "com.apple.systemsettings"] {
+        let settingsQuit = PermissionRelaunchPolicy.isSystemSettings(origin)
+        #expect(policy.preserveForQuit(explicitQuit: false, sessionEnding: false, settingsQuit: settingsQuit))
+        #expect(!policy.preserveForQuit(explicitQuit: true, sessionEnding: false, settingsQuit: settingsQuit))
+        #expect(!policy.preserveForQuit(explicitQuit: false, sessionEnding: true, settingsQuit: settingsQuit))
+    }
+    #expect(!PermissionRelaunchPolicy.isSystemSettings("com.apple.Terminal"))
+    #expect(!PermissionRelaunchPolicy.isSystemSettings("com.apple.settings.Unrelated.extension"))
+    #expect(!PermissionRelaunchPolicy.isSystemSettings(nil))
+}
