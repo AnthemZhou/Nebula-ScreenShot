@@ -33,7 +33,7 @@
 要求 **macOS 14 Sonoma 或更新版本**。Universal 发布包包含 Apple Silicon 和 Intel 两种架构。
 
 1. 从 [Releases](https://github.com/AnthemZhou/Nebula-ScreenShot/releases) 下载 ZIP 并解压。
-2. 将 **Nebula ScreenShot.app** 拖入「应用程序」文件夹，再打开。
+2. 将 **Nebula ScreenShot.app** 拖入「应用程序」文件夹（或 `~/Applications`），再打开。请使用固定目录中的这一份应用，不要从同步的源码 / `dist` 目录长期运行。
 3. 应用常驻菜单栏，关闭说明窗口不会退出应用。
 
 首版采用 ad-hoc 签名，**尚未经过 Apple Developer ID 签名与公证**。从网络下载后，macOS 可能阻止首次打开。确认来源后，可在「系统设置 → 隐私与安全性」中使用「仍要打开」，也可在本机从源码构建。不需要关闭 Gatekeeper。
@@ -41,6 +41,10 @@
 ### 首次设置
 
 **屏幕权限**：打开「系统设置 → 隐私与安全性 → 屏幕与系统音频录制」（部分系统称「屏幕录制」），允许 Nebula ScreenShot。若系统要求，请退出并重新打开应用。应用只请求画面捕获，不录制音频。
+
+**开关已开，却反复提示权限**：预览版使用 ad-hoc 签名，更新后系统可能仍保存旧版的签名授权；仅切换开关不能保证清除旧记录。请使用菜单栏 →「设置」→「重新授权屏幕录制…」，确认后应用只清除 **Nebula 自己的屏幕录制授权**，重新启动并请求授权。允许当前版本后再截图。也可在权限失败提示中点击「重新授权」。不会修改其他应用的权限。
+
+正式的跨版本授权需要稳定的 Apple 代码签名身份；固定安装目录本身不能消除 ad-hoc 签名变化。[Apple 对此问题的说明](https://developer.apple.com/forums/thread/819406)。
 
 **快捷键检查**：默认快捷键为 **⌃⇧⌘5**，应用以独占方式注册。部分 macOS 配置会将它作为系统截屏快捷键的变体保留；出现在系统保留列表中，并不等于注册失败。菜单栏 →「设置」→「重新检测快捷键」会显示实际注册结果；其他应用独占此组合时，退出该应用后可重新检测。
 
@@ -91,7 +95,16 @@ open "dist/Nebula ScreenShot.app"
 ./scripts/package.sh --universal
 ```
 
-输出位于 `dist/`，包含 ZIP 和 SHA-256 校验文件。默认 ad-hoc 签名；可通过 `CODE_SIGN_IDENTITY` 指定自己的签名身份。Developer ID 正式分发还需自行配置 hardened runtime、notarization 与 stapling；此脚本不宣称完成公证。
+输出位于 `dist/`，包含 ZIP 和 SHA-256 校验文件。默认 ad-hoc 签名；可通过 `CODE_SIGN_IDENTITY` 指定自己的签名身份。本地开发应使用固定的 Apple Development 身份，以便跨构建保持 TCC 授权；面向用户的发行应使用 Developer ID Application。Developer ID 正式分发还需自行配置 hardened runtime、notarization 与 stapling；此脚本不宣称完成公证。
+
+实际权限验证请从最终 ZIP 安装后，通过 Finder / `open` 启动 `.app`。直接运行包内二进制可能让权限归属启动它的终端或开发工具，不能据此判断应用本身是否获准。应用记录截图请求、选区就绪及错误 domain/code，不记录屏幕内容：
+
+```sh
+open "$HOME/Applications/Nebula ScreenShot.app" --args --capture
+log show --last 5m --style compact --predicate 'subsystem == "io.github.anthemzhou.NebulaScreenShot" AND category == "Capture"'
+```
+
+`--capture` 在应用启动时直接开始一次截图；应用已运行时请使用快捷键。更新后若需命令行恢复，只重置此应用：`tccutil reset ScreenCapture io.github.anthemzhou.NebulaScreenShot`，然后重新启动并授权。
 
 示例画布与可重现的渲染预览：
 

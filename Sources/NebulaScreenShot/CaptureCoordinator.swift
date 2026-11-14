@@ -3,6 +3,7 @@ import AppKit
 import ScreenCaptureKit
 import UniformTypeIdentifiers
 import NebulaCore
+import OSLog
 
 @MainActor final class CapturePanel: NSPanel {
     override var canBecomeKey: Bool { true }
@@ -10,6 +11,7 @@ import NebulaCore
 }
 
 @MainActor final class CaptureCoordinator {
+    private let logger = Logger(subsystem: "io.github.anthemzhou.NebulaScreenShot", category: "Capture")
     private var panels: [CapturePanel] = []
     private var captureTask: Task<Void, Never>?
     private var sessionID: UUID?
@@ -21,10 +23,8 @@ import NebulaCore
 
     func begin(demo: Bool = false, afterMenuDismissal: Bool = false) {
         guard !isActive else { return }
-        if !demo && !(CGPreflightScreenCaptureAccess() || CGRequestScreenCaptureAccess()) {
-            onPermissionNeeded?()
-            return
-        }
+        // Let ScreenCaptureKit report its actual authorization result. A separate
+        // Core Graphics preflight must not prevent this call or substitute for it.
         isActive = true
         let session = UUID()
         sessionID = session
@@ -40,6 +40,7 @@ import NebulaCore
                         DemoArtwork.image(size: screen.frame.size, scale: screen.backingScaleFactor).map { (screen, $0) }
                     }
                 } else {
+                    self.logger.notice("ScreenCaptureKit capture requested")
                     let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
                     let ownApps = content.applications.filter { $0.processID == ProcessInfo.processInfo.processIdentifier }
                     var captures: [(NSScreen, CGImage)] = []
@@ -62,12 +63,19 @@ import NebulaCore
                 try Task.checkCancellation()
                 guard self.sessionID == session else { return }
                 self.present(snapshots)
+                if !demo { self.logger.notice("Screenshot selection ready; displays: \(snapshots.count, privacy: .public)") }
             } catch is CancellationError {
                 if self.sessionID == session { self.finish() }
             } catch {
                 guard self.sessionID == session else { return }
                 self.finish()
-                self.onError?("无法截取屏幕：\(error.localizedDescription)\n请检查系统设置中的屏幕录制权限。")
+                let failure = error as NSError
+                self.logger.error("Capture failed: \(failure.domain, privacy: .public) (\(failure.code, privacy: .public))")
+                if ScreenCaptureFailure.isPermissionDenied(error) {
+                    self.onPermissionNeeded?()
+                } else {
+                    self.onError?("无法截取屏幕：\(error.localizedDescription)\n\(failure.domain) (\(failure.code))")
+                }
             }
         }
     }

@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.4 — 2026-11-14
+
+- Fix the permission recovery loop after an ad-hoc signed update: add an explicit action that resets only Nebula's ScreenCapture record and relaunches the same installed app for fresh authorization.
+- Attempt ScreenCaptureKit directly and classify its actual authorization error; unrelated capture failures retain their real error domain/code.
+- Opening Screen Recording settings no longer issues a duplicate Core Graphics permission request.
+- Prevent overlapping permission dialogs and add content-free capture lifecycle diagnostics.
+- Add regression tests for NSError-based ScreenCaptureKit permission classification and document stable installation / code signing requirements.
+
+## 0.1.3 — 2026-11-14
+
+- Use a compact monochrome About window with a keyboard-accessible close button.
+- Register the capture shortcut exclusively, validate event identities, and report actual registration results.
+- Remove the fixed menu-dismissal delay from the shortcut capture path.
+
 ## 0.1.2 — 2026-11-14
 
 - Reduce the About window to the app name, capture shortcut and bundle version in a compact centered layout.

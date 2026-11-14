@@ -6,6 +6,7 @@ import AppKit
     private let hotKey = HotKey()
     private let capture = CaptureCoordinator()
     private var welcome: WelcomeWindow?
+    private var permissionFlowActive = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -23,6 +24,8 @@ import AppKit
                                                name: NSApplication.didChangeScreenParametersNotification, object: nil)
         if CommandLine.arguments.contains("--demo") {
             capture.begin(demo: true)
+        } else if CommandLine.arguments.contains("--capture") {
+            capture.begin()
         } else if !UserDefaults.standard.bool(forKey: "hasLaunched") {
             UserDefaults.standard.set(true, forKey: "hasLaunched")
             showWelcome()
@@ -55,6 +58,7 @@ import AppKit
         let settingsItem = NSMenuItem(title: "设置", action: nil, keyEquivalent: "")
         let settings = NSMenu()
         settings.addItem(withTitle: "屏幕录制权限…", action: #selector(openScreenPermission), keyEquivalent: "")
+        settings.addItem(withTitle: "重新授权屏幕录制…", action: #selector(reauthorizeScreenPermission), keyEquivalent: "")
         settings.addItem(withTitle: "键盘快捷键设置…", action: #selector(openKeyboardSettings), keyEquivalent: "")
         settings.addItem(withTitle: "重新检测快捷键…", action: #selector(checkShortcut), keyEquivalent: "")
         for item in settings.items { item.target = self }
@@ -74,17 +78,20 @@ import AppKit
     }
 
     @objc private func beginCapture() {
+        guard !permissionFlowActive else { return }
         welcome?.window?.orderOut(nil)
         capture.begin(afterMenuDismissal: true)
     }
 
     private func captureFromShortcut() {
+        guard !permissionFlowActive else { return }
         statusItem.menu?.cancelTracking()
         welcome?.window?.orderOut(nil)
         capture.begin()
     }
 
     @objc private func beginDemo() {
+        guard !permissionFlowActive else { return }
         welcome?.window?.orderOut(nil)
         capture.begin(demo: true, afterMenuDismissal: true)
     }
@@ -98,7 +105,6 @@ import AppKit
     }
 
     @objc private func openScreenPermission() {
-        if !CGPreflightScreenCaptureAccess() { CGRequestScreenCaptureAccess() }
         NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
     }
 
@@ -127,13 +133,56 @@ import AppKit
     }
 
     private func showPermissionHelp() {
+        guard !permissionFlowActive else { return }
+        permissionFlowActive = true
         let alert = NSAlert()
         alert.messageText = "需要屏幕录制权限"
-        alert.informativeText = "在系统设置中允许 Nebula ScreenShot 后重试；如系统要求，请重新打开应用。"
+        alert.informativeText = "请在系统设置中允许 Nebula ScreenShot。若开关已打开仍无法截图，“重新授权”会仅清除 Nebula 的旧屏幕录制记录，重启后再次请求授权。"
         alert.addButton(withTitle: "打开设置")
-        alert.addButton(withTitle: "稍后")
+        alert.addButton(withTitle: "重新授权")
+        alert.addButton(withTitle: "稍后").keyEquivalent = "\u{1b}"
         NSApp.activate(ignoringOtherApps: true)
-        if alert.runModal() == .alertFirstButtonReturn { openScreenPermission() }
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            permissionFlowActive = false
+            openScreenPermission()
+        case .alertSecondButtonReturn:
+            recoverScreenPermission()
+        default:
+            permissionFlowActive = false
+        }
+    }
+
+    @objc private func reauthorizeScreenPermission() {
+        guard !permissionFlowActive, !capture.isActive else { return }
+        permissionFlowActive = true
+        let alert = NSAlert()
+        alert.messageText = "重新授权屏幕录制？"
+        alert.informativeText = "仅清除 Nebula ScreenShot 的旧屏幕录制授权记录，并重新启动当前应用。系统随后会再次请求授权。其他应用的权限不受影响。"
+        alert.addButton(withTitle: "重新授权")
+        alert.addButton(withTitle: "取消")
+        NSApp.activate(ignoringOtherApps: true)
+        if alert.runModal() == .alertFirstButtonReturn {
+            recoverScreenPermission()
+        } else {
+            permissionFlowActive = false
+        }
+    }
+
+    /// The caller keeps the permission flow locked after the user's explicit recovery action.
+    private func recoverScreenPermission() {
+        statusItem.button?.toolTip = "正在重新授权屏幕录制…"
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                try await ScreenPermissionRecovery.resetAndPrepareRelaunch()
+                NSApp.terminate(nil)
+            } catch {
+                self.restoreStatusIcon()
+                self.showError(error.localizedDescription)
+                self.permissionFlowActive = false
+            }
+        }
     }
 
     @objc private func openHelp() { NSWorkspace.shared.open(URL(string: "https://github.com/AnthemZhou/Nebula-ScreenShot#使用")!) }
