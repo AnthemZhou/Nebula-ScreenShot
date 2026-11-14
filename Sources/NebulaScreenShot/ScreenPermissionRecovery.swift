@@ -4,7 +4,7 @@ import Foundation
 enum ScreenPermissionRecovery {
     private static let bundleIdentifier = "io.github.anthemzhou.NebulaScreenShot"
 
-    /// Invoked only after the user explicitly chooses to reset this app's permission.
+    /// Invoked by explicit repair, or once after an ad-hoc upgrade's actual capture denial.
     /// Returns once the relaunch helper has started; the caller can then quit safely.
     static func resetAndPrepareRelaunch() async throws {
         let bundle = Bundle.main
@@ -73,7 +73,7 @@ enum ScreenPermissionRecovery {
         /bin/sleep 0.1
         attempts=$((attempts + 1))
     done
-    exec /usr/bin/open -n "$app_path" --args --capture
+    exec /usr/bin/open -n "$app_path" --args --request-screen-permission
     """
 
     private enum RecoveryError: LocalizedError {

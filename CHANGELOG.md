@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.9 — 2026-11-14
+
+- Remove the duplicate in-app screen-recording permission alert. Wait for native consent; further user retries open Settings without another app modal or an automatic capture loop.
+- Track the installed code signature. After an existing installation changes ad-hoc identity and a real capture is denied, repair only Nebula’s ScreenCapture record once and relaunch into native-consent mode. Persist the claim before reset/relaunch; successful capture cancels it, and later denials of the same signature never auto-reset again. Fresh installations and certificate-signed builds skip automatic repair.
+- Expose one-click permission repair in the main menu after a denial; remove the redundant repair confirmation. Relaunch directly into the native request instead of capturing first.
+- Add regression coverage for first installs, legacy upgrades, stable certificates, success without reset, denial/relaunch loop prevention and native-only prompt actions.
+
 ## 0.1.8 — 2026-11-14
 
 - Preload and reuse display-filter metadata when already authorized, capture fresh pixels concurrently across displays, and defer toolbar construction until a region is selected. Reduce the dim-only entry fade from 180 to 60 ms. Add metadata/pixel/panel timing diagnostics without logging screen content.

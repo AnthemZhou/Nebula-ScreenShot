@@ -65,9 +65,11 @@
 
 **屏幕权限**：打开「系统设置 → 隐私与安全性 → 屏幕与系统音频录制」（部分系统称「屏幕录制」），允许 Nebula ScreenShot。若系统要求，请退出并重新打开应用。应用只请求画面捕获，不录制音频。
 
-首次截图或打开屏幕录制设置时，应用会在需要时显式请求一次系统授权。如果列表仍没有 Nebula，点击列表底部「＋」，选择实际安装的 `Nebula ScreenShot.app`；安装在 `~/Applications` 时，可在文件选择窗口按 ⇧⌘G 输入该目录。[Apple 添加应用说明](https://support.apple.com/guide/mac-help/control-access-screen-system-audio-recording-mchld6aa7d23/mac)。
+首次截图被系统拒绝时，应用只发起一次原生授权请求，**不再叠加“需要屏幕录制权限”的应用提示框**。等待系统授权后，再按快捷键；若系统要求退出并重新打开，请按系统提示操作。
 
-**开关已开，却反复提示权限**：预览版使用 ad-hoc 签名，更新后系统可能仍保存旧版的签名授权；仅切换开关不能保证清除旧记录。请使用菜单栏 →「设置」→「重新授权屏幕录制…」，确认后应用只清除 **Nebula 自己的屏幕录制授权**，重新启动并请求授权。允许当前版本后再截图。也可在权限失败提示中点击「重新授权」。不会修改其他应用的权限。
+**开关已开，却仍被拒绝**：预览版使用 ad-hoc 签名，更新会改变代码身份，系统可能仍保存旧版本的授权。v0.1.9 会记住实际签名身份：已安装用户升级后，只有真正截图被拒绝时，才自动清除 **Nebula 自己的 ScreenCapture 记录一次**，重新启动并发起原生授权。成功截图会取消这次修复；同一签名后续被拒绝不会反复重置。首次安装和稳定证书签名不使用这条自动修复流程。
+
+出现授权失败时，菜单栏主菜单会提供 **“修复屏幕录制授权…”**，设置中也保留“重新授权屏幕录制…”。选择后会直接清除 Nebula 的旧记录、重启并请求原生授权，不再要求手动用「＋」重新添加，也不叠加确认框。系统的“允许”仍须用户操作；其他应用的权限不受影响。如果系统列表本身异常，可最后尝试[手动添加当前安装的应用](https://support.apple.com/guide/mac-help/control-access-screen-system-audio-recording-mchld6aa7d23/mac)。
 
 正式的跨版本授权需要稳定的 Apple 代码签名身份；固定安装目录本身不能消除 ad-hoc 签名变化。[Apple 对此问题的说明](https://developer.apple.com/forums/thread/819406)。
 
@@ -131,7 +133,7 @@ open "dist/Nebula ScreenShot.app"
 
 输出位于 `dist/`，包含 ZIP 和 SHA-256 校验文件。默认 ad-hoc 签名；可通过 `CODE_SIGN_IDENTITY` 指定自己的签名身份。本地开发应使用固定的 Apple Development 身份，以便跨构建保持 TCC 授权；面向用户的发行应使用 Developer ID Application。Developer ID 正式分发还需自行配置 hardened runtime、notarization 与 stapling；此脚本不宣称完成公证。
 
-实际权限验证请从最终 ZIP 安装后，通过 Finder / `open` 启动 `.app`。直接运行包内二进制可能让权限归属启动它的终端或开发工具，不能据此判断应用本身是否获准。应用记录截图请求、选区就绪及错误 domain/code，不记录屏幕内容：
+实际权限验证请从最终 ZIP 安装后，通过 Finder / `open` 启动 `.app`。直接运行包内二进制可能让权限归属启动它的终端或开发工具，不能据此判断应用本身是否获准。应用记录截图请求、选区就绪、一次性授权修复及错误 domain/code，不记录屏幕内容：
 
 ```sh
 open "$HOME/Applications/Nebula ScreenShot.app" --args --capture
@@ -167,4 +169,4 @@ Copyright © 2026 Nebula ScreenShot contributors.
 
 ---
 
-**English:** Nebula ScreenShot is a native, local-only macOS menu bar screenshot annotator. Press Control–Shift–Command–5 to capture directly, select a region, then use the compact icon-only dark toolbar for numbered pins, ellipses/rectangles, lines and arrows. Click the checkmark or press Enter to copy the annotated image to the clipboard by default. Six color dots lead the toolbar, with Dots orange as the default; Save PNG is directly accessible. Click to pin, left-drag to draw a rounded rectangle in pin mode, and right-drag to draw a line. Pins scale with the crop, have white outlines/numbers and an exact-position teardrop tip. Hover to delete a pin and renumber the others, or edit shape endpoints and bounds. Rectangles use thin 2 pt rounded dashed borders. The eraser removes only brushed regions of freehand strokes and whole objects for other annotation types; each sweep supports undo/redo. Resize the selection using its edges, or Space-drag to move it while keeping annotations in place. Right-click the canvas to cancel. Only the dim overlay fades on entry, over 60 ms. Display-filter metadata is reused and toolbar creation is deferred; every capture still requests fresh pixels, without background recording. The compact About window uses only black, white and neutral gray. Requires macOS 14+. The global shortcut uses exclusive registration; if the system screenshot panel still appears, adjust the conflicting system binding. The app is ad-hoc signed and not notarized. Licensed under GPL-3.0-only.
+**English:** Nebula ScreenShot is a native, local-only macOS menu bar screenshot annotator. Press Control–Shift–Command–5 to capture directly, select a region, then use the compact icon-only dark toolbar for numbered pins, ellipses/rectangles, lines and arrows. Click the checkmark or press Enter to copy the annotated image to the clipboard by default. Six color dots lead the toolbar, with Dots orange as the default; Save PNG is directly accessible. Click to pin, left-drag to draw a rounded rectangle in pin mode, and right-drag to draw a line. Pins scale with the crop, have white outlines/numbers and an exact-position teardrop tip. Hover to delete a pin and renumber the others, or edit shape endpoints and bounds. Rectangles use thin 2 pt rounded dashed borders. The eraser removes only brushed regions of freehand strokes and whole objects for other annotation types; each sweep supports undo/redo. Resize the selection using its edges, or Space-drag to move it while keeping annotations in place. Right-click the canvas to cancel. Only the dim overlay fades on entry, over 60 ms. Display-filter metadata is reused and toolbar creation is deferred; every capture still requests fresh pixels, without background recording. The compact About window uses only black, white and neutral gray. Requires macOS 14+. The global shortcut uses exclusive registration; if the system screenshot panel still appears, adjust the conflicting system binding. Permission requests use the native macOS prompt without a duplicate in-app alert. A changed ad-hoc build can repair its own stale screen-permission record once after a real denial, then relaunch for native consent; later denials do not trigger repeated resets. The app is ad-hoc signed and not notarized. Licensed under GPL-3.0-only.

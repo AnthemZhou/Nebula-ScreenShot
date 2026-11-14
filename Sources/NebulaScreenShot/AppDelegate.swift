@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 import AppKit
 import NebulaCore
+import OSLog
 
 @MainActor final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
@@ -9,12 +10,23 @@ import NebulaCore
     private var welcome: WelcomeWindow?
     private var permissionFlowActive = false
     private var permissionPrompt = ScreenPermissionPrompt()
+    private var permissionUpgrade: ScreenPermissionUpgrade!
+    private var permissionRepairItem: NSMenuItem!
+    private let permissionLogger = Logger(subsystem: "io.github.anthemzhou.NebulaScreenShot", category: "Permission")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         configureMenu()
+        let firstLaunch = !UserDefaults.standard.bool(forKey: "hasLaunched")
+        permissionUpgrade = ScreenPermissionUpgrade()
+        UserDefaults.standard.set(true, forKey: "hasLaunched")
         capture.onError = { [weak self] in self?.showError($0) }
         capture.onPermissionNeeded = { [weak self] in self?.showPermissionHelp() }
+        capture.onCaptureReady = { [weak self] in
+            self?.permissionUpgrade.clear()
+            self?.permissionRepairItem.isHidden = true
+            self?.restoreStatusIcon()
+        }
         capture.onComplete = { [weak self] message in
             self?.statusItem.button?.toolTip = message
             self?.statusItem.button?.image = NSImage(systemSymbolName: "checkmark.circle", accessibilityDescription: message)
@@ -22,15 +34,20 @@ import NebulaCore
         }
         hotKey.onPress = { [weak self] in self?.captureFromShortcut() }
         hotKey.register()
-        capture.prepare()
+        if !CommandLine.arguments.contains("--repair-screen-permission") &&
+           !CommandLine.arguments.contains("--request-screen-permission") { capture.prepare() }
         NotificationCenter.default.addObserver(self, selector: #selector(displaysChanged),
                                                name: NSApplication.didChangeScreenParametersNotification, object: nil)
-        if CommandLine.arguments.contains("--demo") {
+        if CommandLine.arguments.contains("--repair-screen-permission") {
+            permissionFlowActive = true
+            recoverScreenPermission()
+        } else if CommandLine.arguments.contains("--request-screen-permission") {
+            requestNativePermission()
+        } else if CommandLine.arguments.contains("--demo") {
             capture.begin(demo: true)
         } else if CommandLine.arguments.contains("--capture") {
             capture.begin()
-        } else if !UserDefaults.standard.bool(forKey: "hasLaunched") {
-            UserDefaults.standard.set(true, forKey: "hasLaunched")
+        } else if firstLaunch {
             showWelcome()
         }
     }
@@ -55,6 +72,9 @@ import NebulaCore
         let captureItem = NSMenuItem(title: "区域截图  \(HotKey.displayString)", action: #selector(beginCapture), keyEquivalent: "")
         captureItem.target = self
         menu.addItem(captureItem)
+        permissionRepairItem = NSMenuItem(title: "修复屏幕录制授权…", action: #selector(reauthorizeScreenPermission), keyEquivalent: "")
+        permissionRepairItem.isHidden = true
+        menu.addItem(permissionRepairItem)
         menu.addItem(withTitle: "试用标注…", action: #selector(beginDemo), keyEquivalent: "")
         menu.addItem(.separator())
         menu.addItem(withTitle: "关于 Nebula ScreenShot…", action: #selector(showWelcome), keyEquivalent: "")
@@ -110,11 +130,14 @@ import NebulaCore
     @objc private func openScreenPermission() {
         guard !permissionFlowActive else { return }
         permissionFlowActive = true
-        // Bring the requesting app forward before presenting native consent.
+        defer { permissionFlowActive = false }
         NSApp.activate(ignoringOtherApps: true)
-        // A newly reset app may not appear in Settings until it explicitly requests consent.
         _ = permissionPrompt.requestOnce(using: CGRequestScreenCaptureAccess)
-        permissionFlowActive = false
+        // This is an explicit Settings action, not the automatic capture-denial path.
+        openScreenPermissionSettings()
+    }
+
+    private func openScreenPermissionSettings() {
         NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
     }
 
@@ -144,56 +167,54 @@ import NebulaCore
 
     private func showPermissionHelp() {
         guard !permissionFlowActive else { return }
-        permissionFlowActive = true
-        NSApp.activate(ignoringOtherApps: true)
-        // Request only after ScreenCaptureKit denies a user-initiated capture. Do not
-        // use Core Graphics preflight to block a capture that ScreenCaptureKit can perform.
-        if permissionPrompt.requestOnce(using: CGRequestScreenCaptureAccess) == true {
-            permissionFlowActive = false
-            capture.begin()
+        permissionRepairItem.isHidden = false
+        statusItem.button?.toolTip = "屏幕录制权限待授权 · 可在菜单中修复授权"
+        // Only a changed ad-hoc build gets one automatic repair after a real denial.
+        // The persisted claim prevents resets on subsequent denials or relaunches.
+        if permissionUpgrade.consumeAfterCaptureDenial() {
+            permissionLogger.notice("Repairing outdated ad-hoc screen permission once")
+            permissionFlowActive = true
+            recoverScreenPermission()
             return
         }
-        let alert = NSAlert()
-        alert.messageText = "需要屏幕录制权限"
-        alert.informativeText = "已向 macOS 请求屏幕录制权限。请在系统提示或设置中允许 Nebula ScreenShot；若系统要求，请退出并重新打开。若更新后开关已开仍无法截图，可用“重新授权”清除 Nebula 的旧授权记录。"
-        alert.addButton(withTitle: "打开设置")
-        alert.addButton(withTitle: "重新授权")
-        alert.addButton(withTitle: "稍后").keyEquivalent = "\u{1b}"
+        requestNativePermission(retryCaptureIfGranted: true)
+    }
+
+    private func requestNativePermission(retryCaptureIfGranted: Bool = false) {
+        guard !permissionFlowActive else { return }
+        permissionFlowActive = true
+        defer { permissionFlowActive = false }
         NSApp.activate(ignoringOtherApps: true)
-        switch alert.runModal() {
-        case .alertFirstButtonReturn:
-            permissionFlowActive = false
-            openScreenPermission()
-        case .alertSecondButtonReturn:
-            recoverScreenPermission()
-        default:
-            permissionFlowActive = false
+        let action = permissionPrompt.actionAfterDenial {
+            permissionLogger.notice("Requesting native screen consent; no app permission alert")
+            return CGRequestScreenCaptureAccess()
+        }
+        switch action {
+        case .retryCapture:
+            if retryCaptureIfGranted { capture.begin() }
+            else { openScreenPermissionSettings() }
+        case .waitForSystem:
+            permissionRepairItem.isHidden = false
+        case .openSettings:
+            openScreenPermissionSettings()
         }
     }
 
     @objc private func reauthorizeScreenPermission() {
         guard !permissionFlowActive, !capture.isActive else { return }
         permissionFlowActive = true
-        let alert = NSAlert()
-        alert.messageText = "重新授权屏幕录制？"
-        alert.informativeText = "仅清除 Nebula ScreenShot 的旧屏幕录制授权记录，并重新启动当前应用。系统随后会再次请求授权。其他应用的权限不受影响。"
-        alert.addButton(withTitle: "重新授权")
-        alert.addButton(withTitle: "取消")
-        NSApp.activate(ignoringOtherApps: true)
-        if alert.runModal() == .alertFirstButtonReturn {
-            recoverScreenPermission()
-        } else {
-            permissionFlowActive = false
-        }
+        recoverScreenPermission()
     }
 
-    /// The caller keeps the permission flow locked after the user's explicit recovery action.
+    /// The caller keeps the flow locked until this process exits or recovery fails.
     private func recoverScreenPermission() {
+        permissionUpgrade.clear()
         statusItem.button?.toolTip = "正在重新授权屏幕录制…"
         Task { @MainActor [weak self] in
             guard let self else { return }
             do {
                 try await ScreenPermissionRecovery.resetAndPrepareRelaunch()
+                self.permissionLogger.notice("Screen permission reset completed; relaunching for native consent")
                 NSApp.terminate(nil)
             } catch {
                 self.restoreStatusIcon()

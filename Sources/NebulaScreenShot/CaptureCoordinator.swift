@@ -20,6 +20,7 @@ import OSLog
     private(set) var isActive = false
     var onError: ((String) -> Void)?
     var onPermissionNeeded: (() -> Void)?
+    var onCaptureReady: (() -> Void)?
     var onComplete: ((String) -> Void)?
 
     func begin(demo: Bool = false, afterMenuDismissal: Bool = false) {
@@ -51,6 +52,7 @@ import OSLog
                 let captured = ProcessInfo.processInfo.systemUptime
                 self.present(snapshots)
                 if !demo {
+                    self.onCaptureReady?()
                     let totalMS = Int((ProcessInfo.processInfo.systemUptime - started) * 1000)
                     let panelsMS = Int((ProcessInfo.processInfo.systemUptime - captured) * 1000)
                     self.logger.notice("Screenshot selection ready; displays: \(snapshots.count, privacy: .public); total \(totalMS, privacy: .public) ms; panels \(panelsMS, privacy: .public) ms")
