@@ -37,8 +37,6 @@ import NebulaCore
     }
     private var interaction: Interaction?
     private var spaceHeld = false
-    private var dimOpacity: CGFloat = 0
-    private var dimTask: Task<Void, Never>?
     private static let dragThreshold: CGFloat = 4
 
     private enum Interaction {
@@ -92,40 +90,8 @@ import NebulaCore
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window == nil {
-            dimTask?.cancel()
-            dimTask = nil
             spaceHeld = false
         }
-    }
-
-    /// Animate only the dim color. The frozen image and panel geometry stay fixed.
-    func animateDimIn() {
-        dimTask?.cancel()
-        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
-            dimOpacity = 0.48
-            needsDisplay = true
-            return
-        }
-        dimOpacity = 0
-        needsDisplay = true
-        let start = ProcessInfo.processInfo.systemUptime
-        dimTask = Task { @MainActor [weak self] in
-            while !Task.isCancelled {
-                guard let self, self.window != nil else { return }
-                let progress = min(1, (ProcessInfo.processInfo.systemUptime - start) / 0.06)
-                self.dimOpacity = 0.48 * CGFloat(progress * progress * (3 - 2 * progress))
-                self.needsDisplay = true
-                if progress >= 1 { self.dimTask = nil; return }
-                do { try await Task.sleep(for: .milliseconds(16)) } catch { return }
-            }
-        }
-    }
-
-    private func settleDim() {
-        dimTask?.cancel()
-        dimTask = nil
-        dimOpacity = 0.48
-        needsDisplay = true
     }
 
     func resetSelection() {
@@ -145,7 +111,7 @@ import NebulaCore
         background.draw(in: bounds, from: .zero, operation: .copy, fraction: 1, respectFlipped: true, hints: nil)
         let shade = NSBezierPath(rect: bounds)
         if let selection { shade.appendRect(selection); shade.windingRule = .evenOdd }
-        NSColor.black.withAlphaComponent(dimOpacity).setFill()
+        NSColor.black.withAlphaComponent(0.48).setFill()
         shade.fill()
 
         if let selection {
@@ -279,7 +245,6 @@ import NebulaCore
 
     override func mouseDown(with event: NSEvent) {
         guard interaction == nil else { return }
-        settleDim()
         if window?.isKeyWindow == false { window?.makeKey() }
         window?.makeFirstResponder(self)
         let point = point(for: event)
@@ -330,7 +295,6 @@ import NebulaCore
 
     override func rightMouseDown(with event: NSEvent) {
         guard interaction == nil else { return }
-        settleDim()
         if window?.isKeyWindow == false { window?.makeKey() }
         window?.makeFirstResponder(self)
         let point = point(for: event)

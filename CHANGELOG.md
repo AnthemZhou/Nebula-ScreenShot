@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.10 — 2026-11-14
+
+- Remove the entry fade and its animation task. Show the capture interface with its final selection shade on the first frame; no additional animation delay.
+- Update the editor interaction check to verify the initial shade is already final before any input or animation wait.
+
 ## 0.1.9 — 2026-11-14
 
 - Remove the duplicate in-app screen-recording permission alert. Wait for native consent; further user retries open Settings without another app modal or an automatic capture loop.

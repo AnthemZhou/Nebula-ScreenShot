@@ -318,6 +318,9 @@ enum HarnessError: Error, CustomStringConvertible {
     func run(outputURL: URL) throws {
         try check(!window.isVisible, "Harness window must remain hidden")
         try check(!canvas.subviews.contains { $0 is AnnotationToolbar }, "Initial capture must defer toolbar construction")
+        let initialShade = try renderedCanvasColor(at: CGPoint(x: 10, y: 10))
+        let initialWindowFrame = window.frame
+        let initialWindowAlpha = window.alphaValue
         try drag(from: initialCrop.origin, to: CGPoint(x: initialCrop.maxX, y: initialCrop.maxY))
         try check(canvas.selection == initialCrop, "Selection must follow drag")
         for button in descendants(of: canvas).compactMap({ $0 as? NSButton }) {
@@ -473,23 +476,15 @@ enum HarnessError: Error, CustomStringConvertible {
         try check(!window.isVisible, "Internal interaction must never display the harness window")
         print("PASS: blank right clicks inside and outside crop cancel; window stayed hidden")
 
-        let frameBeforeDim = window.frame
-        let alphaBeforeDim = window.alphaValue
-        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        canvas.animateDimIn()
-        let beforeDim = try renderedCanvasColor(at: CGPoint(x: 10, y: 10))
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.24))
-        let afterDim = try renderedCanvasColor(at: CGPoint(x: 10, y: 10))
-        try check(window.frame == frameBeforeDim && window.alphaValue == alphaBeforeDim && !window.isVisible,
-                  "Dimming must keep hidden window frame and alpha unchanged")
-        if !reduceMotion {
-            let beforeBrightness = beforeDim.redComponent + beforeDim.greenComponent + beforeDim.blueComponent
-            let afterBrightness = afterDim.redComponent + afterDim.greenComponent + afterDim.blueComponent
-            try check(afterBrightness < beforeBrightness, "Animation must darken the outside-crop view pixels")
-            print("PASS: dim animation darkens outside-crop pixels after 240ms without changing window frame/alpha")
-        } else {
-            print("PASS: Reduce Motion uses immediate dim; window frame/alpha stayed unchanged")
-        }
+        let selectedShade = try renderedCanvasColor(at: CGPoint(x: 10, y: 10))
+        let initialBrightness = initialShade.redComponent + initialShade.greenComponent + initialShade.blueComponent
+        let selectedBrightness = selectedShade.redComponent + selectedShade.greenComponent + selectedShade.blueComponent
+        let sourceBrightness = backgroundColor!.redComponent + backgroundColor!.greenComponent + backgroundColor!.blueComponent
+        try check(initialBrightness < sourceBrightness && abs(initialBrightness - selectedBrightness) < 0.005,
+                  "The first frame must already show the final dim shade, without waiting for animation or input")
+        try check(window.frame == initialWindowFrame && window.alphaValue == initialWindowAlpha && !window.isVisible,
+                  "Immediate capture must keep hidden window frame and alpha unchanged")
+        print("PASS: first frame has final selection shade immediately, with no window frame/alpha change")
 
         guard let data = exported?.representation(using: .png, properties: [:]) else {
             throw HarnessError.failed("Cannot encode synthetic result")

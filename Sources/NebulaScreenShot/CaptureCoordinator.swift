@@ -111,7 +111,6 @@ import OSLog
         for panel in panels { panel.orderFrontRegardless() }
         let keyPanel = panels.first(where: { $0.frame.contains(mouse) }) ?? panels.first
         keyPanel?.makeKey()
-        for panel in panels { (panel.contentView as? CaptureCanvas)?.animateDimIn() }
     }
 
     func finish(restoreFocus: Bool = true) {
@@ -120,7 +119,7 @@ import OSLog
         captureTask = nil
         for panel in panels {
             panel.orderOut(nil)
-            // Detach the canvas so it can cancel its dim animation immediately.
+            // Release the canvas along with its frozen screenshot.
             panel.contentView = nil
             panel.close()
         }
