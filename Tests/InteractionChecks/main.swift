@@ -184,10 +184,21 @@ enum HarnessError: Error, CustomStringConvertible {
 
     func renderedCanvasColor(at point: CGPoint) throws -> NSColor {
         canvas.layoutSubtreeIfNeeded()
-        guard let bitmap = canvas.bitmapImageRepForCachingDisplay(in: canvas.bounds) else {
-            throw HarnessError.failed("Cannot create offscreen view bitmap")
+        // Sample the real canvas drawing directly: NSGlassEffectView needs
+        // WindowServer compositing and clears cacheDisplay output in hidden windows.
+        guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(canvas.bounds.width * 2),
+                                            pixelsHigh: Int(canvas.bounds.height * 2), bitsPerSample: 8,
+                                            samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                            colorSpaceName: .calibratedRGB, bytesPerRow: 0, bitsPerPixel: 0),
+              let graphics = NSGraphicsContext(bitmapImageRep: bitmap) else {
+            throw HarnessError.failed("Cannot create offscreen canvas bitmap")
         }
-        canvas.cacheDisplay(in: canvas.bounds, to: bitmap)
+        NSGraphicsContext.saveGraphicsState()
+        graphics.cgContext.translateBy(x: 0, y: CGFloat(bitmap.pixelsHigh))
+        graphics.cgContext.scaleBy(x: 2, y: -2)
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: graphics.cgContext, flipped: true)
+        canvas.draw(canvas.bounds)
+        NSGraphicsContext.restoreGraphicsState()
         let sx = CGFloat(bitmap.pixelsWide) / canvas.bounds.width
         let sy = CGFloat(bitmap.pixelsHigh) / canvas.bounds.height
         guard let color = bitmap.colorAt(x: Int(point.x * sx), y: Int(point.y * sy))?.usingColorSpace(.sRGB) else {
@@ -197,6 +208,23 @@ enum HarnessError: Error, CustomStringConvertible {
     }
 
     func hover(_ point: CGPoint) throws { canvas.mouseMoved(with: try mouse(.mouseMoved, point)) }
+
+    func runPointerChecks() throws {
+        guard let hint = canvas.subviews.compactMap({ $0 as? CaptureHint }).first,
+              let label = descendants(of: hint).compactMap({ $0 as? NSTextField }).first else {
+            throw HarnessError.failed("Missing pointer readout")
+        }
+        try hover(CGPoint(x: 100, y: 100))
+        let size = hint.frame.size
+        for i in 0..<90 {
+            let point = CGPoint(x: 100 + i * 3, y: 100 + i * 2)
+            try hover(point)
+            try check(label.stringValue == "\(Int(point.x * 2)), \(Int(point.y * 2))", "Readout must use the latest coordinates")
+            try check(hint.frame.origin == CGPoint(x: point.x + 12, y: point.y + 10), "Readout follows without a delayed position update")
+            try check(hint.frame.size == size, "Equal-width digits must not trigger a new readout size")
+        }
+        print("PASS: 90 immediate coordinate updates with stable digit layout")
+    }
 
     func runPendingCaptureChecks() throws {
         try check(canvas.screenshot == nil, "Pending canvas must not contain a placeholder screenshot")
@@ -255,9 +283,13 @@ enum HarnessError: Error, CustomStringConvertible {
             try check(!labels.contains { $0.hasPrefix(removed) }, "Removed row button must stay absent: \(removed)")
         }
         try check(buttons.count == 13, "Toolbar must contain six colors and seven actions")
+        for button in buttons where button.isEnabled {
+            let center = button.convert(CGPoint(x: button.bounds.midX, y: button.bounds.midY), to: canvas.superview)
+            try check(canvas.hitTest(center) === button, "Glass must not intercept the button's hit area")
+        }
         let hints = descendants(of: toolbar).compactMap { $0 as? NSTextField }
         let copyHint = hints.first { $0.stringValue == "回车以复制到剪贴板" }
-        try check(copyHint != nil && copyHint!.frame.minY > buttons.map { $0.frame.maxY }.max()!,
+        try check(copyHint != nil && copyHint!.frame.minY > buttons.map { $0.convert($0.bounds, to: toolbar).maxY }.max()!,
                   "A text-only Return hint belongs below the icon row")
         try check(abs(copyHint!.frame.midX - toolbar.bounds.midX) < 0.01, "Return hint must be centered")
         for tool in [AnnotationTool.ellipse, .rectangle, .line, .arrow] {
@@ -273,6 +305,25 @@ enum HarnessError: Error, CustomStringConvertible {
         }
         try key("n")
         try check((try button(labelPrefix: "形状与设置")).state == .off, "Returning to pin clears the settings highlight")
+        try check(copyHint!.font!.pointSize == 14 && copyHint!.textColor!.alphaComponent < 1,
+                  "Copy hint must be larger and translucent")
+        toolbar.setCopyHintBackground(isBright: true)
+        let brightText = copyHint!.textColor!.usingColorSpace(.sRGB)!
+        toolbar.setCopyHintBackground(isBright: false)
+        let darkText = copyHint!.textColor!.usingColorSpace(.sRGB)!
+        try check(brightText.redComponent < 0.3 && darkText.redComponent > 0.7,
+                  "Text must use subdued dark ink on bright pixels and light ink on dark pixels")
+        #if compiler(>=6.2)
+        if #available(macOS 26.0, *) {
+            guard let glass = toolbar.subviews.compactMap({ $0 as? NSGlassEffectView }).first,
+                  let content = glass.contentView else { throw HarnessError.failed("Native Liquid Glass is missing") }
+            try check(buttons.allSatisfy { $0.isDescendant(of: content) }, "All buttons belong inside the glass content view")
+        } else {
+            try check(toolbar.subviews.contains { $0 is NSVisualEffectView }, "Older macOS needs a blur fallback")
+        }
+        #else
+        try check(toolbar.subviews.contains { $0 is NSVisualEffectView }, "Older SDK builds need a blur fallback")
+        #endif
         let menu = toolbar.optionsMenu()
         try check(!menu.items.contains { $0.title == "重新选择区域" || $0.title == "清空标注" },
                   "Reselect and clear menu options must be removed")
@@ -608,7 +659,7 @@ enum HarnessError: Error, CustomStringConvertible {
         let selectedBrightness = selectedShade.redComponent + selectedShade.greenComponent + selectedShade.blueComponent
         let sourceBrightness = backgroundColor!.redComponent + backgroundColor!.greenComponent + backgroundColor!.blueComponent
         try check(initialBrightness < sourceBrightness && abs(initialBrightness - selectedBrightness) < 0.005,
-                  "The first frame must already show the final dim shade, without waiting for animation or input")
+                  "The first frame must already show the final dim shade; initial=\(initialShade), selected=\(selectedShade), source=\(backgroundColor!)")
         try check(window.frame == initialWindowFrame && window.alphaValue == initialWindowAlpha && !window.isVisible,
                   "Immediate capture must keep hidden window frame and alpha unchanged")
         print("PASS: first frame has final selection shade immediately, with no window frame/alpha change")
@@ -622,6 +673,8 @@ enum HarnessError: Error, CustomStringConvertible {
         try click(CGPoint(x: 600, y: 340))
         let firstPinBody = PinGeometry.layout(at: pin1, number: 1, selection: canvas.selection).body
         try hover(CGPoint(x: firstPinBody.midX, y: firstPinBody.midY))
+        canvas.layoutSubtreeIfNeeded()
+        descendants(of: canvas).compactMap { $0 as? AnnotationToolbar }.forEach { $0.useStaticPreviewMaterial() }
         canvas.layoutSubtreeIfNeeded()
         if let viewBitmap = canvas.bitmapImageRepForCachingDisplay(in: canvas.bounds) {
             canvas.cacheDisplay(in: canvas.bounds, to: viewBitmap)
@@ -639,6 +692,8 @@ MainActor.assumeIsolated {
     let app = NSApplication.shared
     app.setActivationPolicy(.prohibited)
     do {
+        let pointer = try CanvasHarness()
+        try pointer.runPointerChecks()
         let harness = try CanvasHarness()
         if CommandLine.arguments.contains("--english") { try harness.runEnglishChecks(); exit(0) }
         try harness.run(outputURL: URL(fileURLWithPath: CommandLine.arguments[1]))

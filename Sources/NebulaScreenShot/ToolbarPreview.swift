@@ -4,18 +4,22 @@ import NebulaCore
 
 /// Renders the production toolbar without capturing the desktop or opening a capture session.
 @MainActor final class ToolbarPreview: NSView {
-    init(availableWidth: CGFloat? = nil) {
+    private let bright: Bool
+    init(availableWidth: CGFloat? = nil, bright: Bool = false) {
+        self.bright = bright
         let size = AnnotationToolbar.preferredSize(for: availableWidth ?? AnnotationToolbar.preferredWidth)
         super.init(frame: CGRect(x: 0, y: 0, width: size.width + 48, height: size.height + 40))
         let toolbar = AnnotationToolbar(frame: CGRect(x: 24, y: 20, width: size.width, height: size.height))
+        toolbar.useStaticPreviewMaterial()
         toolbar.update(tool: .pin, ink: .coral, lineWidth: 3.5, history: AnnotationHistory())
+        toolbar.setCopyHintBackground(isBright: bright)
         addSubview(toolbar)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     override func draw(_ dirtyRect: NSRect) {
-        NSColor(white: 0.28, alpha: 1).setFill()
+        NSColor(white: bright ? 0.94 : 0.12, alpha: 1).setFill()
         dirtyRect.fill()
     }
 }

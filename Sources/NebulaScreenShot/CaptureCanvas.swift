@@ -67,6 +67,8 @@ import NebulaCore
         self.background = screenshot.map { NSImage(cgImage: $0, size: frame.size) }
         self.pixelScale = pixelScale
         super.init(frame: frame)
+        wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         addSubview(hint)
         updateHint()
     }
@@ -170,16 +172,14 @@ import NebulaCore
             if case .select = interaction, let pointer { origin = CGPoint(x: pointer.x + 12, y: pointer.y + 10) }
             else { origin = CGPoint(x: max(selection.minX, 8), y: selection.minY >= 22 ? selection.minY - 18 : selection.minY + 8) }
             hint.update("\(Int((selection.width * sx).rounded())) × \(Int((selection.height * sy).rounded())) px",
-                        origin: origin)
+                        origin: origin, within: bounds)
         } else if let pointer {
             hint.update("\(Int((pointer.x * sx).rounded())), \(Int((pointer.y * sy).rounded()))",
-                        origin: CGPoint(x: pointer.x + 12, y: pointer.y + 10))
+                        origin: CGPoint(x: pointer.x + 12, y: pointer.y + 10), within: bounds)
         } else {
             hint.isHidden = true
             return
         }
-        hint.frame.origin.x = min(max(hint.frame.minX, 8), max(8, bounds.width - hint.frame.width - 8))
-        hint.frame.origin.y = min(max(hint.frame.minY, 8), max(8, bounds.height - hint.frame.height - 8))
         hint.isHidden = hasToolbar && !toolbar.isHidden && toolbar.frame.intersects(hint.frame)
     }
 
@@ -207,7 +207,15 @@ import NebulaCore
 
     override func mouseMoved(with event: NSEvent) {
         guard interaction == nil else { return }
-        let point = point(for: event)
+        let previousHover = hoverID
+        let previousPointer = pointer
+        var point = point(for: event)
+        let latestMouse = NSEvent.mouseLocation
+        if let window, window.isVisible, window.frame.contains(latestMouse) {
+            // Hardware cursors can get ahead of queued mouseMoved events. Use the
+            // latest position for hover/readout only; drawing keeps event geometry.
+            point = Geometry.clamp(convert(window.convertPoint(fromScreen: latestMouse), from: nil), to: bounds)
+        }
         pointer = point
         if let selection, let pin = item(id: newlyPlacedPinID),
            AnnotationGeometry.pinHoverRegion(for: pin, selection: selection)?.contains(point) != true {
@@ -224,11 +232,25 @@ import NebulaCore
         }
         updateHint()
         updatePointerCursor(at: point)
-        needsDisplay = true
+        if previousHover != hoverID {
+            needsDisplay = true
+        } else if tool == .pen || tool == .eraser {
+            invalidateBrushCursor(at: previousPointer)
+            invalidateBrushCursor(at: point)
+        }
     }
     override func mouseEntered(with event: NSEvent) { mouseMoved(with: event) }
     override func cursorUpdate(with event: NSEvent) { updatePointerCursor(at: point(for: event)) }
-    override func mouseExited(with event: NSEvent) { hoverID = nil; pointer = nil; updateHint(); needsDisplay = true }
+    override func mouseExited(with event: NSEvent) {
+        if hoverID != nil { needsDisplay = true }
+        if tool == .pen || tool == .eraser { invalidateBrushCursor(at: pointer) }
+        hoverID = nil; pointer = nil; updateHint()
+    }
+
+    private func invalidateBrushCursor(at point: CGPoint?) {
+        guard let point, let selection, selection.contains(point) else { return }
+        setNeedsDisplay(CGRect(x: point.x - 9, y: point.y - 9, width: 18, height: 18))
+    }
 
     private func updatePointerCursor(at point: CGPoint) {
         guard window?.isVisible == true else { return }
@@ -502,13 +524,21 @@ import NebulaCore
         else if selection.minY - height - 14 >= 0 { y = selection.minY - height - 10 }
         else { y = min(max(selection.maxY - height - 12, 12), bounds.height - height - 12) }
         toolbar.frame = CGRect(x: x, y: y, width: width, height: height)
+        toolbar.layoutSubtreeIfNeeded()
     }
 
     private func refresh() {
         if !history.annotations.contains(where: { $0.id == hoverID }) { hoverID = nil }
         if !history.annotations.contains(where: { $0.id == selectedID }) { selectedID = nil }
         updateHint()
-        if hasToolbar { toolbar.update(tool: tool, ink: ink, lineWidth: lineWidth, history: history, canExport: screenshot != nil) }
+        if hasToolbar {
+            toolbar.update(tool: tool, ink: ink, lineWidth: lineWidth, history: history, canExport: screenshot != nil)
+            if let screenshot {
+                let hintRegion = toolbar.convert(toolbar.copyHintFrame, to: self)
+                toolbar.setCopyHintBackground(isBright: BackdropBrightness.isBright(image: screenshot, canvasSize: bounds.size,
+                                                                                   region: hintRegion, selection: selection))
+            }
+        }
         needsDisplay = true
         window?.invalidateCursorRects(for: self)
         window?.makeFirstResponder(self)

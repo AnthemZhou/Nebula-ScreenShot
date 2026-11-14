@@ -8,7 +8,8 @@ if CommandLine.arguments.contains("--permission-relaunch-helper") {
 }
 let app = NSApplication.shared
 if let index = CommandLine.arguments.firstIndex(of: "--render-toolbar"), CommandLine.arguments.count > index + 1 {
-    let preview = ToolbarPreview(availableWidth: CommandLine.arguments.contains("--compact") ? 372 : AnnotationToolbar.preferredWidth)
+    let preview = ToolbarPreview(availableWidth: CommandLine.arguments.contains("--compact") ? 372 : AnnotationToolbar.preferredWidth,
+                                 bright: CommandLine.arguments.contains("--bright"))
     let previewWindow = NSWindow(contentRect: preview.bounds, styleMask: [.borderless], backing: .buffered, defer: false)
     previewWindow.contentView = preview
     preview.layoutSubtreeIfNeeded()

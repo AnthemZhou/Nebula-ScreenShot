@@ -40,7 +40,7 @@ import NebulaCore
 
     override func draw(_ dirtyRect: NSRect) {
         if hovering || isHighlighted {
-            NSColor(white: isHighlighted ? 0.36 : 0.24, alpha: 1).setFill()
+            NSColor.white.withAlphaComponent(isHighlighted ? 0.20 : 0.10).setFill()
             NSBezierPath(roundedRect: bounds, xRadius: 6, yRadius: 6).fill()
         }
         let dot = NSRect(x: bounds.midX - 6, y: bounds.midY - 6, width: 12, height: 12)
@@ -98,11 +98,11 @@ import NebulaCore
         let selected = state == .on
         let foreground: NSColor
         if isEnabled && (selected || hovering || isHighlighted) {
-            NSColor(white: isHighlighted ? 0.36 : (selected ? 0.31 : 0.24), alpha: 1).setFill()
+            NSColor.white.withAlphaComponent(isHighlighted ? 0.24 : (selected ? 0.17 : 0.09)).setFill()
             NSBezierPath(roundedRect: bounds, xRadius: 6, yRadius: 6).fill()
         }
         foreground = NSColor(white: isEnabled ? (selected ? 0.97 : 0.80) : 0.41, alpha: 1)
-        let iconSize: CGFloat = min(18, max(0, bounds.width - 8))
+        let iconSize: CGFloat = min(19, max(0, bounds.width - 8))
         let iconRect = NSRect(x: bounds.midX - iconSize / 2, y: bounds.midY - iconSize / 2,
                               width: iconSize, height: iconSize)
         if let pinInk {
@@ -118,9 +118,28 @@ import NebulaCore
     }
 }
 
+@MainActor private final class ToolbarRowContent: NSView {
+    var separators: [NSRect] = [] { didSet { needsDisplay = true } }
+    override var isFlipped: Bool { true }
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.white.withAlphaComponent(0.20).setFill()
+        for rect in separators { rect.fill() }
+    }
+}
+
+/// WindowServer glass cannot be included in cacheDisplay bitmaps. Offline layout
+/// previews use a neutral surface and the exact production controls instead.
+@MainActor private final class ToolbarSnapshotSurface: NSView {
+    override func draw(_ dirtyRect: NSRect) {
+        let shape = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 14, yRadius: 14)
+        NSColor(white: 0.12, alpha: 0.75).setFill(); shape.fill()
+        NSColor.white.withAlphaComponent(0.18).setStroke(); shape.lineWidth = 0.5; shape.stroke()
+    }
+}
+
 @MainActor final class AnnotationToolbar: NSView {
     static let preferredWidth: CGFloat = 440
-    static let height: CGFloat = 62
+    static let height: CGFloat = 68
     private static let rowHeight: CGFloat = 40
     private static let compactWidth: CGFloat = 372
 
@@ -147,7 +166,8 @@ import NebulaCore
     private var styleButton: ToolbarButton!
     private var undoButton: ToolbarButton!
     private var saveButton: ToolbarButton!
-    private var separators: [NSRect] = []
+    private let rowContent = ToolbarRowContent(frame: .zero)
+    private var surface: NSView!
     private let copyHint = NSTextField(labelWithString: L10n.text("回车以复制到剪贴板", "Press Return to copy to clipboard"))
 
     override var isFlipped: Bool { true }
@@ -155,11 +175,13 @@ import NebulaCore
     override init(frame: NSRect) {
         super.init(frame: frame)
         appearance = NSAppearance(named: .darkAqua)
+        surface = makeSurface()
+        addSubview(surface)
         for ink in Ink.allCases {
             let button = ToolbarInkButton(ink: ink)
             button.onChoose = { [weak self] ink in self?.chooseInk(ink) }
             inkButtons.append(button)
-            addSubview(button)
+            rowContent.addSubview(button)
         }
         pinButton = toolButton(.pin)
         pinButton.toolTip = L10n.text("图钉（N）· 点击打钉 · 左键拖动细方框 · 右键拖动箭头", "Pin (N) · Click to pin · Left-drag a rectangle · Right-drag an arrow")
@@ -174,17 +196,12 @@ import NebulaCore
         redoButton = ToolbarButton(title: "", symbol: "arrow.uturn.forward", help: L10n.text("重做（⇧⌘Z）", "Redo (⇧⌘Z)")) { [weak self] in self?.onRedo?() }
         redoButton.isEnabled = false
         saveButton = ToolbarButton(title: L10n.text("保存", "Save"), symbol: "square.and.arrow.down", help: L10n.text("保存 PNG（⌘S）", "Save PNG (⌘S)")) { [weak self] in self?.onSave?() }
-        copyHint.font = .systemFont(ofSize: 11, weight: .regular)
-        copyHint.textColor = NSColor.white.withAlphaComponent(0.75)
+        copyHint.font = .systemFont(ofSize: 14, weight: .medium)
+        copyHint.textColor = NSColor(white: 0.86, alpha: 0.60)
         copyHint.alignment = .center
         copyHint.isSelectable = false
-        let shadow = NSShadow()
-        shadow.shadowColor = NSColor.black.withAlphaComponent(0.5)
-        shadow.shadowBlurRadius = 1
-        shadow.shadowOffset = NSSize(width: 0, height: -1)
-        copyHint.shadow = shadow
         addSubview(copyHint)
-        for button in rowButtons { addSubview(button) }
+        for button in rowButtons { rowContent.addSubview(button) }
         updateInkSelection()
         updateToolSelection()
     }
@@ -203,6 +220,8 @@ import NebulaCore
 
     override func layout() {
         super.layout()
+        surface.frame = NSRect(x: 0, y: 0, width: bounds.width, height: Self.rowHeight)
+        rowContent.frame = surface.bounds
         let compact = bounds.width < Self.preferredWidth
         let widths: [CGFloat] = compact ? [28, 28, 28, 28, 28, 28, 28] : [32, 32, 32, 32, 32, 32, 32]
         let gaps: [CGFloat] = compact ? [2, 2, 6, 6, 2, 6] : [4, 4, 10, 10, 4, 10]
@@ -215,12 +234,12 @@ import NebulaCore
         let scale = min(1, max(0, bounds.width - padding * 2 - inkGroupWidth - inkGroupGap) / controlsWidth)
         let usedWidth = padding * 2 + inkGroupWidth + inkGroupGap + controlsWidth * scale
         var x = max(padding, (bounds.width - usedWidth) / 2 + padding)
-        separators.removeAll(keepingCapacity: true)
+        rowContent.separators.removeAll(keepingCapacity: true)
         for button in inkButtons {
             button.frame = NSRect(x: x, y: (Self.rowHeight - 32) / 2, width: inkHitWidth, height: 32)
             x += inkHitWidth
         }
-        separators.append(NSRect(x: x + inkGroupGap / 2, y: (Self.rowHeight - 18) / 2, width: 0.5, height: 18))
+        rowContent.separators.append(NSRect(x: x + inkGroupGap / 2, y: (Self.rowHeight - 18) / 2, width: 0.5, height: 18))
         x += inkGroupGap
         for (index, button) in rowButtons.enumerated() {
             let side = widths[index] * scale
@@ -229,24 +248,56 @@ import NebulaCore
             if index < gaps.count {
                 let gap = gaps[index] * scale
                 if index == 2 || index == 5 {
-                    separators.append(NSRect(x: x + gap / 2, y: (Self.rowHeight - 18) / 2, width: 0.5, height: 18))
+                    rowContent.separators.append(NSRect(x: x + gap / 2, y: (Self.rowHeight - 18) / 2, width: 0.5, height: 18))
                 }
                 x += gap
             }
         }
-        copyHint.frame = NSRect(x: 0, y: Self.rowHeight + 5, width: bounds.width, height: 17)
+        copyHint.frame = NSRect(x: 0, y: Self.rowHeight + 7, width: bounds.width, height: 21)
         needsDisplay = true
     }
 
-    override func draw(_ dirtyRect: NSRect) {
-        let outline = NSBezierPath(roundedRect: NSRect(x: 0.5, y: 0.5, width: bounds.width - 1, height: Self.rowHeight - 1), xRadius: 10, yRadius: 10)
-        NSColor(white: 44.0 / 255, alpha: 1).setFill()
-        outline.fill()
-        NSColor(white: 0.34, alpha: 1).setStroke()
-        outline.lineWidth = 0.5
-        outline.stroke()
-        NSColor(white: 0.40, alpha: 1).setFill()
-        for rect in separators { rect.fill() }
+    private func makeSurface() -> NSView {
+        #if compiler(>=6.2)
+        if #available(macOS 26.0, *) {
+            let glass = NSGlassEffectView(frame: .zero)
+            glass.style = .regular
+            glass.cornerRadius = 14
+            glass.tintColor = NSColor.black.withAlphaComponent(0.10)
+            glass.contentView = rowContent
+            return glass
+        }
+        #endif
+        let blur = NSVisualEffectView(frame: .zero)
+        blur.material = .hudWindow
+        blur.blendingMode = .withinWindow
+        blur.state = .active
+        blur.wantsLayer = true
+        blur.layer?.cornerRadius = 14
+        blur.layer?.masksToBounds = true
+        blur.layer?.borderColor = NSColor.white.withAlphaComponent(0.18).cgColor
+        blur.layer?.borderWidth = 0.5
+        blur.addSubview(rowContent)
+        return blur
+    }
+
+    /// Choose a restrained translucent text color against the actual pixels below.
+    func setCopyHintBackground(isBright: Bool) {
+        copyHint.textColor = isBright ? NSColor(white: 0.12, alpha: 0.68) : NSColor(white: 0.86, alpha: 0.60)
+    }
+
+    var copyHintFrame: CGRect { copyHint.frame }
+
+    func useStaticPreviewMaterial() {
+        #if compiler(>=6.2)
+        if #available(macOS 26.0, *), let glass = surface as? NSGlassEffectView { glass.contentView = nil }
+        #endif
+        rowContent.removeFromSuperview()
+        surface.removeFromSuperview()
+        surface = ToolbarSnapshotSurface(frame: .zero)
+        surface.addSubview(rowContent)
+        addSubview(surface, positioned: .below, relativeTo: copyHint)
+        needsLayout = true
     }
 
     // Clicking the toolbar's padding must never place an annotation on the canvas.

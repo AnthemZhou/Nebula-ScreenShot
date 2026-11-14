@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.1 — 2026-11-15
+
+- Give the pointer readout its own backing layer, disable position animations and reuse monospaced-digit measurements. Hover/readout updates use the latest pointer position and no longer repaint the screenshot unless editing controls actually change. Brush/eraser cursor redraws are limited to their old/new footprints.
+- Increase the Return-to-copy hint from 11 to 14 pt; use subdued translucent light/dark ink according to the pixels beneath it. Keep Chinese/English language support and the centered placement.
+- Increase toolbar tool glyphs from 18 to 19 pt and use native Liquid Glass on macOS 26 when built with Xcode 26 or newer; retain an in-window blur fallback on older systems/SDKs. Place controls inside the glass content view, preserving all gestures and export behavior.
+- Check rapid coordinate updates, native-glass control containment, dark/light hint contrast and pending/export behavior. Offline preview images show control layout with a static neutral surface; live glass is composited by macOS.
+
 ## 1.1.0 — 2026-11-15
 
 - Show an interactive translucent selection shade before capture metadata/pixels, then install fresh pixels into the same canvas without interrupting selection. Directly write pending alpha instead of blending a full-screen path, fixing a measured ~400 ms first-frame rasterization stall.
