@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## 1.1.2 — 2026-11-15
+
+- Fix metadata-cache cancellation races during rapid Esc → capture cycles. Canceled waiters cannot invalidate a later capture, return stale display filters after a display change, or clear newer loading work.
+- Encode clipboard PNG/TIFF and saved PNG data off the main actor, keeping the event loop responsive. Suppress duplicate exports and held-key repeats; canceled or stale completions cannot write to the clipboard or close another capture. Keep the editor available after an encoding failure.
+- Close an outstanding save dialog when its capture ends, and clear Space-move mode when keyboard focus is lost. Avoid rebuilding unchanged annotation arrays for pointer hit tests.
+- Release Carbon bindings and handlers with their owner. Add isolated checks for 100 shortcut deliveries, exclusive-registration conflict recovery, 100 rapid capture/cancel cycles, stale results/errors, export retries and background encoding. Keep the normal shortcut unchanged.
 
 - Add a local Apple Development build path that pins the signing certificate and verifies each new build against the previous designated requirement on both architectures. Stop when the identity is missing or changed; never silently fall back to ad-hoc. Leave the installed app, screen-recording permission and public release packages untouched.
 - Document the free Personal Team setup and the difference between local stable signing and Developer ID distribution. Actual permission-preserving upgrades require a development certificate and a two-build desktop acceptance check.

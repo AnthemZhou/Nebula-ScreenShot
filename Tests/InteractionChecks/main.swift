@@ -95,12 +95,12 @@ enum HarnessError: Error, CustomStringConvertible {
         }
     }
 
-    func key(_ characters: String, code: UInt16 = 0, flags: NSEvent.ModifierFlags = [], up: Bool = false) throws {
+    func key(_ characters: String, code: UInt16 = 0, flags: NSEvent.ModifierFlags = [], up: Bool = false, repeating: Bool = false) throws {
         guard let event = NSEvent.keyEvent(with: up ? .keyUp : .keyDown, location: .zero,
                                            modifierFlags: flags, timestamp: Double(eventNumber),
                                            windowNumber: window.windowNumber, context: nil,
                                            characters: characters, charactersIgnoringModifiers: characters,
-                                           isARepeat: false, keyCode: code) else {
+                                           isARepeat: repeating, keyCode: code) else {
             throw HarnessError.failed("Cannot construct internal key event")
         }
         if up { canvas.keyUp(with: event) } else { canvas.keyDown(with: event) }
@@ -224,6 +224,32 @@ enum HarnessError: Error, CustomStringConvertible {
             try check(hint.frame.size == size, "Equal-width digits must not trigger a new readout size")
         }
         print("PASS: 90 immediate coordinate updates with stable digit layout")
+    }
+
+    func runExportStateChecks() throws {
+        try drag(from: initialCrop.origin, to: CGPoint(x: initialCrop.maxX, y: initialCrop.maxY))
+        let original = bytes(try copy())
+        let copiesBeforeBusy = copyCount
+        canvas.setExportBusy(true)
+        try key("\r", code: 36)
+        try key("s", code: 1, flags: [.command])
+        try check(copyCount == copiesBeforeBusy && saveCount == 0, "Busy export must suppress duplicate rendering and callbacks")
+        try check(!(try button(labelPrefix: "保存")).isEnabled, "Save must be disabled during export")
+        try check(!(try button(labelPrefix: "图钉")).isEnabled, "Editing controls must be disabled during export")
+        try click(CGPoint(x: 250, y: 200))
+        try drag(from: CGPoint(x: 200, y: 200), to: CGPoint(x: 300, y: 300), right: true)
+        canvas.setExportBusy(false)
+        try key("\r", code: 36, repeating: true)
+        try key("c", code: 8, flags: [.command], repeating: true)
+        try key("s", code: 1, flags: [.command], repeating: true)
+        try check(copyCount == copiesBeforeBusy && saveCount == 0, "Key repeat must not repeat exports")
+        try check(bytes(try copy()) == original, "Busy export must not accept edits that would be lost on completion")
+        let crop = canvas.selection
+        try key(" ", code: 49)
+        _ = canvas.resignFirstResponder() // A dialog/menu can consume the Space key-up.
+        try drag(from: CGPoint(x: 200, y: 200), to: CGPoint(x: 300, y: 300))
+        try check(canvas.selection == crop, "Losing focus must not leave Space-move stuck")
+        print("PASS: export busy/repeat guards; focus loss clears Space-move mode")
     }
 
     func runPendingCaptureChecks() throws {
@@ -694,6 +720,10 @@ MainActor.assumeIsolated {
     do {
         let pointer = try CanvasHarness()
         try pointer.runPointerChecks()
+        if !CommandLine.arguments.contains("--english") {
+            let exportState = try CanvasHarness()
+            try exportState.runExportStateChecks()
+        }
         let harness = try CanvasHarness()
         if CommandLine.arguments.contains("--english") { try harness.runEnglishChecks(); exit(0) }
         try harness.run(outputURL: URL(fileURLWithPath: CommandLine.arguments[1]))

@@ -9,11 +9,25 @@ import OSLog
     private static let keyCode = UInt32(kVK_ANSI_5)
     private static let modifiers = UInt32(controlKey | shiftKey | cmdKey)
     private static let identifier = EventHotKeyID(signature: OSType(0x4E425353), id: 1)
+    private let bindingCode: UInt32
+    private let bindingModifiers: UInt32
+    private let bindingIdentifier: EventHotKeyID
     private var hotKey: EventHotKeyRef?
     private var handler: EventHandlerRef?
     var onPress: (() -> Void)?
     private(set) var registrationStatus: OSStatus = noErr
     var isRegistered: Bool { hotKey != nil && handler != nil }
+
+    init(keyCode: UInt32? = nil, modifiers: UInt32? = nil, identifier: EventHotKeyID? = nil) {
+        bindingCode = keyCode ?? Self.keyCode
+        bindingModifiers = modifiers ?? Self.modifiers
+        bindingIdentifier = identifier ?? Self.identifier
+    }
+
+    deinit {
+        if let hotKey { UnregisterEventHotKey(hotKey) }
+        if let handler { RemoveEventHandler(handler) }
+    }
 
     func register() {
         // Activation can retry a failed registration without briefly releasing a working one.
@@ -29,9 +43,9 @@ import OSLog
                                                MemoryLayout<EventHotKeyID>.size, nil, &identifier)
                 guard status == noErr else { return OSStatus(eventNotHandledErr) }
                 return MainActor.assumeIsolated {
-                    guard identifier.signature == HotKey.identifier.signature,
-                          identifier.id == HotKey.identifier.id else { return OSStatus(eventNotHandledErr) }
                     let owner = Unmanaged<HotKey>.fromOpaque(userData).takeUnretainedValue()
+                    guard identifier.signature == owner.bindingIdentifier.signature,
+                          identifier.id == owner.bindingIdentifier.id else { return OSStatus(eventNotHandledErr) }
                     guard owner.isRegistered else { return OSStatus(eventNotHandledErr) }
                     owner.logger.notice("Capture shortcut received")
                     owner.onPress?()
@@ -46,8 +60,8 @@ import OSLog
         }
         // Exclusive delivery prevents other Carbon registrants from responding too.
         // It does not guarantee that macOS's symbolic shortcut has been disabled.
-        registrationStatus = RegisterEventHotKey(Self.keyCode, Self.modifiers,
-                                                 Self.identifier, GetApplicationEventTarget(),
+        registrationStatus = RegisterEventHotKey(bindingCode, bindingModifiers,
+                                                 bindingIdentifier, GetApplicationEventTarget(),
                                                  OptionBits(kEventHotKeyExclusive), &hotKey)
         if registrationStatus == noErr && hotKey == nil { registrationStatus = OSStatus(eventInternalErr) }
         logger.notice("Shortcut registration result: \(self.registrationStatus, privacy: .public)")

@@ -309,15 +309,19 @@ import NebulaCore
     override func rightMouseUp(with event: NSEvent) {}
     override func resetCursorRects() { addCursorRect(bounds, cursor: .arrow) }
 
-    func update(tool: AnnotationTool, ink: Ink, lineWidth: CGFloat, history: AnnotationHistory, canExport: Bool = true) {
+    func update(tool: AnnotationTool, ink: Ink, lineWidth: CGFloat, history: AnnotationHistory,
+                canExport: Bool = true, isExporting: Bool = false) {
         selectedTool = tool
         selectedInk = ink
         selectedWidth = lineWidth
-        copyHint.stringValue = canExport ? L10n.text("回车以复制到剪贴板", "Press Return to copy to clipboard") : L10n.text("正在准备截图…", "Preparing screenshot…")
-        saveButton.isEnabled = canExport
-        undoButton.isEnabled = history.canUndo
+        copyHint.stringValue = isExporting ? L10n.text("正在导出…", "Exporting…") :
+            (canExport ? L10n.text("回车以复制到剪贴板", "Press Return to copy to clipboard") : L10n.text("正在准备截图…", "Preparing screenshot…"))
+        for button in rowButtons { button.isEnabled = !isExporting; button.needsDisplay = true }
+        for button in inkButtons { button.isEnabled = !isExporting; button.needsDisplay = true }
+        saveButton.isEnabled = canExport && !isExporting
+        undoButton.isEnabled = history.canUndo && !isExporting
         undoButton.needsDisplay = true
-        redoButton.isEnabled = history.canRedo
+        redoButton.isEnabled = history.canRedo && !isExporting
         redoButton.needsDisplay = true
         pinButton.toolTip = L10n.text("图钉（N）· 点击打钉 · 左键拖动细方框 · 右键拖动箭头 · 下一枚：\(history.nextPinNumber)", "Pin (N) · Click to pin · Left-drag a rectangle · Right-drag an arrow · Next: \(history.nextPinNumber)")
         pinButton.setAccessibilityLabel(pinButton.toolTip)

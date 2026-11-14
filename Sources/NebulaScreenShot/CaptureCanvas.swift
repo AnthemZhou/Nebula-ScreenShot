@@ -25,6 +25,7 @@ import NebulaCore
     private var pointer: CGPoint?
     private var hoverTracking: NSTrackingArea?
     private var displayAnnotations: [Annotation] {
+        if draft == nil && erasedIDs.isEmpty && erasedPenIDs.isEmpty { return history.annotations }
         var items = history.annotations.filter { !erasedIDs.contains($0.id) }.map { original -> Annotation in
             guard erasedPenIDs.contains(original.id) else { return original }
             var item = original
@@ -39,6 +40,7 @@ import NebulaCore
     }
     private var interaction: Interaction?
     private var spaceHeld = false
+    private var exportBusy = false
     private static let dragThreshold: CGFloat = 4
 
     private enum Interaction {
@@ -86,6 +88,11 @@ import NebulaCore
         if window?.isVisible == true { CaptureCursor.selection.set() }
     }
 
+    func setExportBusy(_ busy: Bool) {
+        exportBusy = busy
+        refresh()
+    }
+
     private func makeToolbar() -> AnnotationToolbar {
         hasToolbar = true
         let toolbar = AnnotationToolbar(frame: .zero)
@@ -106,6 +113,12 @@ import NebulaCore
         if window == nil {
             spaceHeld = false
         }
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let resigned = super.resignFirstResponder()
+        if resigned { spaceHeld = false }
+        return resigned
     }
 
     func resetSelection() {
@@ -332,7 +345,7 @@ import NebulaCore
     }
 
     override func mouseDown(with event: NSEvent) {
-        guard interaction == nil else { return }
+        guard interaction == nil, !exportBusy else { return }
         if window?.isKeyWindow == false { window?.makeKey() }
         window?.makeFirstResponder(self)
         let point = point(for: event)
@@ -382,7 +395,7 @@ import NebulaCore
     }
 
     override func rightMouseDown(with event: NSEvent) {
-        guard interaction == nil else { return }
+        guard interaction == nil, !exportBusy else { return }
         if window?.isKeyWindow == false { window?.makeKey() }
         window?.makeFirstResponder(self)
         let point = point(for: event)
@@ -532,7 +545,8 @@ import NebulaCore
         if !history.annotations.contains(where: { $0.id == selectedID }) { selectedID = nil }
         updateHint()
         if hasToolbar {
-            toolbar.update(tool: tool, ink: ink, lineWidth: lineWidth, history: history, canExport: screenshot != nil)
+            toolbar.update(tool: tool, ink: ink, lineWidth: lineWidth, history: history,
+                           canExport: screenshot != nil, isExporting: exportBusy)
             if let screenshot {
                 let hintRegion = toolbar.convert(toolbar.copyHintFrame, to: self)
                 toolbar.setCopyHintBackground(isBright: BackdropBrightness.isBright(image: screenshot, canvasSize: bounds.size,
@@ -545,7 +559,7 @@ import NebulaCore
     }
 
     private func export(save: Bool) {
-        guard let screenshot else { return }
+        guard !exportBusy, let screenshot else { return }
         guard interaction == nil, draft == nil, let selection,
               let bitmap = AnnotationRenderer.export(image: screenshot, canvasSize: bounds.size,
                                                       selection: selection, annotations: history.annotations) else {
@@ -558,12 +572,15 @@ import NebulaCore
     override func keyDown(with event: NSEvent) {
         let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
         if event.keyCode == 53 { onCancel?(); return }
+        guard !exportBusy else { return }
         if event.keyCode == 49, !event.modifierFlags.contains(.command), interaction == nil {
             spaceHeld = true
             window?.invalidateCursorRects(for: self)
             return
         }
         guard interaction == nil else { return }
+        if event.isARepeat && (event.keyCode == 36 || event.keyCode == 76 ||
+            (event.modifierFlags.contains(.command) && ["c", "s"].contains(key))) { return }
         if event.keyCode == 51 || event.keyCode == 117 {
             if let selectedID { history.remove(ids: [selectedID]); self.selectedID = nil; hoverID = nil; refresh() }
             return

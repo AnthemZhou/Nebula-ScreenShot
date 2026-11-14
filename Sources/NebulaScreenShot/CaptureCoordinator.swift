@@ -7,15 +7,21 @@ import OSLog
 import QuartzCore
 
 @MainActor final class CapturePanel: NSPanel {
-    override var canBecomeKey: Bool { true }
+    var allowsKey = true
+    override var canBecomeKey: Bool { allowsKey }
     override var canBecomeMain: Bool { false }
 }
 
 @MainActor final class CaptureCoordinator {
     private let logger = Logger(subsystem: "io.github.anthemzhou.NebulaScreenShot", category: "Capture")
-    private let source = CaptureSource()
-    private var panels: [CapturePanel] = []
+    private let source: any CaptureProviding
+    private let presentsWindows: Bool
+    private let pasteboard: NSPasteboard
+    private let encode: (CGImage, Bool) async throws -> EncodedCapture
+    private(set) var panels: [CapturePanel] = []
     private var captureTask: Task<Void, Never>?
+    private var exportTask: Task<Void, Never>?
+    private var savePanel: NSSavePanel?
     private var sessionID: UUID?
     private var previousApplication: NSRunningApplication?
     private(set) var isActive = false
@@ -23,6 +29,15 @@ import QuartzCore
     var onPermissionNeeded: (() -> Void)?
     var onCaptureReady: (() -> Void)?
     var onComplete: ((String) -> Void)?
+
+    init(source: (any CaptureProviding)? = nil, presentsWindows: Bool = true,
+         pasteboard: NSPasteboard? = nil,
+         encode: @escaping (CGImage, Bool) async throws -> EncodedCapture = CaptureEncoding.encode) {
+        self.source = source ?? CaptureSource()
+        self.presentsWindows = presentsWindows
+        self.pasteboard = pasteboard ?? .general
+        self.encode = encode
+    }
 
     func begin(demo: Bool = false, afterMenuDismissal: Bool = false) {
         guard !isActive else { return }
@@ -32,11 +47,12 @@ import QuartzCore
         let started = ProcessInfo.processInfo.systemUptime
         let session = UUID()
         sessionID = session
-        previousApplication = NSWorkspace.shared.frontmostApplication
+        previousApplication = presentsWindows ? NSWorkspace.shared.frontmostApplication : nil
         let screens = NSScreen.screens
         if !afterMenuDismissal { presentShade(screens, started: started) }
         captureTask = Task { @MainActor [weak self] in
             guard let self else { return }
+            defer { if self.sessionID == session { self.captureTask = nil } }
             do {
                 // Hotkeys submit the interactive shade synchronously, before any capture work.
                 // Only a menu action needs time for its menu to close.
@@ -92,6 +108,7 @@ import QuartzCore
             let panel = CapturePanel(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel],
                                      backing: .buffered, defer: false)
             panel.animationBehavior = .none
+            panel.allowsKey = presentsWindows
             panel.setFrame(screen.frame, display: false)
             panel.level = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 1)
             panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
@@ -106,16 +123,20 @@ import QuartzCore
             canvas.onCopy = { [weak self] in self?.copy($0) }
             canvas.onSave = { [weak self] in self?.save($0) }
             canvas.onReselect = { [weak self] in
-                for panel in self?.panels ?? [] { (panel.contentView as? CaptureCanvas)?.resetSelection(); panel.orderFrontRegardless() }
+                for panel in self?.panels ?? [] {
+                    (panel.contentView as? CaptureCanvas)?.resetSelection()
+                    if self?.presentsWindows == true { panel.orderFrontRegardless() }
+                }
             }
             canvas.onBeginSelection = { [weak self, weak panel] in
                 for other in self?.panels ?? [] where other !== panel { other.orderOut(nil) }
-                if let panel, !panel.isKeyWindow { panel.makeKey() }
+                if let panel, self?.presentsWindows == true, !panel.isKeyWindow { panel.makeKey() }
             }
             panel.contentView = canvas
             panel.makeFirstResponder(canvas)
             panels.append(panel)
         }
+        guard presentsWindows else { return }
         for panel in panels { panel.orderFrontRegardless(); panel.displayIfNeeded() }
         let keyPanel = panels.first(where: { $0.frame.contains(mouse) }) ?? panels.first
         keyPanel?.makeKey()
@@ -134,7 +155,7 @@ import QuartzCore
                   let canvas = panel.contentView as? CaptureCanvas else { continue }
             canvas.installScreenshot(image)
             panel.isOpaque = true
-            panel.displayIfNeeded()
+            if presentsWindows { panel.displayIfNeeded() }
         }
         CATransaction.flush()
     }
@@ -143,6 +164,12 @@ import QuartzCore
         sessionID = nil
         captureTask?.cancel()
         captureTask = nil
+        exportTask?.cancel()
+        exportTask = nil
+        let dialog = savePanel
+        savePanel = nil
+        dialog?.cancel(nil)
+        dialog?.close()
         for panel in panels {
             panel.orderOut(nil)
             // Release the canvas along with its frozen screenshot.
@@ -150,7 +177,7 @@ import QuartzCore
             panel.close()
         }
         panels.removeAll()
-        if isActive { NSCursor.arrow.set() }
+        if isActive && presentsWindows { NSCursor.arrow.set() }
         isActive = false
         // Nonactivating capture panels normally leave the original application active.
         if restoreFocus, let previousApplication,
@@ -161,30 +188,48 @@ import QuartzCore
     }
 
     private func copy(_ bitmap: NSBitmapImageRep) {
-        guard let png = bitmap.representation(using: .png, properties: [:]) else {
-            onError?(L10n.text("无法生成 PNG，请重试。", "Unable to create a PNG. Please try again."))
-            return
+        guard let session = sessionID, exportTask == nil, savePanel == nil,
+              let image = bitmap.cgImage else { return }
+        setExportBusy(true)
+        exportTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let data = try await self.encode(image, true)
+                try Task.checkCancellation()
+                guard self.sessionID == session else { return }
+                let item = NSPasteboardItem()
+                item.setData(data.png, forType: .png)
+                if let tiff = data.tiff { item.setData(tiff, forType: .tiff) }
+                self.pasteboard.clearContents()
+                guard self.pasteboard.writeObjects([item]) else { throw CaptureError.clipboard }
+                self.finish()
+                self.onComplete?(L10n.text("截图已复制到剪贴板", "Screenshot copied to clipboard"))
+            } catch {
+                guard self.sessionID == session else { return }
+                self.exportTask = nil
+                self.setExportBusy(false)
+                if !(error is CancellationError) {
+                    self.onError?(L10n.text("复制失败：\(error.localizedDescription)", "Unable to copy: \(error.localizedDescription)"))
+                }
+            }
         }
-        let item = NSPasteboardItem()
-        item.setData(png, forType: .png)
-        if let tiff = bitmap.tiffRepresentation { item.setData(tiff, forType: .tiff) }
-        NSPasteboard.general.clearContents()
-        guard NSPasteboard.general.writeObjects([item]) else {
-            onError?(L10n.text("无法写入剪贴板，请重试。", "Unable to write to the clipboard. Please try again."))
-            return
-        }
-        finish()
-        onComplete?(L10n.text("截图已复制到剪贴板", "Screenshot copied to clipboard"))
+    }
+
+    private func setExportBusy(_ busy: Bool) {
+        panels.forEach { ($0.contentView as? CaptureCanvas)?.setExportBusy(busy) }
     }
 
     private func save(_ bitmap: NSBitmapImageRep) {
-        let session = sessionID
+        guard let session = sessionID, savePanel == nil, exportTask == nil,
+              let image = bitmap.cgImage else { return }
+        setExportBusy(true)
         // Keep the editable capture alive if the user cancels the save panel.
         let visible = panels.filter { $0.isVisible }
         visible.forEach { $0.orderOut(nil) }
         // The capture itself never activates Nebula. An explicit file dialog needs normal app focus.
         NSApp.activate(ignoringOtherApps: true)
         let panel = NSSavePanel()
+        savePanel = panel
         panel.allowedContentTypes = [.png]
         panel.canCreateDirectories = true
         panel.title = L10n.text("保存 Nebula 截图", "Save Nebula Screenshot")
@@ -193,31 +238,45 @@ import QuartzCore
         panel.nameFieldStringValue = "Nebula \(formatter.string(from: Date())).png"
         panel.begin { [weak self] response in
             guard let self, self.isActive, self.sessionID == session else { return }
-            if response == .OK, let url = panel.url {
-                do {
-                    guard let data = bitmap.representation(using: .png, properties: [:]) else { throw CaptureError.encoding }
-                    try data.write(to: url, options: .atomic)
-                    self.finish()
-                    self.onComplete?(L10n.text("截图已保存", "Screenshot saved"))
-                } catch {
-                    visible.forEach { $0.orderFrontRegardless() }
-                    visible.first?.makeKey()
-                    self.onError?(L10n.text("保存失败：\(error.localizedDescription)", "Unable to save: \(error.localizedDescription)"))
-                }
-            } else {
+            self.savePanel = nil
+            @MainActor func restoreEditor() {
+                self.setExportBusy(false)
                 visible.forEach { $0.orderFrontRegardless() }
                 visible.first?.makeKey()
+            }
+            if response == .OK, let url = panel.url {
+                self.exportTask = Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    do {
+                        let data = try await self.encode(image, false)
+                        try Task.checkCancellation()
+                        guard self.sessionID == session else { return }
+                        try data.png.write(to: url, options: .atomic)
+                        self.finish()
+                        self.onComplete?(L10n.text("截图已保存", "Screenshot saved"))
+                    } catch {
+                        guard self.sessionID == session else { return }
+                        self.exportTask = nil
+                        restoreEditor()
+                        if !(error is CancellationError) {
+                            self.onError?(L10n.text("保存失败：\(error.localizedDescription)", "Unable to save: \(error.localizedDescription)"))
+                        }
+                    }
+                }
+            } else {
+                restoreEditor()
             }
         }
         panel.makeKeyAndOrderFront(nil)
     }
 
     enum CaptureError: LocalizedError {
-        case noDisplay, encoding, missingOverlayExclusion
+        case noDisplay, encoding, clipboard, missingOverlayExclusion
         var errorDescription: String? {
             switch self {
             case .noDisplay: return L10n.text("没有找到可捕获的显示器。", "No display is available for capture.")
             case .encoding: return L10n.text("PNG 编码失败。", "PNG encoding failed.")
+            case .clipboard: return L10n.text("无法写入剪贴板，请重试。", "Unable to write to the clipboard. Please try again.")
             case .missingOverlayExclusion: return L10n.text("暂时无法从截图中排除选区遮罩，请重试。", "Unable to exclude the selection overlay. Please try again.")
             }
         }

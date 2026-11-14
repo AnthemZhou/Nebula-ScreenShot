@@ -123,6 +123,7 @@ git clone https://github.com/AnthemZhou/Nebula-ScreenShot.git
 cd Nebula-ScreenShot
 swift test
 ./scripts/check-interactions.sh
+./scripts/check-sessions.sh
 python3 scripts/check-exclusion.py
 ./scripts/check-relaunch.sh
 ./scripts/build.sh
@@ -130,6 +131,8 @@ open "dist/Nebula ScreenShot.app"
 ```
 
 为保证系统权限归属于正确应用，实际截图请运行打包后的 `.app`，不要使用 `swift run` 请求屏幕权限。
+
+`check-sessions.sh` 使用隐藏选区、合成图片和独立剪贴板验证连续截图与后台导出；快捷键测试临时使用未占用的 Control–Option–Shift–Command–F19/F18/F20，并仅向测试进程发送 Carbon 事件，结束后注销。不会截取真实桌面或修改系统快捷键设置。
 
 生成同时支持 Apple Silicon / Intel 的发布包：
 
@@ -187,4 +190,4 @@ Copyright © 2026 Nebula ScreenShot contributors.
 
 ---
 
-**English:** Nebula ScreenShot is a native, local-only macOS menu bar screenshot annotator. Press Control–Shift–Command–5 to capture directly, select a region, then use the compact icon-only dark toolbar for pins, pen and eraser; ellipses, rectangles, lines and arrows are available in the slider menu alongside width, reselect and clear. The ellipsis and cancel buttons are removed and confirmation is smaller. Click the checkmark or press Enter to copy the annotated image to the clipboard by default. Six color dots lead the toolbar, with Dots orange as the default; Save PNG is directly accessible. Click to pin, left-drag to draw a rounded rectangle in pin mode, and right-drag to draw a line. Pins scale with the crop, have white outlines/numbers and an exact-position teardrop tip. Hover to delete a pin and renumber the others, or edit shape endpoints and bounds. Rectangles use thin 2 pt rounded dashed borders. The eraser removes only brushed regions of freehand strokes and whole objects for other annotation types; each sweep supports undo/redo. Resize the selection using its edges, or Space-drag to move it while keeping annotations in place. Right-click the canvas to cancel. An interactive translucent shade and a high-contrast crosshair appear before screenshot acquisition, with pointer-following coordinates and no fade or window animation. Fresh pixels replace the background in place without interrupting a drag; export stays disabled until they arrive. The capture filter must exclude Nebula itself so the shade never enters exported pixels. Display-filter metadata is reused and toolbar creation is deferred; every capture still requests fresh pixels, without background recording. The compact About window uses only black, white and neutral gray. Requires macOS 14+. The global shortcut uses exclusive registration; if the system screenshot panel still appears, adjust the conflicting system binding. Permission requests use the native macOS prompt without a duplicate in-app alert. A temporary helper restores the app and hotkey after consent, reuses any instance macOS has already reopened, and respects explicit quit, force quit and logout. A changed ad-hoc build can repair its own stale screen-permission record once after a real denial, then relaunch for native consent; later denials do not trigger repeated resets. The app is ad-hoc signed and not notarized. Licensed under GPL-3.0-only.
+**English:** Nebula ScreenShot is a native, local-only macOS menu bar screenshot annotator. Press Control–Shift–Command–5, select a region, then use the compact icon-only toolbar. Click to place numbered teardrop pins; in pin mode, left-drag a thin rounded dashed rectangle and right-drag an arrow. Ellipses, rectangles, lines, arrows and stroke widths are in the slider menu. Six colors lead the toolbar, with Dots orange as the default. Hover to delete and renumber pins, drag shape handles to edit, or use the pen, local eraser and undo/redo. Resize the crop or Space-drag it while keeping annotations at their original screen positions. Press Return or Command–C to copy; Save PNG is directly accessible, and Esc / a blank-canvas right-click cancels. There is no checkmark, cancel or ellipsis button. The centered copy hint adapts to the background and supports Chinese/English. macOS 26 builds use native Liquid Glass; older systems use a blur fallback. An interactive shade and a small crosshair with coordinates appear before fresh pixels arrive. Only display-filter metadata is cached: no old screenshots or background recording. Rapid cancellation isolates old requests from the next capture; image encoding runs in the background, and canceled exports cannot overwrite the clipboard. The app uses native screen-recording consent and a temporary helper to restore its hotkey after consent. Requires macOS 14+. Screenshots stay on the Mac. GPL-3.0-only.

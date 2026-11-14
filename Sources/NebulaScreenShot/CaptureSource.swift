@@ -5,40 +5,44 @@ import OSLog
 import NebulaCore
 
 /// Reuses display filters only. Every capture requests fresh pixels; no background screen stream.
-@MainActor final class CaptureSource {
+@MainActor protocol CaptureProviding {
+    func prepareIfAllowed()
+    func invalidate()
+    func capture(_ screens: [NSScreen]) async throws -> [(NSScreen, CGImage)]
+}
+
+@MainActor final class CaptureSource: CaptureProviding {
     private let logger = Logger(subsystem: "io.github.anthemzhou.NebulaScreenShot", category: "Capture")
     private struct DisplayFilters {
         let values: [CGDirectDisplayID: SCContentFilter]
         let excludesOwnApplication: Bool
     }
-    private var filters: DisplayFilters?
-    private var loading: Task<DisplayFilters, Error>?
+    private let cache = CaptureMetadataCache<DisplayFilters>()
     private var warmup: Task<Void, Never>?
-    private var generation = 0
     private let exclusion = CaptureExclusion()
 
     func prepareIfAllowed() {
         // This preflight controls optional metadata warmup only, never a user-requested capture.
-        guard filters == nil, loading == nil, warmup == nil, CGPreflightScreenCaptureAccess() else { return }
+        guard !cache.hasValue, !cache.isLoading, warmup == nil, CGPreflightScreenCaptureAccess() else { return }
+        let generation = cache.generation
         warmup = Task { @MainActor [weak self] in
             guard let self else { return }
             _ = try? await self.loadFilters()
-            self.warmup = nil
+            if self.cache.generation == generation { self.warmup = nil }
         }
     }
 
     func invalidate() {
-        generation += 1
-        filters = nil
-        loading?.cancel(); loading = nil
+        cache.invalidate()
         warmup?.cancel(); warmup = nil
     }
 
     func capture(_ screens: [NSScreen]) async throws -> [(NSScreen, CGImage)] {
         let started = ProcessInfo.processInfo.systemUptime
-        let usedCache = filters?.excludesOwnApplication == true
+        let usedCache = cache.hasValue
         do {
             let displayFilters = try await safeFilters()
+            try Task.checkCancellation()
             let setupFinished = ProcessInfo.processInfo.systemUptime
             let output = try await capture(screens, filters: displayFilters)
             let setupMS = Int((setupFinished - started) * 1000)
@@ -46,10 +50,13 @@ import NebulaCore
             logger.notice("Capture timings: metadata \(setupMS, privacy: .public) ms; pixels \(pixelsMS, privacy: .public) ms; cached \(usedCache, privacy: .public)")
             return output
         } catch {
+            // Esc → hotkey can begin another capture before ScreenCaptureKit finishes
+            // the old request. Its cancellation/error must not clear the new cache.
+            guard !Task.isCancelled, !(error is CancellationError) else { throw CancellationError() }
             invalidate()
             // A stale display filter may follow a display/Space transition. Refresh once;
             // permission errors must go straight to the normal native consent flow.
-            guard usedCache, !ScreenCaptureFailure.isPermissionDenied(error), !(error is CancellationError) else { throw error }
+            guard usedCache, !ScreenCaptureFailure.isPermissionDenied(error) else { throw error }
             logger.notice("Refreshing stale display filters once")
             return try await capture(screens, filters: safeFilters())
         }
@@ -67,10 +74,7 @@ import NebulaCore
     }
 
     private func loadFilters() async throws -> DisplayFilters {
-        if let filters { return filters }
-        if let loading { return try await loading.value }
-        let expectedGeneration = generation
-        let task = Task { @MainActor in
+        try await cache.value {
             let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
             try Task.checkCancellation()
             let ownApp = try await self.exclusion.resolve(applications: content.applications, windows: content.windows)
@@ -79,17 +83,6 @@ import NebulaCore
                 ($0.displayID, SCContentFilter(display: $0, excludingApplications: ownApps, exceptingWindows: []))
             })
             return DisplayFilters(values: values, excludesOwnApplication: !ownApps.isEmpty)
-        }
-        loading = task
-        do {
-            let result = try await task.value
-            guard expectedGeneration == generation else { throw CancellationError() }
-            filters = result
-            loading = nil
-            return result
-        } catch {
-            if expectedGeneration == generation { loading = nil }
-            throw error
         }
     }
 
