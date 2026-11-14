@@ -5,7 +5,7 @@ import NebulaCore
 MainActor.assumeIsolated {
 let app = NSApplication.shared
 if let index = CommandLine.arguments.firstIndex(of: "--render-toolbar"), CommandLine.arguments.count > index + 1 {
-    let preview = ToolbarPreview(availableWidth: CommandLine.arguments.contains("--compact") ? 360 : 520)
+    let preview = ToolbarPreview(availableWidth: CommandLine.arguments.contains("--compact") ? 477 : AnnotationToolbar.preferredWidth)
     let previewWindow = NSWindow(contentRect: preview.bounds, styleMask: [.borderless], backing: .buffered, defer: false)
     previewWindow.contentView = preview
     preview.layoutSubtreeIfNeeded()

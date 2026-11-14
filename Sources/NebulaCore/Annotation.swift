@@ -36,13 +36,14 @@ public enum AnnotationTool: String, CaseIterable, Sendable {
 }
 
 public enum Ink: String, CaseIterable, Sendable {
-    case coral, amber, mint, blue, white
+    case coral, amber, mint, blue, purple, white
     public var title: String {
         switch self {
-        case .coral: return "珊瑚红"
+        case .coral: return "Dots 橙"
         case .amber: return "琥珀黄"
         case .mint: return "薄荷绿"
         case .blue: return "天空蓝"
+        case .purple: return "紫色"
         case .white: return "白色"
         }
     }

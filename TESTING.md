@@ -17,16 +17,21 @@ Run `swift test` first. Install the final ZIP in a fixed Applications directory 
 - On a Retina screen, compare exported pixel dimensions with the selection indicator.
 - On a second display, including one above or left of the main display, make a selection and inspect the export. Cross-display selections are intentionally unsupported.
 - Unplug or change display resolution during capture. Expect cancellation without stranded overlays.
-- Press Escape; focus should return to the previous app.
+- Enter from a hotkey while another app is in a full-screen Space: only the dark shade should fade in (180 ms), with no panel frame/alpha animation, Space switch or underlying window movement. Check Reduce Motion skips the fade.
+- Before and after making a selection, right-click blank canvas or press Escape to cancel; focus should remain with or return to the previous app. Right-dragging outside the selection must not cancel. Right-clicks on the toolbar must not cancel.
 
 ## Annotation and export
 
 - Verify the toolbar is one dark opaque row with four drawing groups in this order: pin, ellipse/rectangle, line, arrow. A new capture defaults to pin. There is no pen tool or second instruction row.
 - Use N, O, B, L, A to select each tool. Switch ellipse/rectangle using the shape dropdown, then draw both. Selecting the shape button later must restore the last chosen shape.
 - Hold Shift while dragging an ellipse, rectangle, line, or arrow; verify circle / square / axis constraints.
-- Open the style menu and choose each color and width. The current choices must be marked, including after a keyboard tool change. All menus must appear above the capture overlay and close cleanly when canceled; the overlay must retain its original window level afterwards.
-- Use toolbar undo and the More menu for redo, clear, reselect and save. Verify their enabled states, then cancel with the cross or confirm with the checkmark. At narrow display widths, controls must remain inside the toolbar and accessible through their labels/tooltips.
-- Select the pin tool and click three places. Expect 1, 2, 3 in circles at those locations.
+- Choose each of the six color dots at the front of the toolbar and each stroke width from the width menu. New annotations must use the selected color; earlier annotations keep theirs. The current choices must be marked, including after a keyboard tool change. All menus must appear above the capture overlay and close cleanly when canceled; the overlay must retain its original window level afterwards.
+- Use primary toolbar undo and Save PNG; use More for redo, clear and reselect. Verify their enabled states, then cancel with the cross or confirm with the checkmark. At narrow display widths, controls must remain inside the toolbar and accessible through their labels/tooltips.
+- Click three places. Expect 1, 2, 3 in bubbles with pointed tips at those exact locations. Default color is Dots orange (#EC603B).
+- In pin mode, left-drag a line and right-drag a rectangle. No stray numbered pin may appear during or after either drag; a drag out and back to its start must not become a click. A drag delivered only by mouse-up must still work.
+- Resize the crop from each of its eight handles and any edge. Keep the opposite edge fixed, clamp to the screen, and preserve every annotation and the next pin number. Shrink around a mark and expand again; it must reappear at its original location.
+- Hold Space and drag inside the crop to move it, including near screen boundaries. Annotations stay attached to the source image, not the crop; export dimensions and origin must reflect the new selection.
+- Compare small and large crops, multi-digit pins, and pins near every edge. Pins shrink with the short edge of the crop, their tip remains exact, their bubble fits inside, and pin size does not change with stroke width.
 - Undo the third pin; place another. Expect 3. Undo and redo mixed shapes and pins.
 - Clear annotations, undo clear, and confirm the next number is restored.
 - Try all colors and widths, including multi-digit pin numbers.

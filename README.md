@@ -2,7 +2,7 @@
 
 **截取灵感，标记重点。** 一个轻量的 macOS 原生菜单栏截图工具。
 
-按 **Control + Shift + Command + 5**，拖动选区，然后直接圈画、拉线、画箭头，或点击放置连续编号的圆形图钉 **① ② ③**。
+按 **Control + Shift + Command + 5**，拖动选区，点击打编号图钉、左键拖线、右键拖框；还可选择圆圈或箭头工具。确认后直接复制到剪贴板。
 
 [下载](https://github.com/AnthemZhou/Nebula-ScreenShot/releases) · [使用说明](#使用) · [从源码构建](#开发) · [GPL 3.0](LICENSE)
 
@@ -12,9 +12,13 @@
 
 ## 标注工具条
 
-深色单行工具条，按顺序提供 **图钉、圆圈 / 方框、直线、箭头**。选区完成后默认使用图钉；形状旁的下拉按钮切换圆圈和方框。颜色与粗细收进样式菜单，保存、重选等操作位于更多菜单。
+深色单行工具条，最前方放置 **六个色点**，随后是 **图钉、圆圈 / 方框、直线、箭头**。默认使用 Dots 橙（`#EC603B`）；切换颜色只影响后续标注。**保存 PNG** 直接位于主栏，粗细和其他操作保留在菜单中。
 
 ![实际标注工具条的离屏渲染](docs/toolbar.png)
+
+图钉的尖角落在点击位置，大小随选区短边变化。以下合成示例使用实际渲染器、保持同一显示比例：
+
+![小选区与大选区中的图钉比例](docs/pins.png)
 
 ## 窗口
 
@@ -25,10 +29,12 @@
 ## 功能
 
 - 全局快捷键 **⌃⇧⌘5** 直接截图，与菜单栏入口；使用独占注册，避免多个 Carbon 快捷键监听者同时响应。
-- 拖动选择屏幕区域，原地显示悬浮标注工具条。
+- 进入截图时仅渐变暗色遮罩，窗口保持位置和大小；拖动选择屏幕区域，原地显示悬浮标注工具条。
 - 四组标注工具：编号图钉、圆圈 / 方框、直线、箭头。
-- **连续编号图钉**：选择图钉工具后，在选区内依次点击，生成圆圈内的 1、2、3……；每张新截图从 1 开始。
-- 样式菜单提供五种颜色、三档线宽；主栏可撤销，更多菜单可重做、清空标注、重新选区。
+- **连续编号图钉**：在选区内依次点击，生成 1、2、3……；小尖角精确落在点击位置。图钉随当前选区大小缩放，靠近边缘时自动避让；每张新截图从 1 开始。
+- 默认图钉模式支持 **点击打钉、按住左键拖动直线、按住右键拖动方框**；切换圆圈或箭头工具后，左键拖动绘制对应形状。
+- 标注中仍可拖动选区四边和八个控制点调整大小，或按住 **空格 + 左键拖动** 平移选区。原有标记保留在原画面位置，导出按最终选区裁剪。
+- 主栏提供橙、黄、绿、蓝、紫、白六色；粗细菜单提供三档线宽，主栏可撤销，更多菜单可重做、清空标注、重新选区。
 - 编辑后点击「确认」或按 Enter，默认将 PNG / TIFF 复制到剪贴板；也可主动保存 PNG，保留 Retina 分辨率。
 - 可在任意一块显示器上选择区域；一次选区限制在单块显示器内。
 - 自带无需屏幕录制权限的示例画布，便于试用标注。
@@ -64,8 +70,8 @@
 
 1. 按 **⌃⇧⌘5** 或点击菜单栏「区域截图」。
 2. 按住鼠标拖出截图区域，松开后出现工具条。
-3. 选择工具并在选区内标注。选择「图钉」后，每点击一次添加一个带递增数字的圆圈。
-4. 点击工具条右侧的 **勾号（确认）**，或按 **Enter / ⌘C**，截图即复制到剪贴板并结束编辑，可直接 **⌘V** 粘贴。需要文件时，使用「更多 → 保存 PNG」或按 **⌘S**。
+3. 默认点击打钉、左键拖线、右键拖框。可从工具条选择颜色、圆圈或箭头。拖动选区边缘继续调整，已有标记不会清空。
+4. 点击工具条右侧的 **勾号（确认）**，或按 **Enter / ⌘C**，截图即复制到剪贴板并结束编辑，可直接 **⌘V** 粘贴。需要文件时，点击主栏 **保存** 或按 **⌘S**。
 
 | 操作 | 快捷键 |
 | --- | --- |
@@ -78,10 +84,12 @@
 | 确认并复制到剪贴板 | Enter / ⌘C |
 | 保存 PNG | ⌘S |
 | 重新选择区域并清空标注 | R |
-| 取消截图 | Esc |
+| 取消截图 | 空白处右键单击 / Esc |
+| 调整选区大小，保留标注 | 拖动选区边缘或八个控制点 |
+| 平移选区，保留标注位置 | 空格 + 左键拖动 |
 | 正圆 / 正方形 / 水平或垂直线、箭头 | 拖动时按住 Shift |
 
-工具快捷键仅在截图编辑期间生效。撤销图钉后继续点击，会使用当前下一个序号。取消保存对话框会回到原选区，保留已有标注。工具条与选区边框不会进入导出图片。
+“按住拖动”不需要等待计时；鼠标松开后提交标注，拖动不会额外生成图钉。右键单击画布可退出截图，右键拖动选区内则绘制矩形。工具快捷键仅在截图编辑期间生效。撤销图钉后继续点击，会使用当前下一个序号。取消保存对话框会回到原选区，保留已有标注。工具条与选区边框不会进入导出图片。
 
 ## 开发
 
@@ -127,7 +135,7 @@ open "dist/Nebula ScreenShot.app" --args --demo
 
 - `Sources/NebulaCore`：标注数据、事务式撤销/重做、坐标换算、预览与导出共用渲染器。
 - `Sources/NebulaScreenShot`：菜单栏、快捷键、屏幕捕获、选区、工具条与引导窗口。
-- `Tests/NebulaCoreTests`：编号及分支撤销、Retina 选区裁剪、箭头几何、像素方向与导出位置测试。
+- `Tests/NebulaCoreTests`：编号及分支撤销、可调整选区几何、图钉比例与尖角、六色对比度、Retina 裁剪与导出位置、权限错误分类测试。
 - `.github/workflows/build.yml`：macOS 自动测试、Universal 构建和构建产物上传。
 
 手动验收步骤见 [TESTING.md](TESTING.md)。欢迎提交 Issue 与 Pull Request。
@@ -140,4 +148,4 @@ Copyright © 2026 Nebula ScreenShot contributors.
 
 ---
 
-**English:** Nebula ScreenShot is a native, local-only macOS menu bar screenshot annotator. Press Control–Shift–Command–5 to capture directly, select a region, then use the compact dark toolbar for numbered pins, ellipses/rectangles, lines and arrows. Click the checkmark or press Enter to copy the annotated image to the clipboard by default. Colors and stroke widths live in the style menu; saving a Retina-resolution PNG is available in More. The compact About window uses only black, white and neutral gray. Requires macOS 14+. The global shortcut uses exclusive registration; if the system screenshot panel still appears, adjust the conflicting system binding. The app is ad-hoc signed and not notarized. Licensed under GPL-3.0-only.
+**English:** Nebula ScreenShot is a native, local-only macOS menu bar screenshot annotator. Press Control–Shift–Command–5 to capture directly, select a region, then use the compact dark toolbar for numbered pins, ellipses/rectangles, lines and arrows. Click the checkmark or press Enter to copy the annotated image to the clipboard by default. Six color dots lead the toolbar, with Dots orange as the default; Save PNG is directly accessible. Click to pin, left-drag to draw a line in pin mode, and right-drag to draw a rectangle. Pins scale with the crop and have an exact-position pointed tip. Resize the selection using its edges, or Space-drag to move it while keeping annotations in place. Right-click the canvas to cancel. Only the dim overlay fades on entry. The compact About window uses only black, white and neutral gray. Requires macOS 14+. The global shortcut uses exclusive registration; if the system screenshot panel still appears, adjust the conflicting system binding. The app is ad-hoc signed and not notarized. Licensed under GPL-3.0-only.

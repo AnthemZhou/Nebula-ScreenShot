@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.6 — 2026-11-14
+
+- Use Dots orange (#EC603B) by default and put six color swatches at the front of the single-row toolbar. Keep Save PNG directly accessible.
+- Scale numbered pins with the current crop, add an exact-position pointed tip, and keep edge pins inside the image with readable number contrast.
+- Add click-to-pin, left-drag lines in pin mode, and right-drag rectangles. Commit on release to avoid stray pins; right-click the canvas to cancel.
+- Resize the selection from any edge or eight handles, and Space-drag to move the crop while retaining annotations at their image positions.
+- Present fixed, nonactivating capture panels with only a 180 ms dim-color fade; respect Reduce Motion and avoid activating or moving the underlying app on entry.
+- Add geometry, pin rendering, Retina export and six-color contrast regression tests, plus refreshed toolbar/demo previews.
+
 ## 0.1.5 — 2026-11-14
 
 - Replace the two-row annotation panel with a compact, opaque dark toolbar and neutral icons.

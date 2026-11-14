@@ -7,7 +7,7 @@ import OSLog
 
 @MainActor final class CapturePanel: NSPanel {
     override var canBecomeKey: Bool { true }
-    override var canBecomeMain: Bool { true }
+    override var canBecomeMain: Bool { false }
 }
 
 @MainActor final class CaptureCoordinator {
@@ -83,7 +83,10 @@ import OSLog
     private func present(_ snapshots: [(NSScreen, CGImage)]) {
         let mouse = NSEvent.mouseLocation
         for (screen, image) in snapshots {
-            let panel = CapturePanel(contentRect: screen.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+            // Take keyboard focus without activating Nebula or changing the underlying app's Space.
+            let panel = CapturePanel(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel],
+                                     backing: .buffered, defer: false)
+            panel.animationBehavior = .none
             panel.setFrame(screen.frame, display: false)
             panel.level = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 1)
             panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
@@ -102,24 +105,36 @@ import OSLog
             }
             canvas.onBeginSelection = { [weak self, weak panel] in
                 for other in self?.panels ?? [] where other !== panel { other.orderOut(nil) }
-                panel?.makeKey()
+                if let panel, !panel.isKeyWindow { panel.makeKey() }
             }
             panel.contentView = canvas
+            panel.makeFirstResponder(canvas)
             panels.append(panel)
-            panel.orderFrontRegardless()
-            if screen.frame.contains(mouse) { panel.makeKey(); panel.makeFirstResponder(canvas) }
         }
-        NSApp.activate(ignoringOtherApps: true)
+        // Finish every display's geometry before ordering any of the frozen snapshots onscreen.
+        for panel in panels { panel.orderFrontRegardless() }
+        let keyPanel = panels.first(where: { $0.frame.contains(mouse) }) ?? panels.first
+        keyPanel?.makeKey()
+        for panel in panels { (panel.contentView as? CaptureCanvas)?.animateDimIn() }
     }
 
     func finish(restoreFocus: Bool = true) {
         sessionID = nil
         captureTask?.cancel()
         captureTask = nil
-        for panel in panels { panel.orderOut(nil); panel.close() }
+        for panel in panels {
+            panel.orderOut(nil)
+            // Detach the canvas so it can cancel its dim animation immediately.
+            panel.contentView = nil
+            panel.close()
+        }
         panels.removeAll()
         isActive = false
-        if restoreFocus { previousApplication?.activate(options: []) }
+        // Nonactivating capture panels normally leave the original application active.
+        if restoreFocus, let previousApplication,
+           NSWorkspace.shared.frontmostApplication?.processIdentifier != previousApplication.processIdentifier {
+            previousApplication.activate(options: [])
+        }
         previousApplication = nil
     }
 
@@ -145,6 +160,8 @@ import OSLog
         // Keep the editable capture alive if the user cancels the save panel.
         let visible = panels.filter { $0.isVisible }
         visible.forEach { $0.orderOut(nil) }
+        // The capture itself never activates Nebula. An explicit file dialog needs normal app focus.
+        NSApp.activate(ignoringOtherApps: true)
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.png]
         panel.canCreateDirectories = true
@@ -170,6 +187,7 @@ import OSLog
                 visible.first?.makeKey()
             }
         }
+        panel.makeKeyAndOrderFront(nil)
     }
 
     enum CaptureError: LocalizedError {
