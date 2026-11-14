@@ -2,35 +2,35 @@
 import Foundation
 
 public enum AnnotationTool: String, CaseIterable, Sendable {
-    case ellipse, line, pen, arrow, pin
+    case pin, ellipse, rectangle, line, arrow
 
     public var title: String {
         switch self {
-        case .ellipse: return "圆圈"
-        case .line: return "直线"
-        case .pen: return "画笔"
-        case .arrow: return "箭头"
         case .pin: return "图钉"
+        case .ellipse: return "圆圈"
+        case .rectangle: return "方框"
+        case .line: return "直线"
+        case .arrow: return "箭头"
         }
     }
 
     public var symbol: String {
         switch self {
-        case .ellipse: return "circle"
-        case .line: return "line.diagonal"
-        case .pen: return "pencil.tip"
-        case .arrow: return "arrow.up.right"
         case .pin: return "1.circle"
+        case .ellipse: return "circle"
+        case .rectangle: return "square"
+        case .line: return "line.diagonal"
+        case .arrow: return "arrow.up.right"
         }
     }
 
     public var shortcut: String {
         switch self {
-        case .ellipse: return "o"
-        case .line: return "l"
-        case .pen: return "p"
-        case .arrow: return "a"
         case .pin: return "n"
+        case .ellipse: return "o"
+        case .rectangle: return "b"
+        case .line: return "l"
+        case .arrow: return "a"
         }
     }
 }

@@ -8,7 +8,13 @@
 
 ![使用真实标注渲染器导出的合成示例](docs/preview.png)
 
-*上图为合成示例画布；圆圈、箭头、自由画线与编号均由应用的实际导出代码绘制。*
+*上图为合成示例画布；圆圈、方框、直线、箭头与编号均由应用的实际导出代码绘制。*
+
+## 标注工具条
+
+深色单行工具条，按顺序提供 **图钉、圆圈 / 方框、直线、箭头**。选区完成后默认使用图钉；形状旁的下拉按钮切换圆圈和方框。颜色与粗细收进样式菜单，保存、重选等操作位于更多菜单。
+
+![实际标注工具条的离屏渲染](docs/toolbar.png)
 
 ## 窗口
 
@@ -20,9 +26,9 @@
 
 - 全局快捷键 **⌃⇧⌘5** 直接截图，与菜单栏入口；使用独占注册，避免多个 Carbon 快捷键监听者同时响应。
 - 拖动选择屏幕区域，原地显示悬浮标注工具条。
-- 圆圈 / 椭圆、直线、自由画笔、箭头。
+- 四组标注工具：编号图钉、圆圈 / 方框、直线、箭头。
 - **连续编号图钉**：选择图钉工具后，在选区内依次点击，生成圆圈内的 1、2、3……；每张新截图从 1 开始。
-- 五种颜色、三档线宽；撤销、重做、清空标注、重新选区。
+- 样式菜单提供五种颜色、三档线宽；主栏可撤销，更多菜单可重做、清空标注、重新选区。
 - 编辑后点击「确认」或按 Enter，默认将 PNG / TIFF 复制到剪贴板；也可主动保存 PNG，保留 Retina 分辨率。
 - 可在任意一块显示器上选择区域；一次选区限制在单块显示器内。
 - 自带无需屏幕录制权限的示例画布，便于试用标注。
@@ -57,13 +63,13 @@
 1. 按 **⌃⇧⌘5** 或点击菜单栏「区域截图」。
 2. 按住鼠标拖出截图区域，松开后出现工具条。
 3. 选择工具并在选区内标注。选择「图钉」后，每点击一次添加一个带递增数字的圆圈。
-4. 点击工具条中的 **「确认」**，或按 **Enter / ⌘C**，截图即复制到剪贴板并结束编辑，可直接 **⌘V** 粘贴。需要文件时，再主动点击「保存」或按 **⌘S**。
+4. 点击工具条右侧的 **勾号（确认）**，或按 **Enter / ⌘C**，截图即复制到剪贴板并结束编辑，可直接 **⌘V** 粘贴。需要文件时，使用「更多 → 保存 PNG」或按 **⌘S**。
 
 | 操作 | 快捷键 |
 | --- | --- |
 | 圆圈 / 椭圆 | O |
+| 方框 / 矩形 | B |
 | 直线 | L |
-| 自由画笔 | P |
 | 箭头 | A |
 | 连续编号图钉 | N |
 | 撤销 / 重做 | ⌘Z / ⇧⌘Z |
@@ -71,7 +77,7 @@
 | 保存 PNG | ⌘S |
 | 重新选择区域并清空标注 | R |
 | 取消截图 | Esc |
-| 正圆 / 水平或垂直线、箭头 | 拖动时按住 Shift |
+| 正圆 / 正方形 / 水平或垂直线、箭头 | 拖动时按住 Shift |
 
 工具快捷键仅在截图编辑期间生效。撤销图钉后继续点击，会使用当前下一个序号。取消保存对话框会回到原选区，保留已有标注。工具条与选区边框不会进入导出图片。
 
@@ -112,6 +118,7 @@ log show --last 5m --style compact --predicate 'subsystem == "io.github.anthemzh
 open "dist/Nebula ScreenShot.app" --args --demo
 "dist/Nebula ScreenShot.app/Contents/MacOS/NebulaScreenShot" --render-demo docs/preview.png
 "dist/Nebula ScreenShot.app/Contents/MacOS/NebulaScreenShot" --render-welcome docs/welcome.png
+"dist/Nebula ScreenShot.app/Contents/MacOS/NebulaScreenShot" --render-toolbar docs/toolbar.png
 ```
 
 ### 结构
@@ -131,4 +138,4 @@ Copyright © 2026 Nebula ScreenShot contributors.
 
 ---
 
-**English:** Nebula ScreenShot is a native, local-only macOS menu bar screenshot annotator. Press Control–Shift–Command–5 to capture directly, select a region, then draw ellipses, lines, freehand strokes, arrows, or sequential numbered pins. Click Confirm or press Enter to copy the annotated image to the clipboard by default. Saving a Retina-resolution PNG is optional. The compact About window uses only black, white and neutral gray. Requires macOS 14+. The global shortcut uses exclusive registration; if the system screenshot panel still appears, adjust the conflicting system binding. The app is ad-hoc signed and not notarized. Licensed under GPL-3.0-only.
+**English:** Nebula ScreenShot is a native, local-only macOS menu bar screenshot annotator. Press Control–Shift–Command–5 to capture directly, select a region, then use the compact dark toolbar for numbered pins, ellipses/rectangles, lines and arrows. Click the checkmark or press Enter to copy the annotated image to the clipboard by default. Colors and stroke widths live in the style menu; saving a Retina-resolution PNG is available in More. The compact About window uses only black, white and neutral gray. Requires macOS 14+. The global shortcut uses exclusive registration; if the system screenshot panel still appears, adjust the conflicting system binding. The app is ad-hoc signed and not notarized. Licensed under GPL-3.0-only.

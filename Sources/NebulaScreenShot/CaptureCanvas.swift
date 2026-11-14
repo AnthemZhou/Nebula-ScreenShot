@@ -9,7 +9,7 @@ import NebulaCore
     private var anchor: CGPoint?
     private var draft: Annotation?
     private var history = AnnotationHistory()
-    private var tool: AnnotationTool = .ellipse
+    private var tool: AnnotationTool = .pin
     private var ink: Ink = .coral
     private var lineWidth: CGFloat = 3.5
     private let toolbar = AnnotationToolbar(frame: .zero)
@@ -112,14 +112,14 @@ import NebulaCore
             selection = Geometry.rect(from: anchor, to: point).intersection(bounds)
         } else if var draft, let selection, let start = draft.points.first {
             var end = Geometry.clamp(point, to: selection)
-            if event.modifierFlags.contains(.shift), draft.tool != .pen {
+            if event.modifierFlags.contains(.shift) {
                 let dx = end.x - start.x, dy = end.y - start.y
-                if draft.tool == .ellipse {
+                if draft.tool == .ellipse || draft.tool == .rectangle {
                     let side = min(abs(dx), abs(dy))
                     end = CGPoint(x: start.x + (dx < 0 ? -side : side), y: start.y + (dy < 0 ? -side : side))
                 } else if abs(dx) > abs(dy) { end.y = start.y } else { end.x = start.x }
             }
-            if draft.tool == .pen { draft.points.append(end) } else { draft.points = [start, end] }
+            draft.points = [start, end]
             self.draft = draft
         }
         needsDisplay = true
@@ -142,8 +142,8 @@ import NebulaCore
         } else if draft != nil {
             mouseDragged(with: event)
             guard let draft else { return }
-            if draft.tool == .pen || (draft.points.count >= 2 && hypot(draft.points[0].x - draft.points[1].x,
-                                                                       draft.points[0].y - draft.points[1].y) >= 2) {
+            if draft.points.count >= 2 && hypot(draft.points[0].x - draft.points[1].x,
+                                                draft.points[0].y - draft.points[1].y) >= 2 {
                 history.append(draft)
             }
             self.draft = nil
@@ -153,7 +153,8 @@ import NebulaCore
 
     private func positionToolbar() {
         guard let selection else { return }
-        let width = min(650, bounds.width - 24), height: CGFloat = 88
+        let size = AnnotationToolbar.preferredSize(for: bounds.width - 24)
+        let width = size.width, height = size.height
         let x = min(max(selection.midX - width / 2, 12), bounds.width - width - 12)
         let y: CGFloat
         if selection.maxY + height + 14 <= bounds.height { y = selection.maxY + 10 }
@@ -163,7 +164,7 @@ import NebulaCore
     }
 
     private func refresh() {
-        toolbar.update(tool: tool, ink: ink, history: history)
+        toolbar.update(tool: tool, ink: ink, lineWidth: lineWidth, history: history)
         needsDisplay = true
         window?.makeFirstResponder(self)
     }

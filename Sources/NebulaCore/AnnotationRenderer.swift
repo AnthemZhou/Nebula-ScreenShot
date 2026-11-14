@@ -27,6 +27,8 @@ extension Ink {
         switch annotation.tool {
         case .ellipse:
             path.appendOval(in: Geometry.rect(from: start, to: end))
+        case .rectangle:
+            path.appendRect(Geometry.rect(from: start, to: end))
         case .line, .arrow:
             path.move(to: start)
             path.line(to: end)
@@ -36,16 +38,6 @@ extension Ink {
                     path.move(to: first)
                     for point in head.dropFirst() { path.line(to: point) }
                 }
-            }
-        case .pen:
-            if annotation.points.count == 1 {
-                annotation.ink.color.setFill()
-                NSBezierPath(ovalIn: CGRect(x: start.x - annotation.lineWidth / 2,
-                                           y: start.y - annotation.lineWidth / 2,
-                                           width: annotation.lineWidth, height: annotation.lineWidth)).fill()
-            } else {
-                path.move(to: start)
-                for point in annotation.points.dropFirst() { path.line(to: point) }
             }
         case .pin:
             drawPin(at: start, number: annotation.number ?? 1, ink: annotation.ink,

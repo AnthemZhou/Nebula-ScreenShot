@@ -20,8 +20,11 @@ Run `swift test` first. Install the final ZIP in a fixed Applications directory 
 
 ## Annotation and export
 
-- Use O, L, P, A, N to select each tool. Draw an ellipse, line, freehand stroke, and arrow.
-- Hold Shift while dragging an ellipse, line, or arrow; verify circle / axis constraints.
+- Verify the toolbar is one dark opaque row with four drawing groups in this order: pin, ellipse/rectangle, line, arrow. A new capture defaults to pin. There is no pen tool or second instruction row.
+- Use N, O, B, L, A to select each tool. Switch ellipse/rectangle using the shape dropdown, then draw both. Selecting the shape button later must restore the last chosen shape.
+- Hold Shift while dragging an ellipse, rectangle, line, or arrow; verify circle / square / axis constraints.
+- Open the style menu and choose each color and width. The current choices must be marked, including after a keyboard tool change. All menus must appear above the capture overlay and close cleanly when canceled; the overlay must retain its original window level afterwards.
+- Use toolbar undo and the More menu for redo, clear, reselect and save. Verify their enabled states, then cancel with the cross or confirm with the checkmark. At narrow display widths, controls must remain inside the toolbar and accessible through their labels/tooltips.
 - Select the pin tool and click three places. Expect 1, 2, 3 in circles at those locations.
 - Undo the third pin; place another. Expect 3. Undo and redo mixed shapes and pins.
 - Clear annotations, undo clear, and confirm the next number is restored.
@@ -34,7 +37,7 @@ Run `swift test` first. Install the final ZIP in a fixed Applications directory 
 ## Demo and distribution
 
 - “试用标注” works without granting screen recording permission.
-- `--render-demo` writes a synthetic sample PNG using the production renderer. `--render-welcome` renders the actual About view offscreen without capturing the desktop.
+- `--render-demo` writes a synthetic sample PNG using the production renderer. `--render-welcome` and `--render-toolbar` render the actual views offscreen without capturing the desktop. Add `--compact` to the toolbar render to inspect its narrow layout.
 - `scripts/package.sh --universal` produces both CPU architectures (`lipo -archs`).
 - Check signing with `codesign --verify --deep --strict`. Ad-hoc signing does not imply Apple notarization.
 - Smoke-test on an Intel Mac and macOS 14 before claiming those runtime configurations are verified; cross-compilation alone does not verify them.

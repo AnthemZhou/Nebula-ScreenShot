@@ -2,68 +2,91 @@
 import AppKit
 import NebulaCore
 
-@MainActor final class ActionButton: NSButton {
+@MainActor private final class ToolbarButton: NSButton {
     var actionBlock: (() -> Void)?
+    var showsLabel = true { didSet { needsDisplay = true } }
+    var isPrimary = false
+    private var hovering = false
+    private var hoverTrackingArea: NSTrackingArea?
 
-    init(title: String, symbol: String? = nil, help: String, action: @escaping () -> Void) {
+    init(title: String, symbol: String, help: String, action: @escaping () -> Void) {
         super.init(frame: .zero)
         self.title = title
-        if let symbol { image = NSImage(systemSymbolName: symbol, accessibilityDescription: title) }
-        imagePosition = title.isEmpty ? .imageOnly : .imageLeading
-        bezelStyle = .rounded
+        image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)
+        imagePosition = .imageLeading
         isBordered = false
         font = .systemFont(ofSize: 12, weight: .medium)
-        contentTintColor = .white
         toolTip = help
         setAccessibilityLabel(help)
         target = self
         self.action = #selector(invoke)
         actionBlock = action
-        translatesAutoresizingMaskIntoConstraints = false
-        heightAnchor.constraint(equalToConstant: 30).isActive = true
-        widthAnchor.constraint(greaterThanOrEqualToConstant: title.isEmpty ? 30 : 56).isActive = true
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    override var acceptsFirstResponder: Bool { false }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     @objc private func invoke() { actionBlock?() }
-}
 
-@MainActor final class InkButton: NSButton {
-    let ink: Ink
-    var selected = false { didSet { needsDisplay = true } }
-    var onChoose: ((Ink) -> Void)?
-
-    init(ink: Ink) {
-        self.ink = ink
-        super.init(frame: .zero)
-        isBordered = false
-        title = ""
-        toolTip = ink.title
-        setAccessibilityLabel(ink.title)
-        target = self
-        action = #selector(choose)
-        translatesAutoresizingMaskIntoConstraints = false
-        widthAnchor.constraint(equalToConstant: 25).isActive = true
-        heightAnchor.constraint(equalToConstant: 30).isActive = true
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverTrackingArea { removeTrackingArea(hoverTrackingArea) }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self, userInfo: nil)
+        addTrackingArea(area)
+        hoverTrackingArea = area
     }
 
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-    @objc private func choose() { onChoose?(ink) }
+    override func mouseEntered(with event: NSEvent) { hovering = true; needsDisplay = true }
+    override func mouseExited(with event: NSEvent) { hovering = false; needsDisplay = true }
+    override func highlight(_ flag: Bool) { super.highlight(flag); needsDisplay = true }
+    override func resetCursorRects() { addCursorRect(bounds, cursor: .arrow) }
 
     override func draw(_ dirtyRect: NSRect) {
-        let circle = NSRect(x: bounds.midX - 7, y: bounds.midY - 7, width: 14, height: 14)
-        ink.color.setFill()
-        NSBezierPath(ovalIn: circle).fill()
-        if selected {
-            NSColor.white.setStroke()
-            let ring = NSBezierPath(ovalIn: circle.insetBy(dx: -3, dy: -3))
-            ring.lineWidth = 1.5
-            ring.stroke()
+        let selected = state == .on
+        let foreground: NSColor
+        if isPrimary {
+            NSColor(white: isHighlighted ? 0.72 : (hovering ? 0.98 : 0.88), alpha: 1).setFill()
+            NSBezierPath(roundedRect: bounds, xRadius: 6, yRadius: 6).fill()
+            foreground = NSColor(white: 0.15, alpha: isEnabled ? 1 : 0.45)
+        } else {
+            if isEnabled && (selected || hovering || isHighlighted) {
+                NSColor(white: isHighlighted ? 0.36 : (selected ? 0.31 : 0.24), alpha: 1).setFill()
+                NSBezierPath(roundedRect: bounds, xRadius: 6, yRadius: 6).fill()
+            }
+            foreground = NSColor(white: isEnabled ? (selected ? 0.97 : 0.80) : 0.41, alpha: 1)
+        }
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font ?? NSFont.systemFont(ofSize: 12, weight: .medium), .foregroundColor: foreground
+        ]
+        let text = showsLabel ? title : ""
+        let textSize = (text as NSString).size(withAttributes: attributes)
+        let iconSize: CGFloat = min(16, max(0, bounds.width - 4))
+        let gap: CGFloat = text.isEmpty ? 0 : 5
+        let x = (bounds.width - iconSize - gap - textSize.width) / 2
+        if let image {
+            let colored = image.withSymbolConfiguration(NSImage.SymbolConfiguration(paletteColors: [foreground])) ?? image
+            let imageScale = min(iconSize / max(1, colored.size.width), iconSize / max(1, colored.size.height))
+            let size = NSSize(width: colored.size.width * imageScale, height: colored.size.height * imageScale)
+            colored.draw(in: NSRect(x: x + (iconSize - size.width) / 2, y: (bounds.height - size.height) / 2,
+                                   width: size.width, height: size.height),
+                         from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+        }
+        if !text.isEmpty {
+            (text as NSString).draw(at: NSPoint(x: x + iconSize + gap, y: (bounds.height - textSize.height) / 2), withAttributes: attributes)
         }
     }
 }
 
-@MainActor final class AnnotationToolbar: NSVisualEffectView {
+@MainActor final class AnnotationToolbar: NSView {
+    static let preferredWidth: CGFloat = 520
+    static let height: CGFloat = 44
+    private static let compactWidth: CGFloat = 334
+
+    static func preferredSize(for availableWidth: CGFloat) -> CGSize {
+        let width = availableWidth >= preferredWidth ? preferredWidth : min(compactWidth, max(1, availableWidth))
+        return CGSize(width: width, height: height)
+    }
+
     var onTool: ((AnnotationTool) -> Void)?
     var onInk: ((Ink) -> Void)?
     var onWidth: ((CGFloat) -> Void)?
@@ -75,109 +98,251 @@ import NebulaCore
     var onSave: (() -> Void)?
     var onCancel: (() -> Void)?
 
-    private var tools: [AnnotationTool: ActionButton] = [:]
-    private var inks: [Ink: InkButton] = [:]
-    private let pinLabel = NSTextField(labelWithString: "下一枚 ①")
-    private var undoButton: ActionButton!
-    private var redoButton: ActionButton!
+    private var selectedTool: AnnotationTool = .pin
+    private var selectedShape: AnnotationTool = .ellipse
+    private var selectedInk: Ink = .coral
+    private var selectedWidth: CGFloat = 3.5
+    private var canRedo = false
+    private var canClear = false
+    private var pinButton: ToolbarButton!
+    private var shapeButton: ToolbarButton!
+    private var shapeMenuButton: ToolbarButton!
+    private var lineButton: ToolbarButton!
+    private var arrowButton: ToolbarButton!
+    private var styleButton: ToolbarButton!
+    private var moreButton: ToolbarButton!
+    private var undoButton: ToolbarButton!
+    private var cancelButton: ToolbarButton!
+    private var confirmButton: ToolbarButton!
+    private var separators: [NSRect] = []
+
+    override var isFlipped: Bool { true }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        material = .hudWindow
-        blendingMode = .withinWindow
-        state = .active
         appearance = NSAppearance(named: .darkAqua)
-        wantsLayer = true
-        layer?.cornerRadius = 15
-        layer?.borderWidth = 1
-        layer?.borderColor = NSColor.white.withAlphaComponent(0.18).cgColor
-
-        let first = NSStackView()
-        first.orientation = .horizontal
-        first.spacing = 4
-        for tool in AnnotationTool.allCases {
-            let button = ActionButton(title: tool.title, symbol: tool.symbol,
-                                      help: "\(tool.title)（\(tool.shortcut.uppercased())）") { [weak self] in self?.onTool?(tool) }
-            tools[tool] = button
-            first.addArrangedSubview(button)
+        pinButton = toolButton(.pin)
+        shapeButton = ToolbarButton(title: "圆圈", symbol: "circle", help: "圆圈（O）") { [weak self] in
+            guard let self else { return }
+            self.chooseTool(self.selectedShape)
         }
-        first.addArrangedSubview(divider())
-        for ink in Ink.allCases {
-            let button = InkButton(ink: ink)
-            button.onChoose = { [weak self] in self?.onInk?($0) }
-            inks[ink] = button
-            first.addArrangedSubview(button)
-        }
-        let widths = NSSegmentedControl(labels: ["细", "中", "粗"], trackingMode: .selectOne,
-                                        target: self, action: #selector(changeWidth(_:)))
-        widths.selectedSegment = 1
-        widths.segmentStyle = .rounded
-        widths.toolTip = "标注粗细"
-        widths.setAccessibilityLabel("标注粗细")
-        first.addArrangedSubview(widths)
-
-        let second = NSStackView()
-        second.orientation = .horizontal
-        second.spacing = 6
-        pinLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .medium)
-        pinLabel.textColor = NSColor.white.withAlphaComponent(0.65)
-        pinLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 110).isActive = true
-        second.addArrangedSubview(pinLabel)
-        second.addArrangedSubview(ActionButton(title: "重选", symbol: "crop", help: "重新选择区域（R）") { [weak self] in self?.onReselect?() })
-        undoButton = ActionButton(title: "", symbol: "arrow.uturn.backward", help: "撤销（⌘Z）") { [weak self] in self?.onUndo?() }
-        redoButton = ActionButton(title: "", symbol: "arrow.uturn.forward", help: "重做（⇧⌘Z）") { [weak self] in self?.onRedo?() }
-        second.addArrangedSubview(undoButton)
-        second.addArrangedSubview(redoButton)
-        second.addArrangedSubview(ActionButton(title: "", symbol: "trash", help: "清空标注（可撤销）") { [weak self] in self?.onClear?() })
-        second.addArrangedSubview(divider())
-        second.addArrangedSubview(ActionButton(title: "取消", symbol: "xmark", help: "取消截图（Esc）") { [weak self] in self?.onCancel?() })
-        second.addArrangedSubview(ActionButton(title: "保存", symbol: "square.and.arrow.down", help: "保存 PNG（⌘S）") { [weak self] in self?.onSave?() })
-        let confirm = ActionButton(title: "确认", symbol: "checkmark", help: "确认并复制到剪贴板（Enter / ⌘C）") { [weak self] in self?.onCopy?() }
-        confirm.isBordered = true
-        confirm.bezelColor = NSColor(srgbRed: 0.24, green: 0.42, blue: 0.85, alpha: 1)
-        confirm.keyEquivalent = "\r"
-        confirm.keyEquivalentModifierMask = []
-        second.addArrangedSubview(confirm)
-
-        let rows = NSStackView(views: [first, second])
-        rows.orientation = .vertical
-        rows.alignment = .centerX
-        rows.spacing = 6
-        rows.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(rows)
-        NSLayoutConstraint.activate([
-            rows.centerXAnchor.constraint(equalTo: centerXAnchor),
-            rows.centerYAnchor.constraint(equalTo: centerYAnchor),
-            rows.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 10),
-            rows.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -10)
-        ])
+        shapeMenuButton = ToolbarButton(title: "", symbol: "chevron.down", help: "选择圆圈或方框") { [weak self] in self?.showShapeMenu() }
+        lineButton = toolButton(.line)
+        arrowButton = toolButton(.arrow)
+        styleButton = ToolbarButton(title: "", symbol: "slider.horizontal.3", help: "颜色与粗细") { [weak self] in self?.showStyleMenu() }
+        moreButton = ToolbarButton(title: "", symbol: "ellipsis", help: "更多：重做、重选、清空、保存") { [weak self] in self?.showMoreMenu() }
+        undoButton = ToolbarButton(title: "", symbol: "arrow.uturn.backward", help: "撤销（⌘Z）") { [weak self] in self?.onUndo?() }
+        undoButton.isEnabled = false
+        cancelButton = ToolbarButton(title: "", symbol: "xmark", help: "取消截图（Esc）") { [weak self] in self?.onCancel?() }
+        confirmButton = ToolbarButton(title: "确认", symbol: "checkmark", help: "确认并复制到剪贴板（Enter / ⌘C）") { [weak self] in self?.onCopy?() }
+        confirmButton.isPrimary = true
+        confirmButton.keyEquivalent = "\r"
+        confirmButton.keyEquivalentModifierMask = []
+        for button in rowButtons { addSubview(button) }
+        updateToolSelection()
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    private func divider() -> NSView {
-        let view = NSBox()
-        view.boxType = .separator
-        view.translatesAutoresizingMaskIntoConstraints = false
-        view.widthAnchor.constraint(equalToConstant: 1).isActive = true
-        view.heightAnchor.constraint(equalToConstant: 20).isActive = true
-        return view
+    private var rowButtons: [ToolbarButton] {
+        [pinButton, shapeButton, shapeMenuButton, lineButton, arrowButton,
+         styleButton, moreButton, undoButton, cancelButton, confirmButton]
     }
 
-    @objc private func changeWidth(_ sender: NSSegmentedControl) {
-        onWidth?([CGFloat(2), 3.5, 6][sender.selectedSegment])
+    private func toolButton(_ tool: AnnotationTool) -> ToolbarButton {
+        ToolbarButton(title: tool.title, symbol: tool.symbol, help: "\(tool.title)（\(tool.shortcut.uppercased())）") { [weak self] in self?.chooseTool(tool) }
     }
 
-    func update(tool: AnnotationTool, ink: Ink, history: AnnotationHistory) {
-        for (key, button) in tools {
-            button.contentTintColor = key == tool ? NSColor(srgbRed: 0.48, green: 0.84, blue: 1, alpha: 1) : .white
-            button.state = key == tool ? .on : .off
+    override func setFrameSize(_ newSize: NSSize) { super.setFrameSize(newSize); needsLayout = true }
+
+    override func layout() {
+        super.layout()
+        let compact = bounds.width < Self.preferredWidth
+        let widths: [CGFloat] = compact ? [32, 32, 16, 32, 32, 28, 28, 28, 28, 32] : [68, 64, 18, 64, 64, 30, 30, 30, 30, 62]
+        let gaps: [CGFloat] = compact ? [3, 0, 3, 3, 8, 3, 3, 8, 3] : [4, 0, 4, 4, 10, 4, 4, 10, 4]
+        let padding: CGFloat = compact ? 6 : 8
+        let naturalWidth = widths.reduce(0, +) + gaps.reduce(0, +) + padding * 2
+        let scale = min(1, max(0, bounds.width) / naturalWidth)
+        var x = (bounds.width - naturalWidth * scale) / 2 + padding * scale
+        separators.removeAll(keepingCapacity: true)
+        for (index, button) in rowButtons.enumerated() {
+            button.showsLabel = !compact
+            button.frame = NSRect(x: x, y: (bounds.height - 32) / 2, width: widths[index] * scale, height: 32)
+            x += widths[index] * scale
+            if index < gaps.count {
+                let gap = gaps[index] * scale
+                if index == 4 || index == 7 {
+                    separators.append(NSRect(x: x + gap / 2, y: (bounds.height - 18) / 2, width: 0.5, height: 18))
+                }
+                x += gap
+            }
         }
-        for (key, button) in inks { button.selected = key == ink }
-        undoButton.isEnabled = history.canUndo
-        redoButton.isEnabled = history.canRedo
-        pinLabel.stringValue = tool == .pin ? "下一枚图钉：\(history.nextPinNumber)" : "\(tool.title) · 拖动绘制"
+        needsDisplay = true
     }
 
+    override func draw(_ dirtyRect: NSRect) {
+        let outline = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 10, yRadius: 10)
+        NSColor(white: 44.0 / 255, alpha: 1).setFill()
+        outline.fill()
+        NSColor(white: 0.34, alpha: 1).setStroke()
+        outline.lineWidth = 0.5
+        outline.stroke()
+        NSColor(white: 0.40, alpha: 1).setFill()
+        for rect in separators { rect.fill() }
+    }
+
+    // Clicking the toolbar's padding must never place an annotation on the canvas.
+    override func mouseDown(with event: NSEvent) {}
+    override func mouseDragged(with event: NSEvent) {}
+    override func mouseUp(with event: NSEvent) {}
     override func resetCursorRects() { addCursorRect(bounds, cursor: .arrow) }
+
+    func update(tool: AnnotationTool, ink: Ink, lineWidth: CGFloat, history: AnnotationHistory) {
+        selectedTool = tool
+        if tool == .ellipse || tool == .rectangle { selectedShape = tool }
+        selectedInk = ink
+        selectedWidth = lineWidth
+        canRedo = history.canRedo
+        canClear = !history.annotations.isEmpty
+        undoButton.isEnabled = history.canUndo
+        undoButton.needsDisplay = true
+        pinButton.toolTip = "图钉（N）· 下一枚：\(history.nextPinNumber)"
+        pinButton.setAccessibilityLabel(pinButton.toolTip)
+        styleButton.toolTip = "颜色与粗细 · \(ink.title) · \(widthTitle(lineWidth))"
+        styleButton.setAccessibilityLabel(styleButton.toolTip)
+        updateToolSelection()
+    }
+
+    private func chooseTool(_ tool: AnnotationTool) {
+        selectedTool = tool
+        if tool == .ellipse || tool == .rectangle { selectedShape = tool }
+        updateToolSelection()
+        onTool?(tool)
+    }
+
+    private func updateToolSelection() {
+        shapeButton.title = selectedShape.title
+        shapeButton.image = NSImage(systemSymbolName: selectedShape.symbol, accessibilityDescription: selectedShape.title)
+        shapeButton.toolTip = "\(selectedShape.title)（\(selectedShape.shortcut.uppercased())）"
+        shapeButton.setAccessibilityLabel(shapeButton.toolTip)
+        let shapeSelected = selectedTool == .ellipse || selectedTool == .rectangle
+        for (button, selected) in [(pinButton, selectedTool == .pin), (shapeButton, shapeSelected),
+                                    (shapeMenuButton, shapeSelected), (lineButton, selectedTool == .line), (arrowButton, selectedTool == .arrow)] {
+            button?.state = selected ? .on : .off
+            button?.needsDisplay = true
+        }
+    }
+
+    private func showShapeMenu() {
+        let menu = makeMenu()
+        for tool in [AnnotationTool.ellipse, .rectangle] {
+            let item = makeItem(tool.title, symbol: tool.symbol, action: #selector(selectShape(_:)))
+            item.representedObject = tool.rawValue
+            item.state = selectedShape == tool ? .on : .off
+            item.keyEquivalent = tool.shortcut
+            item.keyEquivalentModifierMask = []
+            menu.addItem(item)
+        }
+        present(menu, from: shapeMenuButton)
+    }
+
+    private func showStyleMenu() {
+        let menu = makeMenu()
+        let colors = makeMenu()
+        for ink in Ink.allCases {
+            let item = makeItem(ink.title, action: #selector(selectInk(_:)))
+            item.representedObject = ink.rawValue
+            item.state = ink == selectedInk ? .on : .off
+            item.image = NSImage(size: NSSize(width: 16, height: 16), flipped: false) { rect in
+                ink.color.setFill()
+                NSBezierPath(ovalIn: rect.insetBy(dx: 3, dy: 3)).fill()
+                return true
+            }
+            colors.addItem(item)
+        }
+        let colorItem = NSMenuItem(title: "颜色", action: nil, keyEquivalent: "")
+        colorItem.submenu = colors
+        menu.addItem(colorItem)
+        let widths = makeMenu()
+        for width: CGFloat in [2, 3.5, 6] {
+            let item = makeItem(widthTitle(width), action: #selector(selectWidth(_:)))
+            item.representedObject = NSNumber(value: Double(width))
+            item.state = abs(selectedWidth - width) < 0.01 ? .on : .off
+            widths.addItem(item)
+        }
+        let widthItem = NSMenuItem(title: "粗细", action: nil, keyEquivalent: "")
+        widthItem.submenu = widths
+        menu.addItem(widthItem)
+        present(menu, from: styleButton)
+    }
+
+    private func showMoreMenu() {
+        let menu = makeMenu()
+        let redo = makeItem("重做", symbol: "arrow.uturn.forward", action: #selector(performRedo))
+        redo.isEnabled = canRedo
+        redo.keyEquivalent = "z"
+        redo.keyEquivalentModifierMask = [.command, .shift]
+        menu.addItem(redo)
+        let reselect = makeItem("重新选择区域", symbol: "crop", action: #selector(performReselect))
+        reselect.keyEquivalent = "r"
+        reselect.keyEquivalentModifierMask = []
+        menu.addItem(reselect)
+        let clear = makeItem("清空标注", symbol: "trash", action: #selector(performClear))
+        clear.isEnabled = canClear
+        menu.addItem(clear)
+        menu.addItem(.separator())
+        let save = makeItem("保存 PNG…", symbol: "square.and.arrow.down", action: #selector(performSave))
+        save.keyEquivalent = "s"
+        save.keyEquivalentModifierMask = [.command]
+        menu.addItem(save)
+        present(menu, from: moreButton)
+    }
+
+    private func makeMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        menu.appearance = appearance
+        return menu
+    }
+
+    private func makeItem(_ title: String, symbol: String? = nil, action: Selector) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+        item.target = self
+        if let symbol { item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: title) }
+        return item
+    }
+
+    private func present(_ menu: NSMenu, from button: ToolbarButton) {
+        guard let window else { return }
+        let previousLevel = window.level
+        // A screen-saver-level capture panel otherwise sits above native menu windows.
+        // This remains above normal apps and restores the overlay's level when tracking ends.
+        if previousLevel.rawValue >= NSWindow.Level.popUpMenu.rawValue {
+            window.level = NSWindow.Level(rawValue: NSWindow.Level.popUpMenu.rawValue - 1)
+        }
+        defer { window.level = previousLevel }
+        menu.popUp(positioning: nil, at: NSPoint(x: button.frame.minX, y: bounds.maxY + 4), in: self)
+    }
+
+    private func widthTitle(_ width: CGFloat) -> String { width <= 2 ? "细" : (width >= 6 ? "粗" : "中") }
+
+    @objc private func selectShape(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let tool = AnnotationTool(rawValue: raw),
+              tool == .ellipse || tool == .rectangle else { return }
+        chooseTool(tool)
+    }
+    @objc private func selectInk(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let ink = Ink(rawValue: raw) else { return }
+        selectedInk = ink
+        onInk?(ink)
+    }
+    @objc private func selectWidth(_ sender: NSMenuItem) {
+        guard let number = sender.representedObject as? NSNumber else { return }
+        selectedWidth = CGFloat(number.doubleValue)
+        onWidth?(selectedWidth)
+    }
+    @objc private func performRedo() { onRedo?() }
+    @objc private func performReselect() { onReselect?() }
+    @objc private func performClear() { onClear?() }
+    @objc private func performSave() { onSave?() }
 }

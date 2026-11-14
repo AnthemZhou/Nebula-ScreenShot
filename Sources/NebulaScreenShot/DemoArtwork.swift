@@ -32,7 +32,7 @@ import NebulaCore
         text("Make it easy to follow", x: 96, y: 291, size: 25, weight: .semibold)
         let cards = [
             ("01 / CAPTURE", "Start with the big picture.", "Drag to select an area."),
-            ("02 / ANNOTATE", "Point out the important bits.", "Circles, lines & arrows."),
+            ("02 / ANNOTATE", "Point out the important bits.", "Shapes, lines & arrows."),
             ("03 / EXPLAIN", "Every step has a number.", "Click. Click. Click.")
         ]
         for (index, card) in cards.enumerated() {
@@ -53,7 +53,8 @@ import NebulaCore
         [
             Annotation(tool: .ellipse, points: [CGPoint(x: 82, y: 279), CGPoint(x: 394, y: 335)], ink: .coral, lineWidth: 3),
             Annotation(tool: .arrow, points: [CGPoint(x: 360, y: 510), CGPoint(x: 438, y: 474)], ink: .amber, lineWidth: 4),
-            Annotation(tool: .pen, points: [CGPoint(x: 741, y: 490), CGPoint(x: 778, y: 493), CGPoint(x: 812, y: 489), CGPoint(x: 849, y: 492), CGPoint(x: 892, y: 489)], ink: .mint, lineWidth: 3),
+            Annotation(tool: .line, points: [CGPoint(x: 741, y: 490), CGPoint(x: 892, y: 490)], ink: .mint, lineWidth: 3),
+            Annotation(tool: .rectangle, points: [CGPoint(x: 710, y: 410), CGPoint(x: 1002, y: 450)], ink: .coral, lineWidth: 3),
             Annotation(tool: .pin, points: [CGPoint(x: 350, y: 362)], ink: .coral, lineWidth: 3.5, number: 1),
             Annotation(tool: .pin, points: [CGPoint(x: 661, y: 362)], ink: .coral, lineWidth: 3.5, number: 2),
             Annotation(tool: .pin, points: [CGPoint(x: 972, y: 362)], ink: .coral, lineWidth: 3.5, number: 3)

@@ -4,6 +4,20 @@ import NebulaCore
 
 MainActor.assumeIsolated {
 let app = NSApplication.shared
+if let index = CommandLine.arguments.firstIndex(of: "--render-toolbar"), CommandLine.arguments.count > index + 1 {
+    let preview = ToolbarPreview(availableWidth: CommandLine.arguments.contains("--compact") ? 360 : 520)
+    let previewWindow = NSWindow(contentRect: preview.bounds, styleMask: [.borderless], backing: .buffered, defer: false)
+    previewWindow.contentView = preview
+    preview.layoutSubtreeIfNeeded()
+    if let bitmap = preview.bitmapImageRepForCachingDisplay(in: preview.bounds) {
+        preview.cacheDisplay(in: preview.bounds, to: bitmap)
+        if let data = bitmap.representation(using: .png, properties: [:]) {
+            do { try data.write(to: URL(fileURLWithPath: CommandLine.arguments[index + 1])); exit(0) }
+            catch { fputs("\(error)\n", stderr); exit(1) }
+        }
+    }
+    exit(1)
+}
 if let index = CommandLine.arguments.firstIndex(of: "--render-welcome"), CommandLine.arguments.count > index + 1 {
     // Render our own view offscreen; this does not capture the user's desktop.
     let welcome = WelcomeWindow()

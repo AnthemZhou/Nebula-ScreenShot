@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.5 — 2026-11-14
+
+- Replace the two-row annotation panel with a compact, opaque dark toolbar and neutral icons.
+- Keep four drawing groups in order: numbered pins, ellipse/rectangle, line, arrow; default to pins and remove freehand drawing.
+- Add outlined rectangles, including Shift-constrained squares and Retina export.
+- Move color/width controls into a style menu and secondary actions into More; keep undo, cancel and confirm directly accessible.
+- Add actual toolbar rendering previews and rectangle export/history regression tests.
+
 ## 0.1.4 — 2026-11-14
 
 - Fix the permission recovery loop after an ad-hoc signed update: add an explicit action that resets only Nebula's ScreenCapture record and relaunches the same installed app for fresh authorization.
