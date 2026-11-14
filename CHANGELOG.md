@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Add a local Apple Development build path that pins the signing certificate and verifies each new build against the previous designated requirement on both architectures. Stop when the identity is missing or changed; never silently fall back to ad-hoc. Leave the installed app, screen-recording permission and public release packages untouched.
+- Document the free Personal Team setup and the difference between local stable signing and Developer ID distribution. Actual permission-preserving upgrades require a development certificate and a two-build desktop acceptance check.
+
 ## 1.1.1 — 2026-11-15
 
 - Give the pointer readout its own backing layer, disable position animations and reuse monospaced-digit measurements. Hover/readout updates use the latest pointer position and no longer repaint the screenshot unless editing controls actually change. Brush/eraser cursor redraws are limited to their old/new footprints.

@@ -139,6 +139,17 @@ open "dist/Nebula ScreenShot.app"
 
 输出位于 `dist/`，包含 ZIP 和 SHA-256 校验文件。默认 ad-hoc 签名；可通过 `CODE_SIGN_IDENTITY` 指定自己的签名身份。本地开发应使用固定的 Apple Development 身份，以便跨构建保持 TCC 授权；面向用户的发行应使用 Developer ID Application。Developer ID 正式分发还需自行配置 hardened runtime、notarization 与 stapling；此脚本不宣称完成公证。
 
+**减少本机更新后的重复授权**：在 Xcode → Settings → Accounts / Apple Accounts 登录 Apple 账户，进入 Manage Certificates，创建 Apple Development 证书。免费 Personal Team 可用于本机开发；账户和证书需要本人在 Xcode 中管理。随后使用：
+
+```sh
+python3 scripts/build-local.py --check
+python3 scripts/build-local.py
+```
+
+这个入口会固定使用首次成功构建的证书，并校验每个架构的新版本满足上一次的签名要求；证书缺失、过期或身份变化时直接停止，不退回 ad-hoc。多个证书时，首次通过 `--identity` 指定 `security find-identity -v -p codesigning` 中的 SHA-1 指纹。公开的证书指纹与签名要求保存在本机 `~/Library/Application Support/Nebula ScreenShot/LocalSigning.json`，不导出私钥。构建结果保存在同目录下的 `LocalBuild/Nebula ScreenShot.app`，避开同步目录中的 Finder 元数据；需要覆盖到原先固定的应用目录。脚本本身不会安装、启动应用或重置权限。
+
+从当前 ad-hoc 发行版首次切换到开发证书时，可能仍需授权一次；之后本机更新应持续使用此入口。再次安装 GitHub 的 ad-hoc 下载包会改变身份。本机开发签名不能代替公开发行的 Developer ID 签名与公证，也不保证系统自身的权限提醒永远不出现。正式跨版本桌面验收需要同一证书签署两个不同构建，先授权第一个，再覆盖升级第二个并确认快捷键截图无需再次授权。[Apple 对代码身份和授权的说明](https://developer.apple.com/forums/thread/819406)、[免费 Personal Team 说明](https://developer.apple.com/help/account/basics/about-your-developer-account)。
+
 实际权限验证请从最终 ZIP 安装后，通过 Finder / `open` 启动 `.app`。直接运行包内二进制可能让权限归属启动它的终端或开发工具，不能据此判断应用本身是否获准。应用记录截图请求、选区就绪、一次性授权修复及错误 domain/code，不记录屏幕内容：
 
 ```sh
