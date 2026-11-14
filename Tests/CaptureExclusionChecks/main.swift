@@ -9,7 +9,15 @@ import Darwin
         let panel = NSPanel(contentRect: NSRect(x: -10000, y: -10000, width: 80, height: 80),
                             styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.level = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 1)
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = false
         panel.isReleasedWhenClosed = false
+        let shade = NSView(frame: NSRect(x: 0, y: 0, width: 80, height: 80))
+        shade.wantsLayer = true
+        shade.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.48).cgColor
+        panel.contentView = shade
         panel.orderFrontRegardless() // Offscreen, no activation and no desktop pixels.
         self.panel = panel
         Task { @MainActor in
