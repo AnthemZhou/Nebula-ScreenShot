@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.1 — 2026-11-14
+
+- Automatically restore the app and capture hotkey after native screen-recording consent. Arm a temporary same-bundle helper before requesting consent, and restart once when access becomes available while the old process remains alive.
+- Replace the shell/open-new-instance relaunch with LaunchServices, reusing an app already reopened by macOS. Helpers create no menu or hotkey, capture no pixels, and are bounded to the consent session.
+- Cancel on successful capture, explicit quit, force quit, logout or timeout. Check clean process exit, current consent and a single-use handoff before reopening; never install a persistent launch agent.
+- Add consent-transition and quit-policy tests plus native parent/child process checks for clean exit, force quit, cancellation and timeout; run them in CI.
+
 ## 1.0.0 — 2026-11-14
 
 - First stable release of the native macOS screenshot annotator, including numbered teardrop pins, editable shapes, freehand/local erasing, undo/redo, clipboard output and PNG saving.

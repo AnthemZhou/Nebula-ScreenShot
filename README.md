@@ -61,15 +61,15 @@
 
 ### 首次设置
 
-首次使用的正常流程是：点击截图 → 应用发起 macOS 原生权限请求 → 用户允许并按系统提示重新打开。**不应要求每位新用户手动添加应用**；列表「＋」是系统记录异常时的补救入口。应用不能代替用户允许权限。[Apple 官方示例的首次授权流程](https://developer.apple.com/documentation/screencapturekit/capturing-screen-content-in-macos)。
+首次使用的正常流程是：点击截图 → 应用发起 macOS 原生权限请求 → 用户允许，应用自动重启并恢复快捷键。**不应要求每位新用户手动添加应用**；列表「＋」是系统记录异常时的补救入口。应用不能代替用户允许权限。[Apple 官方示例的首次授权流程](https://developer.apple.com/documentation/screencapturekit/capturing-screen-content-in-macos)。
 
-**屏幕权限**：打开「系统设置 → 隐私与安全性 → 屏幕与系统音频录制」（部分系统称「屏幕录制」），允许 Nebula ScreenShot。若系统要求，请退出并重新打开应用。应用只请求画面捕获，不录制音频。
+**屏幕权限**：打开「系统设置 → 隐私与安全性 → 屏幕与系统音频录制」（部分系统称「屏幕录制」），允许 Nebula ScreenShot。授权完成后，应用会自动重启并恢复快捷键；若系统出现退出提示，可按提示操作，无需再手动打开应用。应用只请求画面捕获，不录制音频。
 
-首次截图被系统拒绝时，应用只发起一次原生授权请求，**不再叠加“需要屏幕录制权限”的应用提示框**。等待系统授权后，再按快捷键；若系统要求退出并重新打开，请按系统提示操作。
+首次截图被系统拒绝时，应用只发起一次原生授权请求，**不再叠加“需要屏幕录制权限”的应用提示框**。等待系统授权后，应用自动重启并恢复快捷键。v1.0.1 会在请求授权前准备一次性重启辅助进程，接住系统授权导致的退出；若权限变为允许而旧进程仍在，也会自动重启一次。
 
 **开关已开，却仍被拒绝**：当前发行包使用 ad-hoc 签名，更新会改变代码身份，系统可能仍保存旧版本的授权。v0.1.9 会记住实际签名身份：已安装用户升级后，只有真正截图被拒绝时，才自动清除 **Nebula 自己的 ScreenCapture 记录一次**，重新启动并发起原生授权。成功截图会取消这次修复；同一签名后续被拒绝不会反复重置。首次安装和稳定证书签名不使用这条自动修复流程。
 
-出现授权失败时，菜单栏主菜单会提供 **“修复屏幕录制授权…”**，设置中也保留“重新授权屏幕录制…”。选择后会直接清除 Nebula 的旧记录、重启并请求原生授权，不再要求手动用「＋」重新添加，也不叠加确认框。系统的“允许”仍须用户操作；其他应用的权限不受影响。如果系统列表本身异常，可最后尝试[手动添加当前安装的应用](https://support.apple.com/guide/mac-help/control-access-screen-system-audio-recording-mchld6aa7d23/mac)。
+出现授权失败时，菜单栏主菜单会提供 **“修复屏幕录制授权…”**，设置中也保留“重新授权屏幕录制…”。选择后会直接清除 Nebula 的旧记录、重启并请求原生授权，不再要求手动用「＋」重新添加，也不叠加确认框。系统的“允许”仍须用户操作；其他应用的权限不受影响。授权辅助进程仅在当前授权期间临时存在，最长等待 10 分钟；成功截图、主动退出、强制退出或注销会结束该流程，不会作为常驻守护程序重开应用。如果系统列表本身异常，可最后尝试[手动添加当前安装的应用](https://support.apple.com/guide/mac-help/control-access-screen-system-audio-recording-mchld6aa7d23/mac)。
 
 正式的跨版本授权需要稳定的 Apple 代码签名身份；固定安装目录本身不能消除 ad-hoc 签名变化。[Apple 对此问题的说明](https://developer.apple.com/forums/thread/819406)。
 
@@ -119,6 +119,7 @@ git clone https://github.com/AnthemZhou/Nebula-ScreenShot.git
 cd Nebula-ScreenShot
 swift test
 ./scripts/check-interactions.sh
+./scripts/check-relaunch.sh
 ./scripts/build.sh
 open "dist/Nebula ScreenShot.app"
 ```
@@ -157,6 +158,7 @@ open "dist/Nebula ScreenShot.app" --args --demo
 - `Sources/NebulaScreenShot`：菜单栏、快捷键、屏幕捕获、选区、工具条与引导窗口。
 - `Tests/NebulaCoreTests`：编号及分支撤销、可调整选区几何、图钉比例与尖角、白色图钉边框与数字、编辑命中和重编号、局部擦除及下层像素保留、Retina 裁剪与导出位置、权限错误分类测试。
 - `Tests/InteractionChecks`：实际 AppKit 控件的隐藏窗口手势回归与反复绘制检查；不捕获桌面、不注入系统输入、不写系统剪贴板。
+- `Tests/RelaunchChecks`：用独立测试父子进程验证退出状态、取消和超时，不请求屏幕权限、不启动真实截图应用。
 - `.github/workflows/build.yml`：macOS 核心 / 编辑器交互测试、Universal 构建和构建产物上传。
 
 手动验收步骤见 [TESTING.md](TESTING.md)。欢迎提交 Issue 与 Pull Request。
@@ -169,4 +171,4 @@ Copyright © 2026 Nebula ScreenShot contributors.
 
 ---
 
-**English:** Nebula ScreenShot is a native, local-only macOS menu bar screenshot annotator. Press Control–Shift–Command–5 to capture directly, select a region, then use the compact icon-only dark toolbar for numbered pins, ellipses/rectangles, lines and arrows. Click the checkmark or press Enter to copy the annotated image to the clipboard by default. Six color dots lead the toolbar, with Dots orange as the default; Save PNG is directly accessible. Click to pin, left-drag to draw a rounded rectangle in pin mode, and right-drag to draw a line. Pins scale with the crop, have white outlines/numbers and an exact-position teardrop tip. Hover to delete a pin and renumber the others, or edit shape endpoints and bounds. Rectangles use thin 2 pt rounded dashed borders. The eraser removes only brushed regions of freehand strokes and whole objects for other annotation types; each sweep supports undo/redo. Resize the selection using its edges, or Space-drag to move it while keeping annotations in place. Right-click the canvas to cancel. The capture interface and static selection shade appear immediately, with no fade or window animation. Display-filter metadata is reused and toolbar creation is deferred; every capture still requests fresh pixels, without background recording. The compact About window uses only black, white and neutral gray. Requires macOS 14+. The global shortcut uses exclusive registration; if the system screenshot panel still appears, adjust the conflicting system binding. Permission requests use the native macOS prompt without a duplicate in-app alert. A changed ad-hoc build can repair its own stale screen-permission record once after a real denial, then relaunch for native consent; later denials do not trigger repeated resets. The app is ad-hoc signed and not notarized. Licensed under GPL-3.0-only.
+**English:** Nebula ScreenShot is a native, local-only macOS menu bar screenshot annotator. Press Control–Shift–Command–5 to capture directly, select a region, then use the compact icon-only dark toolbar for numbered pins, ellipses/rectangles, lines and arrows. Click the checkmark or press Enter to copy the annotated image to the clipboard by default. Six color dots lead the toolbar, with Dots orange as the default; Save PNG is directly accessible. Click to pin, left-drag to draw a rounded rectangle in pin mode, and right-drag to draw a line. Pins scale with the crop, have white outlines/numbers and an exact-position teardrop tip. Hover to delete a pin and renumber the others, or edit shape endpoints and bounds. Rectangles use thin 2 pt rounded dashed borders. The eraser removes only brushed regions of freehand strokes and whole objects for other annotation types; each sweep supports undo/redo. Resize the selection using its edges, or Space-drag to move it while keeping annotations in place. Right-click the canvas to cancel. The capture interface and static selection shade appear immediately, with no fade or window animation. Display-filter metadata is reused and toolbar creation is deferred; every capture still requests fresh pixels, without background recording. The compact About window uses only black, white and neutral gray. Requires macOS 14+. The global shortcut uses exclusive registration; if the system screenshot panel still appears, adjust the conflicting system binding. Permission requests use the native macOS prompt without a duplicate in-app alert. A temporary helper restores the app and hotkey after consent, reuses any instance macOS has already reopened, and respects explicit quit, force quit and logout. A changed ad-hoc build can repair its own stale screen-permission record once after a real denial, then relaunch for native consent; later denials do not trigger repeated resets. The app is ad-hoc signed and not notarized. Licensed under GPL-3.0-only.

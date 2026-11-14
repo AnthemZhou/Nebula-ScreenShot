@@ -3,6 +3,9 @@ import AppKit
 import NebulaCore
 
 MainActor.assumeIsolated {
+if CommandLine.arguments.contains("--permission-relaunch-helper") {
+    exit(AppRelauncher.runHelper(arguments: CommandLine.arguments))
+}
 let app = NSApplication.shared
 if let index = CommandLine.arguments.firstIndex(of: "--render-toolbar"), CommandLine.arguments.count > index + 1 {
     let preview = ToolbarPreview(availableWidth: CommandLine.arguments.contains("--compact") ? 576 : AnnotationToolbar.preferredWidth)

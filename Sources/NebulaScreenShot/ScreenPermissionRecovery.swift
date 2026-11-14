@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
 import Foundation
 
-enum ScreenPermissionRecovery {
+@MainActor enum ScreenPermissionRecovery {
     private static let bundleIdentifier = "io.github.anthemzhou.NebulaScreenShot"
 
     /// Invoked by explicit repair, or once after an ad-hoc upgrade's actual capture denial.
     /// Returns once the relaunch helper has started; the caller can then quit safely.
-    static func resetAndPrepareRelaunch() async throws {
+    static func resetAndPrepareRelaunch() async throws -> AppRelauncher.Session {
         let bundle = Bundle.main
         let applicationURL = bundle.bundleURL.resolvingSymlinksInPath()
         guard bundle.bundleIdentifier == bundleIdentifier,
@@ -44,16 +44,8 @@ enum ScreenPermissionRecovery {
             throw RecoveryError.resetFailed(result.status, wasSignaled: result.wasSignaled)
         }
 
-        let helper = Process()
-        helper.executableURL = URL(fileURLWithPath: "/bin/sh")
-        // App paths and the PID are positional arguments, never interpolated into shell code.
-        helper.arguments = ["-c", relaunchScript, "Nebula ScreenShot relaunch",
-                            String(ProcessInfo.processInfo.processIdentifier), applicationURL.path]
-        helper.standardInput = FileHandle.nullDevice
-        helper.standardOutput = FileHandle.nullDevice
-        helper.standardError = FileHandle.nullDevice
         do {
-            try helper.run()
+            return try AppRelauncher.prepare(.requestPermission)
         } catch {
             throw RecoveryError.relaunchFailed(error.localizedDescription)
         }
@@ -63,18 +55,6 @@ enum ScreenPermissionRecovery {
         let status: Int32
         let wasSignaled: Bool
     }
-
-    private static let relaunchScript = """
-    parent_pid="$1"
-    app_path="$2"
-    attempts=0
-    while /bin/kill -0 "$parent_pid" 2>/dev/null; do
-        if [ "$attempts" -ge 100 ]; then exit 1; fi
-        /bin/sleep 0.1
-        attempts=$((attempts + 1))
-    done
-    exec /usr/bin/open -n "$app_path" --args --request-screen-permission
-    """
 
     private enum RecoveryError: LocalizedError {
         case invalidApplication
