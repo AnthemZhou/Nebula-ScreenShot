@@ -16,6 +16,7 @@ import NebulaCore
     private lazy var toolbar = makeToolbar()
     private let hint = CaptureHint(frame: .zero)
     private var hoverID: UUID?
+    private var newlyPlacedPinID: UUID?
     private var selectedID: UUID?
     private var erasedIDs: Set<UUID> = []
     private var erasedPenIDs: Set<UUID> = []
@@ -92,9 +93,6 @@ import NebulaCore
         toolbar.onWidth = { [weak self] in self?.lineWidth = $0; self?.refresh() }
         toolbar.onUndo = { [weak self] in self?.history.undo(); self?.refresh() }
         toolbar.onRedo = { [weak self] in self?.history.redo(); self?.refresh() }
-        toolbar.onClear = { [weak self] in self?.history.clear(); self?.refresh() }
-        toolbar.onReselect = { [weak self] in self?.onReselect?() }
-        toolbar.onCopy = { [weak self] in self?.export(save: false) }
         toolbar.onSave = { [weak self] in self?.export(save: true) }
         return toolbar
     }
@@ -114,6 +112,7 @@ import NebulaCore
         draft = nil
         history = AnnotationHistory()
         hoverID = nil
+        newlyPlacedPinID = nil
         selectedID = nil
         erasedIDs.removeAll()
         erasedPenIDs.removeAll(); erasurePaths.removeAll(); eraseNeedsNewPath = true
@@ -124,14 +123,20 @@ import NebulaCore
     override func draw(_ dirtyRect: NSRect) {
         if let background {
             background.draw(in: bounds, from: .zero, operation: .copy, fraction: 1, respectFlipped: true, hints: nil)
+            let shade = NSBezierPath(rect: bounds)
+            if let selection { shade.appendRect(selection); shade.windingRule = .evenOdd }
+            NSColor.black.withAlphaComponent(0.48).setFill()
+            shade.fill()
         } else {
-            NSColor.clear.setFill()
-            dirtyRect.fill(using: .copy)
+            // The pending canvas contains no image to blend with. Write its alpha
+            // directly instead of rasterizing a full-screen translucent path.
+            NSColor.black.withAlphaComponent(0.48).setFill()
+            bounds.fill(using: .copy)
+            if let selection {
+                NSColor.clear.setFill()
+                selection.fill(using: .copy)
+            }
         }
-        let shade = NSBezierPath(rect: bounds)
-        if let selection { shade.appendRect(selection); shade.windingRule = .evenOdd }
-        NSColor.black.withAlphaComponent(0.48).setFill()
-        shade.fill()
 
         if let selection {
             NSGraphicsContext.saveGraphicsState()
@@ -139,13 +144,13 @@ import NebulaCore
             for annotation in displayAnnotations { AnnotationRenderer.draw(annotation, selection: selection) }
             drawEditingControls(selection: selection)
             NSGraphicsContext.restoreGraphicsState()
-            Ink.coral.color.setStroke()
+            NSColor.white.withAlphaComponent(0.55).setStroke()
             let outline = NSBezierPath(rect: selection)
-            outline.lineWidth = 1
+            outline.lineWidth = 1 / max(1, window?.backingScaleFactor ?? pixelScale)
             outline.stroke()
             if selection.width >= 8, selection.height >= 8 {
                 for item in SelectionGeometry.handles(in: selection) {
-                    let rect = CGRect(x: item.point.x - 3, y: item.point.y - 3, width: 6, height: 6)
+                    let rect = CGRect(x: item.point.x - 2, y: item.point.y - 2, width: 4, height: 4)
                     NSColor.white.setFill()
                     NSBezierPath(roundedRect: rect, xRadius: 1.5, yRadius: 1.5).fill()
                     NSColor(white: 0.15, alpha: 0.8).setStroke()
@@ -162,13 +167,13 @@ import NebulaCore
         let sy = screenshot.map { CGFloat($0.height) / bounds.height } ?? pixelScale
         if let selection {
             let origin: CGPoint
-            if case .select = interaction, let pointer { origin = CGPoint(x: pointer.x + 18, y: pointer.y + 18) }
-            else { origin = CGPoint(x: max(selection.minX, 10), y: selection.minY >= 36 ? selection.minY - 32 : selection.minY + 10) }
+            if case .select = interaction, let pointer { origin = CGPoint(x: pointer.x + 12, y: pointer.y + 10) }
+            else { origin = CGPoint(x: max(selection.minX, 8), y: selection.minY >= 22 ? selection.minY - 18 : selection.minY + 8) }
             hint.update("\(Int((selection.width * sx).rounded())) × \(Int((selection.height * sy).rounded())) px",
                         origin: origin)
         } else if let pointer {
             hint.update("\(Int((pointer.x * sx).rounded())), \(Int((pointer.y * sy).rounded()))",
-                        origin: CGPoint(x: pointer.x + 18, y: pointer.y + 18))
+                        origin: CGPoint(x: pointer.x + 12, y: pointer.y + 10))
         } else {
             hint.isHidden = true
             return
@@ -180,7 +185,9 @@ import NebulaCore
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        if let hoverTracking { removeTrackingArea(hoverTracking) }
+        // .inVisibleRect follows layout automatically. Replacing the tracking area
+        // whenever the coordinate label moves produces spurious exit/enter events.
+        guard hoverTracking == nil else { return }
         let tracking = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .cursorUpdate, .activeAlways, .inVisibleRect], owner: self, userInfo: nil)
         addTrackingArea(tracking)
         hoverTracking = tracking
@@ -202,12 +209,19 @@ import NebulaCore
         guard interaction == nil else { return }
         let point = point(for: event)
         pointer = point
+        if let selection, let pin = item(id: newlyPlacedPinID),
+           AnnotationGeometry.pinHoverRegion(for: pin, selection: selection)?.contains(point) != true {
+            newlyPlacedPinID = nil
+        }
         if hasToolbar && !toolbar.isHidden && toolbar.frame.contains(point) { hoverID = nil }
         else if let selection, let item = item(id: hoverID),
-                let badge = AnnotationGeometry.badge(for: item, selection: selection), badge.insetBy(dx: -3, dy: -3).contains(point) {
-            // Keep the badge reachable while moving from the pin to its minus button.
+                AnnotationGeometry.pinHoverRegion(for: item, selection: selection)?.contains(point) == true {
+            // Keep the badge stable across the pin, its edge, and the path to minus.
         } else if let (item, _) = editHandle(at: point) { hoverID = item.id }
-        else { hoverID = hitItem(at: point)?.id }
+        else {
+            let candidate = hitItem(at: point)?.id
+            hoverID = candidate == newlyPlacedPinID ? nil : candidate
+        }
         updateHint()
         updatePointerCursor(at: point)
         needsDisplay = true
@@ -232,6 +246,11 @@ import NebulaCore
         CaptureCursor.selection.set()
     }
 
+    var hoveredPinBadge: CGRect? {
+        guard tool != .pen, tool != .eraser, let selection, let pin = item(id: hoverID) else { return nil }
+        return AnnotationGeometry.badge(for: pin, selection: selection)
+    }
+
     private func drawEditingControls(selection: CGRect) {
         let ids = Set([selectedID, hoverID].compactMap { $0 })
         if tool != .eraser && tool != .pen {
@@ -242,7 +261,7 @@ import NebulaCore
                     annotation.ink.color.setStroke(); circle.lineWidth = 1.5; circle.stroke()
                 }
             }
-            if let pin = item(id: hoverID), let badge = AnnotationGeometry.badge(for: pin, selection: selection) {
+            if let badge = hoveredPinBadge {
                 let circle = NSBezierPath(ovalIn: badge)
                 NSColor.white.setFill(); circle.fill()
                 NSColor(white: 0.65, alpha: 1).setStroke(); circle.lineWidth = 0.7; circle.stroke()
@@ -346,7 +365,7 @@ import NebulaCore
         window?.makeFirstResponder(self)
         let point = point(for: event)
         if let selection, selection.contains(point) {
-            interaction = .draw(start: point, tool: .line, ink: ink,
+            interaction = .draw(start: point, tool: .arrow, ink: ink,
                                 width: lineWidth, right: true, dragged: false)
         } else {
             interaction = .rightOutside(start: point, dragged: false)
@@ -454,6 +473,8 @@ import NebulaCore
             } else {
                 // Commit on release so a drag can never leave an accidental numbered pin.
                 history.addPin(at: start, ink: ink, lineWidth: width)
+                newlyPlacedPinID = history.annotations.last?.id
+                hoverID = nil
             }
         case .edit:
             if let draft { history.replace(draft) }

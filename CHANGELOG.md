@@ -2,12 +2,14 @@
 
 ## 1.1.0 — 2026-11-15
 
-- Consolidate ellipse, rounded rectangle, line and arrow into the slider menu, together with width, reselect and clear. Remove the ellipsis and cancel buttons; reduce toolbar width and the confirmation button size. Escape and blank-canvas right-click still cancel.
-- Submit an interactive translucent selection shade immediately on the hotkey, before ScreenCaptureKit metadata or fresh pixels. Install the resulting screenshot into the same canvas without replacing the window or interrupting an in-flight selection.
-- Validate that cached capture filters exclude Nebula itself; refresh unsafe warmup metadata before acquiring pixels. The shade, cursor and toolbar never enter clipboard/PNG output. Export remains disabled while pixels are pending.
-- Resolve Nebula's own application from current-process metadata when macOS omits menu-bar applications from its global shareable list, avoiding a false "cannot exclude shade" error. Add a no-permission metadata regression fixture.
-- Add a high-contrast screenshot crosshair with a centered hotspot, immediate cursor switching and pointer-following pixel coordinates / selection dimensions.
-- Extend hidden-window interaction checks for the consolidated menu, reduced controls, transparent initial shade, pending export and uninterrupted image handoff.
+- Show an interactive translucent selection shade before capture metadata/pixels, then install fresh pixels into the same canvas without interrupting selection. Directly write pending alpha instead of blending a full-screen path, fixing a measured ~400 ms first-frame rasterization stall.
+- Resolve Nebula's own application from current-process metadata when macOS omits it from the global shareable list. Never capture with a filter that could include the overlay; keep clipboard/PNG pixels undimmed.
+- Use a thin neutral crop outline, smaller crosshair, and faint nearby coordinates without a background box.
+- Consolidate ellipse, rounded rectangle, line, arrow and width into the slider menu. Remove reselect/clear entries, ellipsis, cancel and confirmation buttons. Center a Return-to-copy text hint below the icon row; keep Save PNG, undo and redo directly accessible.
+- Change right-drag to draw arrows. Keep click-to-pin, left-drag thin rounded dashed rectangles, editing and local pen erasing.
+- Stabilize pin deletion affordances: retain tracking areas across label movement, suppress a newly placed pin until the pointer leaves, and keep a continuous hover region through its delete badge.
+- Follow system/per-app language preferences for Chinese or English interface text, menus, tooltips and messages.
+- Extend hidden AppKit checks for hover stability, arrowheads, pending shade/crop alpha, undimmed export, uninterrupted image handoff and both editor languages. Add a no-permission current-process metadata regression fixture.
 
 ## 1.0.2 — 2026-11-15
 

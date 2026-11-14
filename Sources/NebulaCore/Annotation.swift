@@ -6,13 +6,13 @@ public enum AnnotationTool: String, CaseIterable, Sendable {
 
     public var title: String {
         switch self {
-        case .pin: return "图钉"
-        case .ellipse: return "圆圈"
-        case .rectangle: return "方框"
-        case .line: return "直线"
-        case .arrow: return "箭头"
-        case .pen: return "画笔"
-        case .eraser: return "橡皮擦"
+        case .pin: return L10n.text("图钉", "Pin")
+        case .ellipse: return L10n.text("圆圈", "Ellipse")
+        case .rectangle: return L10n.text("方框", "Rectangle")
+        case .line: return L10n.text("直线", "Line")
+        case .arrow: return L10n.text("箭头", "Arrow")
+        case .pen: return L10n.text("画笔", "Pen")
+        case .eraser: return L10n.text("橡皮擦", "Eraser")
         }
     }
 
@@ -45,12 +45,12 @@ public enum Ink: String, CaseIterable, Sendable {
     case coral, amber, mint, blue, purple, white
     public var title: String {
         switch self {
-        case .coral: return "Dots 橙"
-        case .amber: return "琥珀黄"
-        case .mint: return "薄荷绿"
-        case .blue: return "天空蓝"
-        case .purple: return "紫色"
-        case .white: return "白色"
+        case .coral: return L10n.text("Dots 橙", "Dots Orange")
+        case .amber: return L10n.text("琥珀黄", "Amber")
+        case .mint: return L10n.text("薄荷绿", "Mint")
+        case .blue: return L10n.text("天空蓝", "Blue")
+        case .purple: return L10n.text("紫色", "Purple")
+        case .white: return L10n.text("白色", "White")
         }
     }
 }

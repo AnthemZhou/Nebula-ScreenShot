@@ -13,9 +13,9 @@ import NebulaCore
         super.init(frame: .zero)
         title = ""
         isBordered = false
-        toolTip = "标注颜色：\(ink.title)"
+        toolTip = L10n.text("标注颜色：\(ink.title)", "Annotation color: \(ink.title)")
         setAccessibilityLabel(toolTip)
-        setAccessibilityHelp("设置接下来绘制的图钉、圆圈、方框、直线和箭头的颜色")
+        setAccessibilityHelp(L10n.text("设置接下来绘制的图钉、圆圈、方框、直线和箭头的颜色", "Color for new annotations"))
         target = self
         action = #selector(choose)
     }
@@ -27,7 +27,7 @@ import NebulaCore
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        if let hoverTrackingArea { removeTrackingArea(hoverTrackingArea) }
+        guard hoverTrackingArea == nil else { return }
         let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self, userInfo: nil)
         addTrackingArea(area)
         hoverTrackingArea = area
@@ -59,7 +59,6 @@ import NebulaCore
     override var isFlipped: Bool { true }
     var actionBlock: (() -> Void)?
     var pinInk: Ink? { didSet { needsDisplay = true } }
-    var isPrimary = false
     private var hovering = false
     private var hoverTrackingArea: NSTrackingArea?
 
@@ -84,7 +83,7 @@ import NebulaCore
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        if let hoverTrackingArea { removeTrackingArea(hoverTrackingArea) }
+        guard hoverTrackingArea == nil else { return }
         let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self, userInfo: nil)
         addTrackingArea(area)
         hoverTrackingArea = area
@@ -98,18 +97,12 @@ import NebulaCore
     override func draw(_ dirtyRect: NSRect) {
         let selected = state == .on
         let foreground: NSColor
-        if isPrimary {
-            NSColor(white: isHighlighted ? 0.72 : (hovering ? 0.98 : 0.88), alpha: 1).setFill()
+        if isEnabled && (selected || hovering || isHighlighted) {
+            NSColor(white: isHighlighted ? 0.36 : (selected ? 0.31 : 0.24), alpha: 1).setFill()
             NSBezierPath(roundedRect: bounds, xRadius: 6, yRadius: 6).fill()
-            foreground = NSColor(white: 0.15, alpha: isEnabled ? 1 : 0.45)
-        } else {
-            if isEnabled && (selected || hovering || isHighlighted) {
-                NSColor(white: isHighlighted ? 0.36 : (selected ? 0.31 : 0.24), alpha: 1).setFill()
-                NSBezierPath(roundedRect: bounds, xRadius: 6, yRadius: 6).fill()
-            }
-            foreground = NSColor(white: isEnabled ? (selected ? 0.97 : 0.80) : 0.41, alpha: 1)
         }
-        let iconSize: CGFloat = min(isPrimary ? 15 : 18, max(0, bounds.width - 8))
+        foreground = NSColor(white: isEnabled ? (selected ? 0.97 : 0.80) : 0.41, alpha: 1)
+        let iconSize: CGFloat = min(18, max(0, bounds.width - 8))
         let iconRect = NSRect(x: bounds.midX - iconSize / 2, y: bounds.midY - iconSize / 2,
                               width: iconSize, height: iconSize)
         if let pinInk {
@@ -126,9 +119,10 @@ import NebulaCore
 }
 
 @MainActor final class AnnotationToolbar: NSView {
-    static let preferredWidth: CGFloat = 476
-    static let height: CGFloat = 40
-    private static let compactWidth: CGFloat = 400
+    static let preferredWidth: CGFloat = 440
+    static let height: CGFloat = 62
+    private static let rowHeight: CGFloat = 40
+    private static let compactWidth: CGFloat = 372
 
     static func preferredSize(for availableWidth: CGFloat) -> CGSize {
         let width = availableWidth >= preferredWidth ? preferredWidth : min(compactWidth, max(1, availableWidth))
@@ -140,15 +134,11 @@ import NebulaCore
     var onWidth: ((CGFloat) -> Void)?
     var onUndo: (() -> Void)?
     var onRedo: (() -> Void)?
-    var onClear: (() -> Void)?
-    var onReselect: (() -> Void)?
-    var onCopy: (() -> Void)?
     var onSave: (() -> Void)?
 
     private var selectedTool: AnnotationTool = .pin
     private var selectedInk: Ink = .coral
     private var selectedWidth: CGFloat = 3.5
-    private var canClear = false
     private var inkButtons: [ToolbarInkButton] = []
     private var pinButton: ToolbarButton!
     private var penButton: ToolbarButton!
@@ -157,8 +147,8 @@ import NebulaCore
     private var styleButton: ToolbarButton!
     private var undoButton: ToolbarButton!
     private var saveButton: ToolbarButton!
-    private var confirmButton: ToolbarButton!
     private var separators: [NSRect] = []
+    private let copyHint = NSTextField(labelWithString: L10n.text("回车以复制到剪贴板", "Press Return to copy to clipboard"))
 
     override var isFlipped: Bool { true }
 
@@ -172,22 +162,28 @@ import NebulaCore
             addSubview(button)
         }
         pinButton = toolButton(.pin)
-        pinButton.toolTip = "图钉（N）· 点击打钉 · 左键拖动细方框 · 右键拖动直线"
+        pinButton.toolTip = L10n.text("图钉（N）· 点击打钉 · 左键拖动细方框 · 右键拖动箭头", "Pin (N) · Click to pin · Left-drag a rectangle · Right-drag an arrow")
         pinButton.setAccessibilityLabel(pinButton.toolTip)
         penButton = toolButton(.pen)
         eraserButton = toolButton(.eraser)
-        eraserButton.toolTip = "橡皮擦（E）· 局部擦除笔触，其他标注整项擦除；一次拖动可撤销"
+        eraserButton.toolTip = L10n.text("橡皮擦（E）· 局部擦除笔触，其他标注整项擦除；一次拖动可撤销", "Eraser (E) · Erase part of a pen stroke or a whole shape; undo each drag")
         eraserButton.setAccessibilityLabel(eraserButton.toolTip)
-        styleButton = ToolbarButton(title: "", symbol: "slider.horizontal.3", help: "形状与设置") { [weak self] in self?.showStyleMenu() }
-        undoButton = ToolbarButton(title: "", symbol: "arrow.uturn.backward", help: "撤销（⌘Z）") { [weak self] in self?.onUndo?() }
+        styleButton = ToolbarButton(title: "", symbol: "slider.horizontal.3", help: L10n.text("形状与设置", "Shapes and settings")) { [weak self] in self?.showStyleMenu() }
+        undoButton = ToolbarButton(title: "", symbol: "arrow.uturn.backward", help: L10n.text("撤销（⌘Z）", "Undo (⌘Z)")) { [weak self] in self?.onUndo?() }
         undoButton.isEnabled = false
-        redoButton = ToolbarButton(title: "", symbol: "arrow.uturn.forward", help: "重做（⇧⌘Z）") { [weak self] in self?.onRedo?() }
+        redoButton = ToolbarButton(title: "", symbol: "arrow.uturn.forward", help: L10n.text("重做（⇧⌘Z）", "Redo (⇧⌘Z)")) { [weak self] in self?.onRedo?() }
         redoButton.isEnabled = false
-        saveButton = ToolbarButton(title: "保存", symbol: "square.and.arrow.down", help: "保存 PNG（⌘S）") { [weak self] in self?.onSave?() }
-        confirmButton = ToolbarButton(title: "确认", symbol: "checkmark", help: "确认并复制到剪贴板（Enter / ⌘C）") { [weak self] in self?.onCopy?() }
-        confirmButton.isPrimary = true
-        confirmButton.keyEquivalent = "\r"
-        confirmButton.keyEquivalentModifierMask = []
+        saveButton = ToolbarButton(title: L10n.text("保存", "Save"), symbol: "square.and.arrow.down", help: L10n.text("保存 PNG（⌘S）", "Save PNG (⌘S)")) { [weak self] in self?.onSave?() }
+        copyHint.font = .systemFont(ofSize: 11, weight: .regular)
+        copyHint.textColor = NSColor.white.withAlphaComponent(0.75)
+        copyHint.alignment = .center
+        copyHint.isSelectable = false
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor.black.withAlphaComponent(0.5)
+        shadow.shadowBlurRadius = 1
+        shadow.shadowOffset = NSSize(width: 0, height: -1)
+        copyHint.shadow = shadow
+        addSubview(copyHint)
         for button in rowButtons { addSubview(button) }
         updateInkSelection()
         updateToolSelection()
@@ -196,11 +192,11 @@ import NebulaCore
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     private var rowButtons: [ToolbarButton] {
-        [pinButton, penButton, eraserButton, styleButton, undoButton, redoButton, saveButton, confirmButton]
+        [pinButton, penButton, eraserButton, styleButton, undoButton, redoButton, saveButton]
     }
 
     private func toolButton(_ tool: AnnotationTool) -> ToolbarButton {
-        ToolbarButton(title: tool.title, symbol: tool.symbol, help: "\(tool.title)（\(tool.shortcut.uppercased())）") { [weak self] in self?.chooseTool(tool) }
+        ToolbarButton(title: tool.title, symbol: tool.symbol, help: "\(tool.title) (\(tool.shortcut.uppercased()))") { [weak self] in self?.chooseTool(tool) }
     }
 
     override func setFrameSize(_ newSize: NSSize) { super.setFrameSize(newSize); needsLayout = true }
@@ -208,8 +204,8 @@ import NebulaCore
     override func layout() {
         super.layout()
         let compact = bounds.width < Self.preferredWidth
-        let widths: [CGFloat] = compact ? [28, 28, 28, 28, 28, 28, 28, 24] : [32, 32, 32, 32, 32, 32, 32, 28]
-        let gaps: [CGFloat] = compact ? [2, 2, 6, 6, 2, 6, 2] : [4, 4, 10, 10, 4, 10, 4]
+        let widths: [CGFloat] = compact ? [28, 28, 28, 28, 28, 28, 28] : [32, 32, 32, 32, 32, 32, 32]
+        let gaps: [CGFloat] = compact ? [2, 2, 6, 6, 2, 6] : [4, 4, 10, 10, 4, 10]
         let padding: CGFloat = compact ? 6 : 8
         let inkHitWidth: CGFloat = compact ? 22 : 24
         let inkGroupWidth = CGFloat(inkButtons.count) * inkHitWidth
@@ -221,28 +217,29 @@ import NebulaCore
         var x = max(padding, (bounds.width - usedWidth) / 2 + padding)
         separators.removeAll(keepingCapacity: true)
         for button in inkButtons {
-            button.frame = NSRect(x: x, y: (bounds.height - 32) / 2, width: inkHitWidth, height: 32)
+            button.frame = NSRect(x: x, y: (Self.rowHeight - 32) / 2, width: inkHitWidth, height: 32)
             x += inkHitWidth
         }
-        separators.append(NSRect(x: x + inkGroupGap / 2, y: (bounds.height - 18) / 2, width: 0.5, height: 18))
+        separators.append(NSRect(x: x + inkGroupGap / 2, y: (Self.rowHeight - 18) / 2, width: 0.5, height: 18))
         x += inkGroupGap
         for (index, button) in rowButtons.enumerated() {
             let side = widths[index] * scale
-            button.frame = NSRect(x: x, y: (bounds.height - side) / 2, width: widths[index] * scale, height: side)
+            button.frame = NSRect(x: x, y: (Self.rowHeight - side) / 2, width: widths[index] * scale, height: side)
             x += widths[index] * scale
             if index < gaps.count {
                 let gap = gaps[index] * scale
                 if index == 2 || index == 5 {
-                    separators.append(NSRect(x: x + gap / 2, y: (bounds.height - 18) / 2, width: 0.5, height: 18))
+                    separators.append(NSRect(x: x + gap / 2, y: (Self.rowHeight - 18) / 2, width: 0.5, height: 18))
                 }
                 x += gap
             }
         }
+        copyHint.frame = NSRect(x: 0, y: Self.rowHeight + 5, width: bounds.width, height: 17)
         needsDisplay = true
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        let outline = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 10, yRadius: 10)
+        let outline = NSBezierPath(roundedRect: NSRect(x: 0.5, y: 0.5, width: bounds.width - 1, height: Self.rowHeight - 1), xRadius: 10, yRadius: 10)
         NSColor(white: 44.0 / 255, alpha: 1).setFill()
         outline.fill()
         NSColor(white: 0.34, alpha: 1).setStroke()
@@ -265,16 +262,15 @@ import NebulaCore
         selectedTool = tool
         selectedInk = ink
         selectedWidth = lineWidth
-        confirmButton.isEnabled = canExport
+        copyHint.stringValue = canExport ? L10n.text("回车以复制到剪贴板", "Press Return to copy to clipboard") : L10n.text("正在准备截图…", "Preparing screenshot…")
         saveButton.isEnabled = canExport
-        canClear = !history.annotations.isEmpty
         undoButton.isEnabled = history.canUndo
         undoButton.needsDisplay = true
         redoButton.isEnabled = history.canRedo
         redoButton.needsDisplay = true
-        pinButton.toolTip = "图钉（N）· 点击打钉 · 左键拖动细方框 · 右键拖动直线 · 下一枚：\(history.nextPinNumber)"
+        pinButton.toolTip = L10n.text("图钉（N）· 点击打钉 · 左键拖动细方框 · 右键拖动箭头 · 下一枚：\(history.nextPinNumber)", "Pin (N) · Click to pin · Left-drag a rectangle · Right-drag an arrow · Next: \(history.nextPinNumber)")
         pinButton.setAccessibilityLabel(pinButton.toolTip)
-        styleButton.toolTip = "形状与设置 · 当前：\(tool.title) · 线宽：\(widthTitle(lineWidth))"
+        styleButton.toolTip = L10n.text("形状与设置 · 当前：\(tool.title) · 线宽：\(widthTitle(lineWidth))", "Shapes and settings · Current: \(tool.title) · Width: \(widthTitle(lineWidth))")
         styleButton.setAccessibilityLabel(styleButton.toolTip)
         updateInkSelection()
         updateToolSelection()
@@ -323,7 +319,7 @@ import NebulaCore
             menu.addItem(item)
         }
         menu.addItem(.separator())
-        let widthItem = NSMenuItem(title: "线条 / 画笔粗细", action: nil, keyEquivalent: "")
+        let widthItem = NSMenuItem(title: L10n.text("线条 / 画笔粗细", "Line / pen width"), action: nil, keyEquivalent: "")
         let widths = makeMenu()
         for width: CGFloat in [2, 3.5, 6] {
             let item = makeItem(widthTitle(width), action: #selector(selectWidth(_:)))
@@ -333,14 +329,6 @@ import NebulaCore
         }
         widthItem.submenu = widths
         menu.addItem(widthItem)
-        menu.addItem(.separator())
-        let reselect = makeItem("重新选择区域", symbol: "crop", action: #selector(performReselect))
-        reselect.keyEquivalent = "r"
-        reselect.keyEquivalentModifierMask = []
-        menu.addItem(reselect)
-        let clear = makeItem("清空标注", symbol: "trash", action: #selector(performClear))
-        clear.isEnabled = canClear
-        menu.addItem(clear)
         return menu
     }
 
@@ -370,7 +358,7 @@ import NebulaCore
         menu.popUp(positioning: nil, at: NSPoint(x: button.frame.minX, y: bounds.maxY + 4), in: self)
     }
 
-    private func widthTitle(_ width: CGFloat) -> String { width <= 2 ? "细" : (width >= 6 ? "粗" : "中") }
+    private func widthTitle(_ width: CGFloat) -> String { width <= 2 ? L10n.text("细", "Thin") : (width >= 6 ? L10n.text("粗", "Thick") : L10n.text("中", "Medium")) }
 
     @objc private func selectShape(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String, let tool = AnnotationTool(rawValue: raw),
@@ -382,6 +370,4 @@ import NebulaCore
         selectedWidth = CGFloat(number.doubleValue)
         onWidth?(selectedWidth)
     }
-    @objc private func performReselect() { onReselect?() }
-    @objc private func performClear() { onClear?() }
 }

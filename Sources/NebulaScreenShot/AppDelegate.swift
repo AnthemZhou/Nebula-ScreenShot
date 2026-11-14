@@ -70,9 +70,9 @@ import Carbon
         let appMenu = NSMenu()
         let appItem = NSMenuItem()
         let submenu = NSMenu()
-        submenu.addItem(withTitle: "关于 Nebula ScreenShot", action: #selector(showWelcome), keyEquivalent: "")
+        submenu.addItem(withTitle: L10n.text("关于 Nebula ScreenShot", "About Nebula ScreenShot"), action: #selector(showWelcome), keyEquivalent: "")
         submenu.addItem(.separator())
-        submenu.addItem(withTitle: "退出 Nebula ScreenShot", action: #selector(quit), keyEquivalent: "q")
+        submenu.addItem(withTitle: L10n.text("退出 Nebula ScreenShot", "Quit Nebula ScreenShot"), action: #selector(quit), keyEquivalent: "q")
         appItem.submenu = submenu
         appMenu.addItem(appItem)
         NSApp.mainMenu = appMenu
@@ -83,28 +83,28 @@ import Carbon
         let title = NSMenuItem(title: "Nebula ScreenShot", action: nil, keyEquivalent: "")
         title.isEnabled = false
         menu.addItem(title)
-        let captureItem = NSMenuItem(title: "区域截图  \(HotKey.displayString)", action: #selector(beginCapture), keyEquivalent: "")
+        let captureItem = NSMenuItem(title: L10n.text("区域截图  \(HotKey.displayString)", "Capture Area  \(HotKey.displayString)"), action: #selector(beginCapture), keyEquivalent: "")
         captureItem.target = self
         menu.addItem(captureItem)
-        permissionRepairItem = NSMenuItem(title: "修复屏幕录制授权…", action: #selector(reauthorizeScreenPermission), keyEquivalent: "")
+        permissionRepairItem = NSMenuItem(title: L10n.text("修复屏幕录制授权…", "Repair Screen Recording Permission…"), action: #selector(reauthorizeScreenPermission), keyEquivalent: "")
         permissionRepairItem.isHidden = true
         menu.addItem(permissionRepairItem)
-        menu.addItem(withTitle: "试用标注…", action: #selector(beginDemo), keyEquivalent: "")
+        menu.addItem(withTitle: L10n.text("试用标注…", "Try Annotations…"), action: #selector(beginDemo), keyEquivalent: "")
         menu.addItem(.separator())
-        menu.addItem(withTitle: "关于 Nebula ScreenShot…", action: #selector(showWelcome), keyEquivalent: "")
-        let settingsItem = NSMenuItem(title: "设置", action: nil, keyEquivalent: "")
+        menu.addItem(withTitle: L10n.text("关于 Nebula ScreenShot…", "About Nebula ScreenShot…"), action: #selector(showWelcome), keyEquivalent: "")
+        let settingsItem = NSMenuItem(title: L10n.text("设置", "Settings"), action: nil, keyEquivalent: "")
         let settings = NSMenu()
-        settings.addItem(withTitle: "屏幕录制权限…", action: #selector(openScreenPermission), keyEquivalent: "")
-        settings.addItem(withTitle: "重新授权屏幕录制…", action: #selector(reauthorizeScreenPermission), keyEquivalent: "")
-        settings.addItem(withTitle: "键盘快捷键设置…", action: #selector(openKeyboardSettings), keyEquivalent: "")
-        settings.addItem(withTitle: "重新检测快捷键…", action: #selector(checkShortcut), keyEquivalent: "")
+        settings.addItem(withTitle: L10n.text("屏幕录制权限…", "Screen Recording Permission…"), action: #selector(openScreenPermission), keyEquivalent: "")
+        settings.addItem(withTitle: L10n.text("重新授权屏幕录制…", "Reauthorize Screen Recording…"), action: #selector(reauthorizeScreenPermission), keyEquivalent: "")
+        settings.addItem(withTitle: L10n.text("键盘快捷键设置…", "Keyboard Shortcut Settings…"), action: #selector(openKeyboardSettings), keyEquivalent: "")
+        settings.addItem(withTitle: L10n.text("重新检测快捷键…", "Check Shortcut…"), action: #selector(checkShortcut), keyEquivalent: "")
         for item in settings.items { item.target = self }
         settingsItem.submenu = settings
         menu.addItem(settingsItem)
-        menu.addItem(withTitle: "使用说明", action: #selector(openHelp), keyEquivalent: "")
-        menu.addItem(withTitle: "GitHub 开源仓库", action: #selector(openRepository), keyEquivalent: "")
+        menu.addItem(withTitle: L10n.text("使用说明", "Help"), action: #selector(openHelp), keyEquivalent: "")
+        menu.addItem(withTitle: L10n.text("GitHub 开源仓库", "GitHub Repository"), action: #selector(openRepository), keyEquivalent: "")
         menu.addItem(.separator())
-        menu.addItem(withTitle: "退出 Nebula ScreenShot", action: #selector(quit), keyEquivalent: "q")
+        menu.addItem(withTitle: L10n.text("退出 Nebula ScreenShot", "Quit Nebula ScreenShot"), action: #selector(quit), keyEquivalent: "q")
         for item in menu.items where item.action != nil { item.target = self }
         statusItem.menu = menu
     }
@@ -158,17 +158,17 @@ import Carbon
         let alert = NSAlert()
         let conflict = HotKey.systemConflict
         if hotKey.registrationStatus != noErr {
-            alert.messageText = "快捷键暂时无法注册"
-            alert.informativeText = "请退出占用此组合的其他截图应用，再重新检测。也可从菜单栏开始截图。\n错误代码：\(hotKey.registrationStatus)"
+            alert.messageText = L10n.text("快捷键暂时无法注册", "Unable to Register Shortcut")
+            alert.informativeText = L10n.text("请退出占用此组合的其他截图应用，再重新检测。也可从菜单栏开始截图。\n错误代码：\(hotKey.registrationStatus)", "Quit other screenshot apps using this shortcut, then try again. You can also capture from the menu bar.\nError code: \(hotKey.registrationStatus)")
         } else {
-            alert.messageText = "快捷键已注册：\(HotKey.displayString)"
-            alert.informativeText = "按下快捷键即可选择截图区域。首次使用需允许屏幕录制。"
+            alert.messageText = L10n.text("快捷键已注册：\(HotKey.displayString)", "Shortcut Registered: \(HotKey.displayString)")
+            alert.informativeText = L10n.text("按下快捷键即可选择截图区域。首次使用需允许屏幕录制。", "Press the shortcut to select an area. Allow screen recording on first use.")
             if conflict == true {
-                alert.informativeText += "\n\n已以独占方式注册。若仍出现系统截屏面板，请在键盘快捷键 → 截屏中调整“截屏和录制选项”。"
+                alert.informativeText += L10n.text("\n\n已以独占方式注册。若仍出现系统截屏面板，请在键盘快捷键 → 截屏中调整“截屏和录制选项”。", "\n\nRegistered exclusively. If the system screenshot panel still appears, adjust “Screenshot and recording options” in Keyboard Shortcuts → Screenshots.")
             }
         }
-        alert.addButton(withTitle: "好")
-        if conflict == true || hotKey.registrationStatus != noErr { alert.addButton(withTitle: "快捷键设置") }
+        alert.addButton(withTitle: L10n.text("好", "OK"))
+        if conflict == true || hotKey.registrationStatus != noErr { alert.addButton(withTitle: L10n.text("快捷键设置", "Shortcut Settings")) }
         NSApp.activate(ignoringOtherApps: true)
         if alert.runModal() == .alertSecondButtonReturn { openKeyboardSettings() }
     }
@@ -176,7 +176,7 @@ import Carbon
     private func showPermissionHelp() {
         guard !permissionFlowActive else { return }
         permissionRepairItem.isHidden = false
-        statusItem.button?.toolTip = "屏幕录制权限待授权 · 可在菜单中修复授权"
+        statusItem.button?.toolTip = L10n.text("屏幕录制权限待授权 · 可在菜单中修复授权", "Screen recording permission required · Repair available in the menu")
         // Only a changed ad-hoc build gets one automatic repair after a real denial.
         // The persisted claim prevents resets on subsequent denials or relaunches.
         if permissionUpgrade.consumeAfterCaptureDenial() {
@@ -228,7 +228,7 @@ import Carbon
     private func recoverScreenPermission() {
         permissionLifecycle.cancel()
         permissionUpgrade.clear()
-        statusItem.button?.toolTip = "正在重新授权屏幕录制…"
+        statusItem.button?.toolTip = L10n.text("正在重新授权屏幕录制…", "Reauthorizing screen recording…")
         Task { @MainActor [weak self] in
             guard let self else { return }
             do {
@@ -294,7 +294,7 @@ import Carbon
         alert.messageText = "Nebula ScreenShot"
         alert.informativeText = message
         alert.alertStyle = .warning
-        alert.addButton(withTitle: "好")
+        alert.addButton(withTitle: L10n.text("好", "OK"))
         alert.window.level = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 2)
         NSApp.activate(ignoringOtherApps: true)
         alert.runModal()

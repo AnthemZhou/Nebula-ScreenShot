@@ -12,4 +12,5 @@ swiftc -swift-version 5 -target "$CHECK_ARCH-apple-macos14.0" \
     Sources/NebulaScreenShot/AnnotationToolbar.swift Sources/NebulaScreenShot/CaptureHint.swift Sources/NebulaScreenShot/CaptureCursor.swift \
     Sources/NebulaScreenShot/CaptureCanvas.swift Tests/InteractionChecks/main.swift \
     -o "$CHECK_DIR/interaction-checks"
-"$CHECK_DIR/interaction-checks" "${1:-$CHECK_DIR/result.png}"
+"$CHECK_DIR/interaction-checks" "${1:-$CHECK_DIR/result.png}" -AppleLanguages '(zh-Hans)'
+"$CHECK_DIR/interaction-checks" "$CHECK_DIR/english.png" --english -AppleLanguages '(en)'

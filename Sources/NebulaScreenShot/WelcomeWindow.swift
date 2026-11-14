@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 import AppKit
+import NebulaCore
 
 @MainActor final class WelcomeWindow: NSWindowController {
     init() {
@@ -58,7 +59,7 @@ import AppKit
             stack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -24)
         ])
 
-        let close = NSButton(image: NSImage(systemSymbolName: "xmark", accessibilityDescription: "关闭")!,
+        let close = NSButton(image: NSImage(systemSymbolName: "xmark", accessibilityDescription: L10n.text("关闭", "Close"))!,
                              target: self, action: #selector(closeWindow))
         close.isBordered = false
         close.imageScaling = .scaleProportionallyDown
@@ -66,8 +67,8 @@ import AppKit
         close.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 10, weight: .medium)
         close.keyEquivalent = "\u{1b}"
         close.keyEquivalentModifierMask = []
-        close.toolTip = "关闭（Esc）"
-        close.setAccessibilityLabel("关闭关于窗口")
+        close.toolTip = L10n.text("关闭（Esc）", "Close (Esc)")
+        close.setAccessibilityLabel(L10n.text("关闭关于窗口", "Close About Window"))
         close.translatesAutoresizingMaskIntoConstraints = false
         addSubview(close)
         NSLayoutConstraint.activate([

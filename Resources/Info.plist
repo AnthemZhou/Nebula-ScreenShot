@@ -6,10 +6,12 @@
     <key>CFBundleDisplayName</key><string>Nebula ScreenShot</string>
     <key>CFBundleExecutable</key><string>NebulaScreenShot</string>
     <key>CFBundleIdentifier</key><string>io.github.anthemzhou.NebulaScreenShot</string>
-    <key>CFBundleVersion</key><string>17</string>
+    <key>CFBundleVersion</key><string>18</string>
     <key>CFBundleShortVersionString</key><string>1.1.0</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
+    <key>CFBundleDevelopmentRegion</key><string>en</string>
+    <key>CFBundleLocalizations</key><array><string>en</string><string>zh-Hans</string><string>zh-Hant</string></array>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>

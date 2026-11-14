@@ -6,12 +6,14 @@ import AppKit
     private let label = NSTextField(labelWithString: "")
     override init(frame: NSRect) {
         super.init(frame: frame)
-        wantsLayer = true
-        layer?.backgroundColor = NSColor(white: 0.08, alpha: 0.94).cgColor
-        layer?.cornerRadius = 8
-        label.font = NSFont.systemFont(ofSize: 12, weight: .medium)
-        label.textColor = .white
+        label.font = .monospacedDigitSystemFont(ofSize: 10, weight: .regular)
+        label.textColor = NSColor.white.withAlphaComponent(0.75)
         label.isSelectable = false
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor.black.withAlphaComponent(0.5)
+        shadow.shadowBlurRadius = 1
+        shadow.shadowOffset = NSSize(width: 0, height: -1)
+        label.shadow = shadow
         addSubview(label)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -20,8 +22,8 @@ import AppKit
         if label.stringValue != text || frame.height == 0 {
             label.stringValue = text
             label.sizeToFit()
-            frame.size = CGSize(width: label.frame.width + 22, height: 26)
-            label.frame.origin = CGPoint(x: 11, y: (26 - label.frame.height) / 2)
+            frame.size = label.frame.size
+            label.frame.origin = .zero
         }
         frame.origin = origin
     }

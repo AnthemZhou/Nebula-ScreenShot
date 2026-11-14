@@ -158,10 +158,10 @@ import NebulaCore
         case invalidBundle, helperUnavailable, parentUnavailable, cancelled
         var errorDescription: String? {
             switch self {
-            case .invalidBundle: return "请从完整的 Nebula ScreenShot.app 启动应用。"
-            case .helperUnavailable: return "无法准备授权后的自动重启，请重试。"
-            case .parentUnavailable: return "原应用已退出或无法监听其退出。"
-            case .cancelled: return "授权重启等待已取消或到期。"
+            case .invalidBundle: return L10n.text("请从完整的 Nebula ScreenShot.app 启动应用。", "Launch the complete Nebula ScreenShot.app bundle.")
+            case .helperUnavailable: return L10n.text("无法准备授权后的自动重启，请重试。", "Unable to prepare automatic restart after consent. Please try again.")
+            case .parentUnavailable: return L10n.text("原应用已退出或无法监听其退出。", "The original app has exited or cannot be monitored.")
+            case .cancelled: return L10n.text("授权重启等待已取消或到期。", "The permission restart was canceled or timed out.")
             }
         }
     }

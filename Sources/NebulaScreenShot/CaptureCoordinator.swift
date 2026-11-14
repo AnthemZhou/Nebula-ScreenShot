@@ -76,7 +76,7 @@ import QuartzCore
                 if ScreenCaptureFailure.isPermissionDenied(error) {
                     self.onPermissionNeeded?()
                 } else {
-                    self.onError?("无法截取屏幕：\(error.localizedDescription)\n\(failure.domain) (\(failure.code))")
+                    self.onError?(L10n.text("无法截取屏幕：\(error.localizedDescription)\n\(failure.domain) (\(failure.code))", "Unable to capture the screen: \(error.localizedDescription)\n\(failure.domain) (\(failure.code))"))
                 }
             }
         }
@@ -162,7 +162,7 @@ import QuartzCore
 
     private func copy(_ bitmap: NSBitmapImageRep) {
         guard let png = bitmap.representation(using: .png, properties: [:]) else {
-            onError?("无法生成 PNG，请重试。")
+            onError?(L10n.text("无法生成 PNG，请重试。", "Unable to create a PNG. Please try again."))
             return
         }
         let item = NSPasteboardItem()
@@ -170,11 +170,11 @@ import QuartzCore
         if let tiff = bitmap.tiffRepresentation { item.setData(tiff, forType: .tiff) }
         NSPasteboard.general.clearContents()
         guard NSPasteboard.general.writeObjects([item]) else {
-            onError?("无法写入剪贴板，请重试。")
+            onError?(L10n.text("无法写入剪贴板，请重试。", "Unable to write to the clipboard. Please try again."))
             return
         }
         finish()
-        onComplete?("截图已复制到剪贴板")
+        onComplete?(L10n.text("截图已复制到剪贴板", "Screenshot copied to clipboard"))
     }
 
     private func save(_ bitmap: NSBitmapImageRep) {
@@ -187,7 +187,7 @@ import QuartzCore
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.png]
         panel.canCreateDirectories = true
-        panel.title = "保存 Nebula 截图"
+        panel.title = L10n.text("保存 Nebula 截图", "Save Nebula Screenshot")
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd HH.mm.ss"
         panel.nameFieldStringValue = "Nebula \(formatter.string(from: Date())).png"
@@ -198,11 +198,11 @@ import QuartzCore
                     guard let data = bitmap.representation(using: .png, properties: [:]) else { throw CaptureError.encoding }
                     try data.write(to: url, options: .atomic)
                     self.finish()
-                    self.onComplete?("截图已保存")
+                    self.onComplete?(L10n.text("截图已保存", "Screenshot saved"))
                 } catch {
                     visible.forEach { $0.orderFrontRegardless() }
                     visible.first?.makeKey()
-                    self.onError?("保存失败：\(error.localizedDescription)")
+                    self.onError?(L10n.text("保存失败：\(error.localizedDescription)", "Unable to save: \(error.localizedDescription)"))
                 }
             } else {
                 visible.forEach { $0.orderFrontRegardless() }
@@ -216,9 +216,9 @@ import QuartzCore
         case noDisplay, encoding, missingOverlayExclusion
         var errorDescription: String? {
             switch self {
-            case .noDisplay: return "没有找到可捕获的显示器。"
-            case .encoding: return "PNG 编码失败。"
-            case .missingOverlayExclusion: return "暂时无法从截图中排除选区遮罩，请重试。"
+            case .noDisplay: return L10n.text("没有找到可捕获的显示器。", "No display is available for capture.")
+            case .encoding: return L10n.text("PNG 编码失败。", "PNG encoding failed.")
+            case .missingOverlayExclusion: return L10n.text("暂时无法从截图中排除选区遮罩，请重试。", "Unable to exclude the selection overlay. Please try again.")
             }
         }
     }

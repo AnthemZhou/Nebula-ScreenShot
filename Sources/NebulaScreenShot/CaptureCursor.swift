@@ -4,20 +4,20 @@ import AppKit
 /// High-contrast screenshot crosshair; the center is the exact selection point.
 @MainActor enum CaptureCursor {
     static let selection: NSCursor = {
-        let size = NSSize(width: 28, height: 28)
+        let size = NSSize(width: 20, height: 20)
         let image = NSImage(size: size, flipped: false) { _ in
             let path = NSBezierPath()
-            for (start, end) in [(NSPoint(x: 2, y: 14), NSPoint(x: 12, y: 14)),
-                                 (NSPoint(x: 16, y: 14), NSPoint(x: 26, y: 14)),
-                                 (NSPoint(x: 14, y: 2), NSPoint(x: 14, y: 12)),
-                                 (NSPoint(x: 14, y: 16), NSPoint(x: 14, y: 26))] {
+            for (start, end) in [(NSPoint(x: 2, y: 10), NSPoint(x: 8, y: 10)),
+                                 (NSPoint(x: 12, y: 10), NSPoint(x: 18, y: 10)),
+                                 (NSPoint(x: 10, y: 2), NSPoint(x: 10, y: 8)),
+                                 (NSPoint(x: 10, y: 12), NSPoint(x: 10, y: 18))] {
                 path.move(to: start); path.line(to: end)
             }
             path.lineCapStyle = .square
-            NSColor.white.setStroke(); path.lineWidth = 3; path.stroke()
-            NSColor.black.setStroke(); path.lineWidth = 1; path.stroke()
+            NSColor.white.withAlphaComponent(0.9).setStroke(); path.lineWidth = 1.8; path.stroke()
+            NSColor.black.withAlphaComponent(0.8).setStroke(); path.lineWidth = 0.7; path.stroke()
             return true
         }
-        return NSCursor(image: image, hotSpot: NSPoint(x: 14, y: 14))
+        return NSCursor(image: image, hotSpot: NSPoint(x: 10, y: 10))
     }()
 }

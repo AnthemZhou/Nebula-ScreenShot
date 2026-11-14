@@ -49,7 +49,7 @@ MainActor.assumeIsolated {
 with (app / 'Contents/Info.plist').open('wb') as file:
     plistlib.dump({'CFBundleIdentifier': identifier, 'CFBundleExecutable': 'RelaunchFixture', 'CFBundleName': 'Nebula Relaunch Fixture', 'CFBundlePackageType': 'APPL', 'CFBundleVersion': '1', 'LSUIElement': True, 'LSMinimumSystemVersion': '14.0'}, file)
 try:
-    subprocess.run(['swiftc', '-swift-version', '5', '-emit-library', '-emit-module', '-module-name', 'NebulaCore', str(repo / 'Sources/NebulaCore/PermissionRelaunchPolicy.swift'), '-emit-module-path', str(root / 'NebulaCore.swiftmodule'), '-o', str(root / 'libNebulaCore.dylib')], check=True)
+    subprocess.run(['swiftc', '-swift-version', '5', '-emit-library', '-emit-module', '-module-name', 'NebulaCore', str(repo / 'Sources/NebulaCore/PermissionRelaunchPolicy.swift'), str(repo / 'Sources/NebulaCore/L10n.swift'), '-emit-module-path', str(root / 'NebulaCore.swiftmodule'), '-o', str(root / 'libNebulaCore.dylib')], check=True)
     subprocess.run(['swiftc', '-swift-version', '5', '-I', str(root), '-L', str(root), '-lNebulaCore', '-Xlinker', '-rpath', '-Xlinker', str(root), str(root / 'AppRelauncher.swift'), str(root / 'main.swift'), '-o', str(app / 'Contents/MacOS/RelaunchFixture')], check=True)
     subprocess.run(['/usr/bin/codesign', '--force', '--sign', '-', str(app)], check=True, capture_output=True)
     for iteration in range(10):

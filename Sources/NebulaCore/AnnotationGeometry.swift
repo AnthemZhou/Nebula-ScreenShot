@@ -33,6 +33,15 @@ public enum AnnotationGeometry {
         return CGRect(x: x, y: y, width: diameter, height: diameter)
     }
 
+    /// One continuous retention region connects a pin with its delete badge.
+    /// Enter on the pin itself; leave only after moving beyond this small margin.
+    public static func pinHoverRegion(for item: Annotation, selection: CGRect) -> CGRect? {
+        guard let badge = badge(for: item, selection: selection), let target = item.points.first else { return nil }
+        let body = PinGeometry.layout(at: target, number: item.number ?? 1, selection: selection).body
+        return body.union(CGRect(origin: target, size: .zero)).union(badge)
+            .insetBy(dx: -6, dy: -6).intersection(selection)
+    }
+
     public static func hit(_ item: Annotation, at point: CGPoint, selection: CGRect, tolerance: CGFloat = 5) -> Bool {
         guard selection.contains(point), let first = item.points.first, let last = item.points.last else { return false }
         let hitWidth = tolerance + item.lineWidth / 2

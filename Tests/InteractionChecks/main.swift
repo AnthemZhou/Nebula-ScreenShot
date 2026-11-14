@@ -205,16 +205,22 @@ enum HarnessError: Error, CustomStringConvertible {
         try hover(CGPoint(x: 80, y: 90))
         let labels = descendants(of: canvas).compactMap { $0 as? NSTextField }
         try check(labels.contains { $0.stringValue == "160, 180" }, "Pixel coordinates must follow the pointer")
-        try check(CaptureCursor.selection.hotSpot == CGPoint(x: 14, y: 14), "Crosshair center must target the exact selection point")
+        try check(CaptureCursor.selection.hotSpot == CGPoint(x: 10, y: 10), "Crosshair center must target the exact selection point")
         try drag(from: initialCrop.origin, to: CGPoint(x: initialCrop.maxX, y: initialCrop.maxY))
-        try check(!(try button(labelPrefix: "确认")).isEnabled && !(try button(labelPrefix: "保存")).isEnabled,
+        let hole = try renderedCanvasColor(at: CGPoint(x: 300, y: 300))
+        try check(hole.alphaComponent < 0.01, "Pending crop must reveal the undimmed desktop")
+        for point in [CGPoint(x: 20, y: 200), CGPoint(x: 880, y: 200), CGPoint(x: 300, y: 20), CGPoint(x: 300, y: 620)] {
+            let outside = try renderedCanvasColor(at: point)
+            try check(abs(outside.alphaComponent - 0.48) < 0.02, "Outside shade must keep exactly one opacity layer")
+        }
+        try check(!(try button(labelPrefix: "保存")).isEnabled,
                   "Clipboard and Save must stay disabled until fresh pixels arrive")
         try key("\r", code: 36)
         try check(copyCount == 0, "A pending canvas must never export its shade")
         try click(CGPoint(x: 160, y: 160))
         canvas.installScreenshot(syntheticImage)
         try check(canvas.selection == initialCrop, "Installing pixels must preserve a completed selection")
-        try check((try button(labelPrefix: "确认")).isEnabled, "Pixel arrival must enable confirmation")
+        try check((try button(labelPrefix: "保存")).isEnabled, "Pixel arrival must enable export")
         try expectNextPin(2)
         try copy()
         let pinPoint = try pinSample(at: CGPoint(x: 160, y: 160), number: 1)
@@ -245,12 +251,15 @@ enum HarnessError: Error, CustomStringConvertible {
         }
         let buttons = descendants(of: toolbar).compactMap { $0 as? NSButton }
         let labels = buttons.map { $0.accessibilityLabel() ?? "" }
-        for removed in ["圆圈", "直线", "箭头", "选择圆圈", "取消截图", "更多"] {
+        for removed in ["圆圈", "直线", "箭头", "选择圆圈", "取消截图", "更多", "确认"] {
             try check(!labels.contains { $0.hasPrefix(removed) }, "Removed row button must stay absent: \(removed)")
         }
-        try check(buttons.count == 14, "Toolbar must contain six colors and eight actions")
-        let confirm = try button(labelPrefix: "确认"), pin = try button(labelPrefix: "图钉")
-        try check(confirm.frame.width <= 28 && confirm.frame.width < pin.frame.width, "Confirmation must be smaller than a tool button")
+        try check(buttons.count == 13, "Toolbar must contain six colors and seven actions")
+        let hints = descendants(of: toolbar).compactMap { $0 as? NSTextField }
+        let copyHint = hints.first { $0.stringValue == "回车以复制到剪贴板" }
+        try check(copyHint != nil && copyHint!.frame.minY > buttons.map { $0.frame.maxY }.max()!,
+                  "A text-only Return hint belongs below the icon row")
+        try check(abs(copyHint!.frame.midX - toolbar.bounds.midX) < 0.01, "Return hint must be centered")
         for tool in [AnnotationTool.ellipse, .rectangle, .line, .arrow] {
             let menu = toolbar.optionsMenu()
             guard let item = menu.items.first(where: { $0.representedObject as? String == tool.rawValue }), let action = item.action else {
@@ -265,9 +274,29 @@ enum HarnessError: Error, CustomStringConvertible {
         try key("n")
         try check((try button(labelPrefix: "形状与设置")).state == .off, "Returning to pin clears the settings highlight")
         let menu = toolbar.optionsMenu()
-        try check(menu.items.contains { $0.title == "重新选择区域" } && menu.items.contains { $0.title == "清空标注" },
-                  "Settings menu must retain reselect and clear actions")
-        print("PASS: compact toolbar, smaller confirm, consolidated shape menu and selected-tool state")
+        try check(!menu.items.contains { $0.title == "重新选择区域" || $0.title == "清空标注" },
+                  "Reselect and clear menu options must be removed")
+        print("PASS: compact icon toolbar, Return hint, consolidated shapes and removed secondary actions")
+    }
+
+    func runEnglishChecks() throws {
+        try check(Locale.preferredLanguages.first?.hasPrefix("en") == true, "Fixture must use English system preference")
+        try drag(from: initialCrop.origin, to: CGPoint(x: initialCrop.maxX, y: initialCrop.maxY))
+        guard let toolbar = descendants(of: canvas).first(where: { $0 is AnnotationToolbar }) as? AnnotationToolbar else {
+            throw HarnessError.failed("Missing English toolbar")
+        }
+        let labels = descendants(of: toolbar).compactMap { $0 as? NSTextField }
+        try check(labels.contains { $0.stringValue == "Press Return to copy to clipboard" }, "English Return hint")
+        var text = descendants(of: toolbar).compactMap { ($0 as? NSButton)?.accessibilityLabel() }
+        for item in toolbar.optionsMenu().items {
+            text.append(item.title)
+            text += item.submenu?.items.map(\.title) ?? []
+        }
+        try check(!text.contains { $0.unicodeScalars.contains { (0x3400...0x9fff).contains($0.value) } },
+                  "English menus/tooltips must contain no Chinese text")
+        try check(text.contains { $0.contains("Right-drag an arrow") }, "English gesture help must match arrow behavior")
+        try check(text.contains("Ellipse") && text.contains("Line") && text.contains("Arrow"), "English shape menu")
+        print("PASS: English system preference localizes editor, tooltips, shapes, widths and Return hint")
     }
 
     func runEditingChecks() throws {
@@ -277,12 +306,31 @@ enum HarnessError: Error, CustomStringConvertible {
         try drag(from: initialCrop.origin, to: CGPoint(x: initialCrop.maxX, y: initialCrop.maxY))
         let targets = [CGPoint(x: 120, y: 130), CGPoint(x: 220, y: 130), CGPoint(x: 320, y: 130)]
         for target in targets { try click(target) }
+        for dx: CGFloat in [0, 1, -1, 2, -2, 1] {
+            try hover(CGPoint(x: targets[2].x + dx, y: targets[2].y - 1))
+            try check(canvas.hoveredPinBadge == nil, "New pin must not flash a delete badge under the departing cursor")
+        }
+        try hover(CGPoint(x: 500, y: 400))
         let originalPins = bytes(try copy())
         let pin = Annotation(tool: .pin, points: [targets[0]], number: 1)
         let bubble = PinGeometry.layout(at: targets[0], number: 1, selection: canvas.selection).body
         try hover(CGPoint(x: bubble.midX, y: bubble.midY))
         let badge = AnnotationGeometry.badge(for: pin, selection: canvas.selection!)!
         let badgeCenter = CGPoint(x: badge.midX, y: badge.midY)
+        canvas.updateTrackingAreas()
+        for t in stride(from: CGFloat(0), through: 1, by: 0.05) {
+            try hover(CGPoint(x: bubble.midX + (badgeCenter.x - bubble.midX) * t,
+                              y: bubble.midY + (badgeCenter.y - bubble.midY) * t))
+            let tracking = canvas.trackingAreas.first
+            canvas.updateTrackingAreas()
+            try check(canvas.hoveredPinBadge != nil, "Badge must stay visible from pin body to delete target")
+            try check(tracking === canvas.trackingAreas.first, "Moving readout must not recreate canvas tracking")
+        }
+        try hover(CGPoint(x: bubble.minX - 3, y: bubble.midY))
+        try check(canvas.hoveredPinBadge != nil, "Small edge jitter must retain the badge")
+        try hover(CGPoint(x: 500, y: 400))
+        try check(canvas.hoveredPinBadge == nil, "Moving away must dismiss the badge")
+        try hover(CGPoint(x: bubble.midX, y: bubble.midY))
         try hover(badgeCenter)
         // Controls are visible in the view but must never be included in the export.
         _ = try renderedCanvasColor(at: badgeCenter)
@@ -419,8 +467,11 @@ enum HarnessError: Error, CustomStringConvertible {
 
         try drag(from: CGPoint(x: 280, y: 180), to: CGPoint(x: 430, y: 180), right: true)
         try copy()
-        try expectColor(CGPoint(x: 350, y: 180), orange, "Right drag in default mode must draw a line")
+        try expectColor(CGPoint(x: 350, y: 180), orange, "Right drag in default mode must draw an arrow")
         try expectColor(CGPoint(x: 280, y: 160), backgroundColor!, "Left drag must not leave a pin bubble at its start")
+        let head = Geometry.arrowHead(start: CGPoint(x: 280, y: 180), end: CGPoint(x: 430, y: 180), lineWidth: 3.5)
+        try expectColor(CGPoint(x: (head[0].x + head[1].x) / 2, y: (head[0].y + head[1].y) / 2),
+                        orange, "Right drag must include an arrowhead")
         try expectNextPin(3)
         try key("z", flags: [.command])
         try copy()
@@ -428,7 +479,7 @@ enum HarnessError: Error, CustomStringConvertible {
         try key("z", flags: [.command, .shift])
         try copy()
         try expectColor(CGPoint(x: 350, y: 180), orange, "Keyboard redo must restore the line")
-        print("PASS: right drag draws line without stray pin; keyboard undo/redo")
+        print("PASS: right drag draws arrow without stray pin; keyboard undo/redo")
 
         try key("n")
         try drag(from: CGPoint(x: 500, y: 170), to: CGPoint(x: 650, y: 280))
@@ -485,9 +536,9 @@ enum HarnessError: Error, CustomStringConvertible {
         try check(saveCount == 1 && saved != nil, "Main Save button must invoke save callback")
         try check(copyCount == copiesBeforeSave, "Save must not invoke copy callback")
         let beforeConfirm = copyCount
-        try button(labelPrefix: "确认").performClick(nil)
-        try check(copyCount == beforeConfirm + 1, "Confirm must still copy")
-        print("PASS: main Save invokes save callback, Confirm invokes copy callback, A draws arrow")
+        try key("\r", code: 36)
+        try check(copyCount == beforeConfirm + 1, "Return must copy without a confirmation button")
+        print("PASS: main Save invokes save callback, Return invokes copy callback, A draws arrow")
 
         try drag(from: CGPoint(x: 860, y: 500), to: CGPoint(x: 780, y: 560))
         let resized = CGRect(x: 40, y: 40, width: 740, height: 520)
@@ -589,6 +640,7 @@ MainActor.assumeIsolated {
     app.setActivationPolicy(.prohibited)
     do {
         let harness = try CanvasHarness()
+        if CommandLine.arguments.contains("--english") { try harness.runEnglishChecks(); exit(0) }
         try harness.run(outputURL: URL(fileURLWithPath: CommandLine.arguments[1]))
         let pending = try CanvasHarness(pending: true)
         try pending.runPendingCaptureChecks()

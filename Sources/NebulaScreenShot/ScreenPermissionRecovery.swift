@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 import Foundation
+import NebulaCore
 
 @MainActor enum ScreenPermissionRecovery {
     private static let bundleIdentifier = "io.github.anthemzhou.NebulaScreenShot"
@@ -65,14 +66,14 @@ import Foundation
         var errorDescription: String? {
             switch self {
             case .invalidApplication:
-                return "无法确认当前应用的位置，尚未重置权限。请从 Nebula ScreenShot.app 打开后重试。"
+                return L10n.text("无法确认当前应用的位置，尚未重置权限。请从 Nebula ScreenShot.app 打开后重试。", "Unable to locate the app; permission has not been reset. Open Nebula ScreenShot.app and try again.")
             case .resetLaunchFailed(let detail):
-                return "无法启动屏幕录制权限重置：\(detail)"
+                return L10n.text("无法启动屏幕录制权限重置：\(detail)", "Unable to reset screen recording permission: \(detail)")
             case .resetFailed(let code, let wasSignaled):
-                let kind = wasSignaled ? "终止信号" : "退出代码"
-                return "屏幕录制权限重置失败（\(kind)：\(code)）。请在系统设置中检查 Nebula ScreenShot 的权限后重试。"
+                let kind = wasSignaled ? L10n.text("终止信号", "signal") : L10n.text("退出代码", "exit code")
+                return L10n.text("屏幕录制权限重置失败（\(kind)：\(code)）。请在系统设置中检查 Nebula ScreenShot 的权限后重试。", "Screen recording permission reset failed (\(kind): \(code)). Check Nebula ScreenShot permissions in System Settings and try again.")
             case .relaunchFailed(let detail):
-                return "旧的屏幕录制记录已清除，但无法自动重新启动。请退出并重新打开 Nebula ScreenShot。\n\(detail)"
+                return L10n.text("旧的屏幕录制记录已清除，但无法自动重新启动。请退出并重新打开 Nebula ScreenShot。\n\(detail)", "The old screen recording permission was cleared, but automatic restart failed. Quit and reopen Nebula ScreenShot.\n\(detail)")
             }
         }
     }
