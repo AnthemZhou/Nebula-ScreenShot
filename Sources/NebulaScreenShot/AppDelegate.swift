@@ -22,6 +22,7 @@ import NebulaCore
         }
         hotKey.onPress = { [weak self] in self?.captureFromShortcut() }
         hotKey.register()
+        capture.prepare()
         NotificationCenter.default.addObserver(self, selector: #selector(displaysChanged),
                                                name: NSApplication.didChangeScreenParametersNotification, object: nil)
         if CommandLine.arguments.contains("--demo") {
@@ -203,7 +204,10 @@ import NebulaCore
     }
 
     @objc private func openHelp() { NSWorkspace.shared.open(URL(string: "https://github.com/AnthemZhou/Nebula-ScreenShot#使用")!) }
-    @objc private func displaysChanged() { if capture.isActive { capture.finish() } }
+    @objc private func displaysChanged() {
+        if capture.isActive { capture.finish() }
+        capture.displaysChanged()
+    }
     @objc private func openRepository() { NSWorkspace.shared.open(URL(string: "https://github.com/AnthemZhou/Nebula-ScreenShot")!) }
     @objc private func quit() { NSApp.terminate(nil) }
 

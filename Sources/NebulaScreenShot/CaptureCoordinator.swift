@@ -12,6 +12,7 @@ import OSLog
 
 @MainActor final class CaptureCoordinator {
     private let logger = Logger(subsystem: "io.github.anthemzhou.NebulaScreenShot", category: "Capture")
+    private let source = CaptureSource()
     private var panels: [CapturePanel] = []
     private var captureTask: Task<Void, Never>?
     private var sessionID: UUID?
@@ -26,6 +27,7 @@ import OSLog
         // Let ScreenCaptureKit report its actual authorization result. A separate
         // Core Graphics preflight must not prevent this call or substitute for it.
         isActive = true
+        let started = ProcessInfo.processInfo.systemUptime
         let session = UUID()
         sessionID = session
         previousApplication = NSWorkspace.shared.frontmostApplication
@@ -41,29 +43,18 @@ import OSLog
                     }
                 } else {
                     self.logger.notice("ScreenCaptureKit capture requested")
-                    let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-                    let ownApps = content.applications.filter { $0.processID == ProcessInfo.processInfo.processIdentifier }
-                    var captures: [(NSScreen, CGImage)] = []
-                    for screen in NSScreen.screens {
-                        guard let id = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID,
-                              let display = content.displays.first(where: { $0.displayID == id }) else { continue }
-                        let filter = SCContentFilter(display: display, excludingApplications: ownApps, exceptingWindows: [])
-                        let config = SCStreamConfiguration()
-                        config.width = Int(screen.frame.width * screen.backingScaleFactor)
-                        config.height = Int(screen.frame.height * screen.backingScaleFactor)
-                        config.showsCursor = false
-                        config.captureResolution = .best
-                        let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
-                        try Task.checkCancellation()
-                        captures.append((screen, image))
-                    }
-                    snapshots = captures
+                    snapshots = try await self.source.capture(NSScreen.screens)
                 }
                 guard !snapshots.isEmpty else { throw CaptureError.noDisplay }
                 try Task.checkCancellation()
                 guard self.sessionID == session else { return }
+                let captured = ProcessInfo.processInfo.systemUptime
                 self.present(snapshots)
-                if !demo { self.logger.notice("Screenshot selection ready; displays: \(snapshots.count, privacy: .public)") }
+                if !demo {
+                    let totalMS = Int((ProcessInfo.processInfo.systemUptime - started) * 1000)
+                    let panelsMS = Int((ProcessInfo.processInfo.systemUptime - captured) * 1000)
+                    self.logger.notice("Screenshot selection ready; displays: \(snapshots.count, privacy: .public); total \(totalMS, privacy: .public) ms; panels \(panelsMS, privacy: .public) ms")
+                }
             } catch is CancellationError {
                 if self.sessionID == session { self.finish() }
             } catch {
@@ -79,6 +70,9 @@ import OSLog
             }
         }
     }
+
+    func prepare() { source.prepareIfAllowed() }
+    func displaysChanged() { source.invalidate(); prepare() }
 
     private func present(_ snapshots: [(NSScreen, CGImage)]) {
         let mouse = NSEvent.mouseLocation

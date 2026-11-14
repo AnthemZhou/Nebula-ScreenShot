@@ -56,8 +56,9 @@ import NebulaCore
 }
 
 @MainActor private final class ToolbarButton: NSButton {
+    override var isFlipped: Bool { true }
     var actionBlock: (() -> Void)?
-    var showsLabel = true { didSet { needsDisplay = true } }
+    var pinInk: Ink? { didSet { needsDisplay = true } }
     var isPrimary = false
     private var hovering = false
     private var hoverTrackingArea: NSTrackingArea?
@@ -108,32 +109,26 @@ import NebulaCore
             }
             foreground = NSColor(white: isEnabled ? (selected ? 0.97 : 0.80) : 0.41, alpha: 1)
         }
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: font ?? NSFont.systemFont(ofSize: 12, weight: .medium), .foregroundColor: foreground
-        ]
-        let text = showsLabel ? title : ""
-        let textSize = (text as NSString).size(withAttributes: attributes)
-        let iconSize: CGFloat = min(16, max(0, bounds.width - 4))
-        let gap: CGFloat = text.isEmpty ? 0 : 5
-        let x = (bounds.width - iconSize - gap - textSize.width) / 2
-        if let image {
+        let iconSize: CGFloat = min(18, max(0, bounds.width - 8))
+        let iconRect = NSRect(x: bounds.midX - iconSize / 2, y: bounds.midY - iconSize / 2,
+                              width: iconSize, height: iconSize)
+        if let pinInk {
+            AnnotationRenderer.drawPinIcon(in: iconRect.insetBy(dx: -1, dy: -1), ink: pinInk)
+        } else if let image {
             let colored = image.withSymbolConfiguration(NSImage.SymbolConfiguration(paletteColors: [foreground])) ?? image
-            let imageScale = min(iconSize / max(1, colored.size.width), iconSize / max(1, colored.size.height))
-            let size = NSSize(width: colored.size.width * imageScale, height: colored.size.height * imageScale)
-            colored.draw(in: NSRect(x: x + (iconSize - size.width) / 2, y: (bounds.height - size.height) / 2,
+            let scale = min(iconSize / max(1, colored.size.width), iconSize / max(1, colored.size.height))
+            let size = NSSize(width: colored.size.width * scale, height: colored.size.height * scale)
+            colored.draw(in: NSRect(x: bounds.midX - size.width / 2, y: bounds.midY - size.height / 2,
                                    width: size.width, height: size.height),
                          from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
-        }
-        if !text.isEmpty {
-            (text as NSString).draw(at: NSPoint(x: x + iconSize + gap, y: (bounds.height - textSize.height) / 2), withAttributes: attributes)
         }
     }
 }
 
 @MainActor final class AnnotationToolbar: NSView {
-    static let preferredWidth: CGFloat = 868
+    static let preferredWidth: CGFloat = 668
     static let height: CGFloat = 44
-    private static let compactWidth: CGFloat = 568
+    private static let compactWidth: CGFloat = 576
 
     static func preferredSize(for availableWidth: CGFloat) -> CGSize {
         let width = availableWidth >= preferredWidth ? preferredWidth : min(compactWidth, max(1, availableWidth))
@@ -186,7 +181,7 @@ import NebulaCore
             addSubview(button)
         }
         pinButton = toolButton(.pin)
-        pinButton.toolTip = "图钉（N）· 点击打钉 · 左键拖动直线 · 右键拖动方框"
+        pinButton.toolTip = "图钉（N）· 点击打钉 · 左键拖动细方框 · 右键拖动直线"
         pinButton.setAccessibilityLabel(pinButton.toolTip)
         shapeButton = ToolbarButton(title: "圆圈", symbol: "circle", help: "圆圈（O）") { [weak self] in
             guard let self else { return }
@@ -197,7 +192,7 @@ import NebulaCore
         arrowButton = toolButton(.arrow)
         penButton = toolButton(.pen)
         eraserButton = toolButton(.eraser)
-        eraserButton.toolTip = "橡皮擦（E）· 拖动擦除标注，一次拖动可整体撤销"
+        eraserButton.toolTip = "橡皮擦（E）· 局部擦除笔触，其他标注整项擦除；一次拖动可撤销"
         eraserButton.setAccessibilityLabel(eraserButton.toolTip)
         styleButton = ToolbarButton(title: "", symbol: "slider.horizontal.3", help: "标注粗细") { [weak self] in self?.showStyleMenu() }
         moreButton = ToolbarButton(title: "", symbol: "ellipsis", help: "更多：重选、清空") { [weak self] in self?.showMoreMenu() }
@@ -232,7 +227,7 @@ import NebulaCore
     override func layout() {
         super.layout()
         let compact = bounds.width < Self.preferredWidth
-        let widths: [CGFloat] = compact ? [28, 28, 14, 28, 28, 28, 28, 26, 26, 26, 26, 26, 28, 30] : [62, 60, 18, 60, 60, 58, 58, 28, 28, 28, 28, 28, 58, 58]
+        let widths: [CGFloat] = compact ? [28, 28, 14, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28] : [32, 32, 16, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32]
         let gaps: [CGFloat] = compact ? [3, 0, 3, 3, 3, 3, 8, 3, 3, 3, 8, 3, 3] : [4, 0, 4, 4, 4, 4, 10, 4, 4, 4, 10, 4, 4]
         let padding: CGFloat = compact ? 6 : 8
         let inkHitWidth: CGFloat = compact ? 22 : 24
@@ -251,8 +246,8 @@ import NebulaCore
         separators.append(NSRect(x: x + inkGroupGap / 2, y: (bounds.height - 18) / 2, width: 0.5, height: 18))
         x += inkGroupGap
         for (index, button) in rowButtons.enumerated() {
-            button.showsLabel = !compact
-            button.frame = NSRect(x: x, y: (bounds.height - 32) / 2, width: widths[index] * scale, height: 32)
+            let side = (compact ? 28.0 : 32.0) * scale
+            button.frame = NSRect(x: x, y: (bounds.height - side) / 2, width: widths[index] * scale, height: side)
             x += widths[index] * scale
             if index < gaps.count {
                 let gap = gaps[index] * scale
@@ -296,9 +291,9 @@ import NebulaCore
         undoButton.needsDisplay = true
         redoButton.isEnabled = history.canRedo
         redoButton.needsDisplay = true
-        pinButton.toolTip = "图钉（N）· 点击打钉 · 左键拖动直线 · 右键拖动方框 · 下一枚：\(history.nextPinNumber)"
+        pinButton.toolTip = "图钉（N）· 点击打钉 · 左键拖动细方框 · 右键拖动直线 · 下一枚：\(history.nextPinNumber)"
         pinButton.setAccessibilityLabel(pinButton.toolTip)
-        styleButton.toolTip = "标注粗细 · \(widthTitle(lineWidth))"
+        styleButton.toolTip = "线条 / 画笔粗细 · \(widthTitle(lineWidth))；方框固定细线"
         styleButton.setAccessibilityLabel(styleButton.toolTip)
         updateInkSelection()
         updateToolSelection()
@@ -311,6 +306,7 @@ import NebulaCore
     }
 
     private func updateInkSelection() {
+        pinButton?.pinInk = selectedInk
         for button in inkButtons {
             button.state = button.ink == selectedInk ? .on : .off
             button.setAccessibilityValue(button.ink == selectedInk ? 1 : 0)

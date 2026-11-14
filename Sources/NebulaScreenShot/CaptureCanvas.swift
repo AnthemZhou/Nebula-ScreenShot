@@ -11,15 +11,24 @@ import NebulaCore
     private var tool: AnnotationTool = .pin
     private var ink: Ink = .coral
     private var lineWidth: CGFloat = 3.5
-    private let toolbar = AnnotationToolbar(frame: .zero)
+    private var hasToolbar = false
+    private lazy var toolbar = makeToolbar()
     private let hint = CaptureHint(frame: .zero)
     private var hoverID: UUID?
     private var selectedID: UUID?
     private var erasedIDs: Set<UUID> = []
+    private var erasedPenIDs: Set<UUID> = []
+    private var erasurePaths: [PenErasure] = []
+    private var eraseNeedsNewPath = true
     private var pointer: CGPoint?
     private var hoverTracking: NSTrackingArea?
     private var displayAnnotations: [Annotation] {
-        var items = history.annotations.filter { !erasedIDs.contains($0.id) }
+        var items = history.annotations.filter { !erasedIDs.contains($0.id) }.map { original -> Annotation in
+            guard erasedPenIDs.contains(original.id) else { return original }
+            var item = original
+            for erasure in erasurePaths where !item.erasures.contains(erasure) { item.erasures.append(erasure) }
+            return item
+        }
         if let draft {
             if let index = items.firstIndex(where: { $0.id == draft.id }) { items[index] = draft }
             else { items.append(draft) }
@@ -57,8 +66,13 @@ import NebulaCore
         self.screenshot = screenshot
         self.background = NSImage(cgImage: screenshot, size: frame.size)
         super.init(frame: frame)
-        toolbar.isHidden = true
         addSubview(hint)
+        updateHint()
+    }
+
+    private func makeToolbar() -> AnnotationToolbar {
+        hasToolbar = true
+        let toolbar = AnnotationToolbar(frame: .zero)
         addSubview(toolbar)
         toolbar.onTool = { [weak self] in self?.tool = $0; self?.selectedID = nil; self?.hoverID = nil; self?.refresh() }
         toolbar.onInk = { [weak self] in self?.ink = $0; self?.refresh() }
@@ -70,7 +84,7 @@ import NebulaCore
         toolbar.onCancel = { [weak self] in self?.onCancel?() }
         toolbar.onCopy = { [weak self] in self?.export(save: false) }
         toolbar.onSave = { [weak self] in self?.export(save: true) }
-        updateHint()
+        return toolbar
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -98,7 +112,7 @@ import NebulaCore
         dimTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 guard let self, self.window != nil else { return }
-                let progress = min(1, (ProcessInfo.processInfo.systemUptime - start) / 0.18)
+                let progress = min(1, (ProcessInfo.processInfo.systemUptime - start) / 0.06)
                 self.dimOpacity = 0.48 * CGFloat(progress * progress * (3 - 2 * progress))
                 self.needsDisplay = true
                 if progress >= 1 { self.dimTask = nil; return }
@@ -122,7 +136,8 @@ import NebulaCore
         hoverID = nil
         selectedID = nil
         erasedIDs.removeAll()
-        toolbar.isHidden = true
+        erasedPenIDs.removeAll(); erasurePaths.removeAll(); eraseNeedsNewPath = true
+        if hasToolbar { toolbar.isHidden = true }
         refresh()
     }
 
@@ -167,7 +182,7 @@ import NebulaCore
         } else {
             hint.update("拖动选择区域 · 右键 / Esc 取消", origin: CGPoint(x: max(10, bounds.midX - 125), y: 52))
         }
-        hint.isHidden = !toolbar.isHidden && toolbar.frame.intersects(hint.frame)
+        hint.isHidden = hasToolbar && !toolbar.isHidden && toolbar.frame.intersects(hint.frame)
     }
 
     override func updateTrackingAreas() {
@@ -194,7 +209,7 @@ import NebulaCore
         guard interaction == nil else { return }
         let point = point(for: event)
         pointer = point
-        if !toolbar.isHidden && toolbar.frame.contains(point) { hoverID = nil }
+        if hasToolbar && !toolbar.isHidden && toolbar.frame.contains(point) { hoverID = nil }
         else if let selection, let item = item(id: hoverID),
                 let badge = AnnotationGeometry.badge(for: item, selection: selection), badge.insetBy(dx: -3, dy: -3).contains(point) {
             // Keep the badge reachable while moving from the pin to its minus button.
@@ -232,9 +247,21 @@ import NebulaCore
     }
 
     private func erase(at point: CGPoint) {
-        guard let selection else { return }
-        for item in history.annotations where AnnotationGeometry.hit(item, at: point, selection: selection, tolerance: 7) {
-            erasedIDs.insert(item.id)
+        guard let selection, selection.contains(point) else { eraseNeedsNewPath = true; return }
+        let last = eraseNeedsNewPath ? point : (erasurePaths.last?.points.last ?? point)
+        let sweep = PenErasure(points: [last, point], clip: selection)
+        if eraseNeedsNewPath {
+            erasurePaths.append(PenErasure(points: [point], clip: selection))
+            eraseNeedsNewPath = false
+        } else if hypot(last.x - point.x, last.y - point.y) >= 0.25 {
+            erasurePaths[erasurePaths.count - 1].points.append(point)
+        }
+        for item in history.annotations {
+            if item.tool == .pen {
+                if sweep.intersects(item) { erasedPenIDs.insert(item.id) }
+            } else if AnnotationGeometry.hit(item, at: point, selection: selection, tolerance: 7) {
+                erasedIDs.insert(item.id)
+            }
         }
     }
 
@@ -260,7 +287,7 @@ import NebulaCore
         if let selection {
             if spaceHeld, selection.contains(point) {
                 interaction = .move(original: selection, start: point)
-                toolbar.isHidden = true
+                if hasToolbar { toolbar.isHidden = true }
             } else if tool != .eraser && tool != .pen, let pin = item(id: hoverID),
                       let badge = AnnotationGeometry.badge(for: pin, selection: selection), badge.contains(point) {
                 history.remove(ids: [pin.id])
@@ -272,10 +299,11 @@ import NebulaCore
                 interaction = .edit(original: annotation, handle: handle, start: point)
             } else if let handle = SelectionGeometry.hitHandle(at: point, in: selection) {
                 interaction = .resize(original: selection, handle: handle, start: point)
-                toolbar.isHidden = true
+                if hasToolbar { toolbar.isHidden = true }
             } else if selection.contains(point) {
                 if tool == .eraser {
                     erasedIDs.removeAll()
+                    erasedPenIDs.removeAll(); erasurePaths.removeAll(); eraseNeedsNewPath = true
                     interaction = .erase(last: point)
                     erase(at: point)
                 } else if tool != .pen, let annotation = hitItem(at: point) {
@@ -283,14 +311,15 @@ import NebulaCore
                     interaction = .edit(original: annotation, handle: nil, start: point)
                 } else {
                     selectedID = nil
-                    interaction = .draw(start: point, tool: tool == .pin ? .line : tool,
-                                        ink: ink, width: lineWidth, right: false, dragged: false)
+                    let drawingTool: AnnotationTool = tool == .pin ? .rectangle : tool
+                    interaction = .draw(start: point, tool: drawingTool,
+                                        ink: ink, width: drawingTool == .rectangle ? 2 : lineWidth, right: false, dragged: false)
                     if tool == .pen { draft = Annotation(tool: .pen, points: [point], ink: ink, lineWidth: lineWidth) }
                 }
             } else {
                 interaction = .select(start: point, previous: selection)
                 self.selection = CGRect(origin: point, size: .zero)
-                toolbar.isHidden = true
+                if hasToolbar { toolbar.isHidden = true }
             }
         } else {
             interaction = .select(start: point, previous: nil)
@@ -306,7 +335,7 @@ import NebulaCore
         window?.makeFirstResponder(self)
         let point = point(for: event)
         if let selection, selection.contains(point) {
-            interaction = .draw(start: point, tool: .rectangle, ink: ink,
+            interaction = .draw(start: point, tool: .line, ink: ink,
                                 width: lineWidth, right: true, dragged: false)
         } else {
             interaction = .rightOutside(start: point, dragged: false)
@@ -418,14 +447,15 @@ import NebulaCore
         case .edit:
             if let draft { history.replace(draft) }
         case .erase:
-            history.remove(ids: erasedIDs)
+            history.commit(displayAnnotations)
             erasedIDs.removeAll()
+            erasedPenIDs.removeAll(); erasurePaths.removeAll(); eraseNeedsNewPath = true
             hoverID = nil; selectedID = nil
         case .rightOutside(_, let dragged):
             if !dragged { onCancel?(); return }
         }
         draft = nil
-        toolbar.isHidden = selection == nil
+        if selection != nil || hasToolbar { toolbar.isHidden = selection == nil }
         positionToolbar()
         refresh()
     }
@@ -446,7 +476,7 @@ import NebulaCore
         if !history.annotations.contains(where: { $0.id == hoverID }) { hoverID = nil }
         if !history.annotations.contains(where: { $0.id == selectedID }) { selectedID = nil }
         updateHint()
-        toolbar.update(tool: tool, ink: ink, lineWidth: lineWidth, history: history)
+        if hasToolbar { toolbar.update(tool: tool, ink: ink, lineWidth: lineWidth, history: history) }
         needsDisplay = true
         window?.invalidateCursorRects(for: self)
         window?.makeFirstResponder(self)

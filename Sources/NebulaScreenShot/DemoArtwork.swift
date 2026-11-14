@@ -54,7 +54,7 @@ import NebulaCore
             Annotation(tool: .ellipse, points: [CGPoint(x: 82, y: 279), CGPoint(x: 394, y: 335)], ink: .coral, lineWidth: 3),
             Annotation(tool: .arrow, points: [CGPoint(x: 360, y: 510), CGPoint(x: 438, y: 474)], ink: .amber, lineWidth: 4),
             Annotation(tool: .line, points: [CGPoint(x: 741, y: 490), CGPoint(x: 892, y: 490)], ink: .mint, lineWidth: 3),
-            Annotation(tool: .rectangle, points: [CGPoint(x: 710, y: 410), CGPoint(x: 1002, y: 450)], ink: .coral, lineWidth: 3),
+            Annotation(tool: .rectangle, points: [CGPoint(x: 710, y: 410), CGPoint(x: 1002, y: 450)], ink: .coral, lineWidth: 2),
             Annotation(tool: .pin, points: [CGPoint(x: 350, y: 362)], ink: .coral, lineWidth: 3.5, number: 1),
             Annotation(tool: .pin, points: [CGPoint(x: 661, y: 362)], ink: .coral, lineWidth: 3.5, number: 2),
             Annotation(tool: .pin, points: [CGPoint(x: 972, y: 362)], ink: .coral, lineWidth: 3.5, number: 3)

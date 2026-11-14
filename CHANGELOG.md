@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.8 — 2026-11-14
+
+- Preload and reuse display-filter metadata when already authorized, capture fresh pixels concurrently across displays, and defer toolbar construction until a region is selected. Reduce the dim-only entry fade from 180 to 60 ms. Add metadata/pixel/panel timing diagnostics without logging screen content.
+- Erase only the brushed portion of freehand strokes using per-stroke masks; keep the screenshot and lower annotations intact. Masks follow moved strokes, remain clipped to the crop used for erasing, and undo/redo with the whole gesture. Other annotation types retain object erasing.
+- Change default pin-mode gestures to click-to-pin, left-drag rounded rectangles, and right-drag straight lines. Fix rounded dashed boxes at the thin 2 pt width.
+- Keep all four original drawing groups and remove toolbar text labels. Center icons in square highlights, retain accessible names/tooltips, and render the pin button with the same colored teardrop and white outline/number as canvas pins.
+- Add local-erase geometry, Retina compositing and history regressions; extend the hidden AppKit interaction checks for swapped gestures, partial erasing, icon button geometry and deferred toolbar construction.
+
 ## 0.1.7 — 2026-11-14
 
 - Replace the per-repaint NSString hint drawing with a native, cached-label view. The v0.1.6 crash report identified this font-layout path as the cause of the app exiting and leaving its global shortcut unavailable.

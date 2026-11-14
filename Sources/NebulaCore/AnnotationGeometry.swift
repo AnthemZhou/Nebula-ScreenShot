@@ -47,6 +47,7 @@ public enum AnnotationGeometry {
             let head = Geometry.arrowHead(start: first, end: last, lineWidth: item.lineWidth)
             return distance(point, to: first, last) <= hitWidth || zip(head, head.dropFirst()).contains { distance(point, to: $0.0, $0.1) <= hitWidth }
         case .pen:
+            guard !item.erasures.contains(where: { $0.contains(point) }) else { return false }
             return hypot(first.x - point.x, first.y - point.y) <= hitWidth ||
                 zip(item.points, item.points.dropFirst()).contains { distance(point, to: $0.0, $0.1) <= hitWidth }
         case .rectangle:
@@ -86,6 +87,7 @@ public enum AnnotationGeometry {
             let dx = min(max(delta.width, bounds.minX - xs.min()!), bounds.maxX - xs.max()!)
             let dy = min(max(delta.height, bounds.minY - ys.min()!), bounds.maxY - ys.max()!)
             item.points = item.points.map { CGPoint(x: $0.x + dx, y: $0.y + dy) }
+            item.erasures = item.erasures.map { $0.translated(by: CGSize(width: dx, height: dy)) }
         }
         return item
     }

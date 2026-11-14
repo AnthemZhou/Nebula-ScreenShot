@@ -48,15 +48,8 @@ extension Ink {
                 }
             }
         case .pen:
-            if annotation.points.count == 1 {
-                annotation.ink.color.setFill()
-                NSBezierPath(ovalIn: CGRect(x: start.x - annotation.lineWidth / 2,
-                                           y: start.y - annotation.lineWidth / 2,
-                                           width: annotation.lineWidth, height: annotation.lineWidth)).fill()
-                return
-            }
-            path.move(to: start)
-            for point in annotation.points.dropFirst() { path.line(to: point) }
+            drawPen(annotation)
+            return
         case .eraser: return
         case .pin:
             // Moving or resizing the crop never moves annotations or pulls outside pins inward.
@@ -65,6 +58,67 @@ extension Ink {
             return
         }
         path.stroke()
+    }
+
+    private static func drawPen(_ annotation: Annotation) {
+        guard let first = annotation.points.first, let context = NSGraphicsContext.current?.cgContext else { return }
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        let masked = !annotation.erasures.isEmpty
+        if masked {
+            let xs = annotation.points.map(\.x), ys = annotation.points.map(\.y)
+            let rect = CGRect(x: xs.min()!, y: ys.min()!, width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!)
+                .insetBy(dx: -annotation.lineWidth, dy: -annotation.lineWidth)
+            NSBezierPath(rect: rect).addClip()
+            // Clear only this pen's isolated layer, revealing the image/annotations below it.
+            context.beginTransparencyLayer(auxiliaryInfo: nil)
+        }
+        annotation.ink.color.setStroke()
+        annotation.ink.color.setFill()
+        if annotation.points.count == 1 {
+            let diameter = annotation.lineWidth
+            NSBezierPath(ovalIn: CGRect(x: first.x - diameter / 2, y: first.y - diameter / 2,
+                                       width: diameter, height: diameter)).fill()
+        } else {
+            let path = NSBezierPath()
+            path.move(to: first)
+            for point in annotation.points.dropFirst() { path.line(to: point) }
+            path.lineWidth = annotation.lineWidth
+            path.lineCapStyle = .round; path.lineJoinStyle = .round
+            path.stroke()
+        }
+        if masked {
+            context.setBlendMode(.clear)
+            for erasure in annotation.erasures {
+                guard let start = erasure.points.first else { continue }
+                context.saveGState()
+                if let clip = erasure.clip { context.clip(to: clip) }
+                context.setLineWidth(erasure.radius * 2)
+                context.setLineCap(.round); context.setLineJoin(.round)
+                context.beginPath()
+                context.move(to: start)
+                for point in erasure.points.dropFirst() { context.addLine(to: point) }
+                context.strokePath()
+                context.fillEllipse(in: CGRect(x: start.x - erasure.radius, y: start.y - erasure.radius,
+                                               width: erasure.radius * 2, height: erasure.radius * 2))
+                context.restoreGState()
+            }
+            context.setBlendMode(.normal)
+            context.endTransparencyLayer()
+        }
+    }
+
+    /// The toolbar uses the same teardrop, white border and number as canvas pins.
+    public static func drawPinIcon(in rect: CGRect, ink: Ink) {
+        let scale = min(rect.width / 30, rect.height / 36.6)
+        guard scale > 0 else { return }
+        NSGraphicsContext.saveGraphicsState()
+        let transform = NSAffineTransform()
+        transform.translateX(by: rect.midX - 15 * scale, yBy: rect.midY - 18.3 * scale)
+        transform.scale(by: scale)
+        transform.concat()
+        drawPin(at: CGPoint(x: 15, y: 36.6), number: 1, ink: ink, selection: nil)
+        NSGraphicsContext.restoreGraphicsState()
     }
 
     private static func drawPin(at point: CGPoint, number: Int, ink: Ink, selection: CGRect?) {

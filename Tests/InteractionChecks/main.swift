@@ -248,7 +248,8 @@ enum HarnessError: Error, CustomStringConvertible {
         try expectColor(CGPoint(x: 300, y: 250), orange, "Dragging shaft moves the entire arrow")
         print("PASS: hover handles, endpoint editing, object movement and transaction undo/redo")
 
-        try drag(from: CGPoint(x: 500, y: 170), to: CGPoint(x: 650, y: 280), right: true)
+        try key("n")
+        try drag(from: CGPoint(x: 500, y: 170), to: CGPoint(x: 650, y: 280))
         let originalBox = bytes(try copy())
         try hover(CGPoint(x: 550, y: 170))
         try hover(CGPoint(x: 650, y: 280))
@@ -257,6 +258,25 @@ enum HarnessError: Error, CustomStringConvertible {
         try key("z", flags: [.command])
         try check(bytes(try copy()) == originalBox, "Box resize undoes exactly")
         print("PASS: rounded dashed box can be resized after drawing")
+
+        canvas.resetSelection()
+        try key("n")
+        try drag(from: initialCrop.origin, to: CGPoint(x: initialCrop.maxX, y: initialCrop.maxY))
+        try key("p")
+        try drag(from: CGPoint(x: 150, y: 200), to: CGPoint(x: 450, y: 200))
+        let uncutStroke = bytes(try copy())
+        try key("e")
+        try drag(from: CGPoint(x: 300, y: 180), to: CGPoint(x: 300, y: 220))
+        try copy()
+        try expectColor(CGPoint(x: 300, y: 200), backgroundColor!, "Eraser removes only the brushed part of a pen stroke")
+        try expectColor(CGPoint(x: 250, y: 200), orange, "Left remainder survives partial erasing")
+        try expectColor(CGPoint(x: 350, y: 200), orange, "Right remainder survives partial erasing")
+        let cutStroke = bytes(try copy())
+        try key("z", flags: [.command])
+        try check(bytes(try copy()) == uncutStroke, "Partial erasing undoes as one edit")
+        try key("z", flags: [.command, .shift])
+        try check(bytes(try copy()) == cutStroke, "Partial erasing redoes exactly")
+        print("PASS: local pen erasing preserves both sides and supports exact undo/redo")
 
         canvas.resetSelection()
         try key("n")
@@ -297,8 +317,15 @@ enum HarnessError: Error, CustomStringConvertible {
 
     func run(outputURL: URL) throws {
         try check(!window.isVisible, "Harness window must remain hidden")
+        try check(!canvas.subviews.contains { $0 is AnnotationToolbar }, "Initial capture must defer toolbar construction")
         try drag(from: initialCrop.origin, to: CGPoint(x: initialCrop.maxX, y: initialCrop.maxY))
         try check(canvas.selection == initialCrop, "Selection must follow drag")
+        for button in descendants(of: canvas).compactMap({ $0 as? NSButton }) {
+            let label = button.accessibilityLabel() ?? ""
+            if !label.hasPrefix("标注颜色") && label != "选择圆圈或方框" {
+                try check(abs(button.frame.width - button.frame.height) < 0.01, "Tool highlight must be square and centered on its icon")
+            }
+        }
         try copy()
         backgroundColor = try color(at: CGPoint(x: 60, y: 60))
         let orange = try referenceColor(.coral)
@@ -311,9 +338,9 @@ enum HarnessError: Error, CustomStringConvertible {
         try expectNextPin(3)
         print("PASS: click pins 1/2, Enter and Command-C copy callbacks, Retina dimensions")
 
-        try drag(from: CGPoint(x: 280, y: 180), to: CGPoint(x: 430, y: 180))
+        try drag(from: CGPoint(x: 280, y: 180), to: CGPoint(x: 430, y: 180), right: true)
         try copy()
-        try expectColor(CGPoint(x: 350, y: 180), orange, "Left drag in default mode must draw a line")
+        try expectColor(CGPoint(x: 350, y: 180), orange, "Right drag in default mode must draw a line")
         try expectColor(CGPoint(x: 280, y: 160), backgroundColor!, "Left drag must not leave a pin bubble at its start")
         try expectNextPin(3)
         try key("z", flags: [.command])
@@ -322,16 +349,17 @@ enum HarnessError: Error, CustomStringConvertible {
         try key("z", flags: [.command, .shift])
         try copy()
         try expectColor(CGPoint(x: 350, y: 180), orange, "Keyboard redo must restore the line")
-        print("PASS: left drag draws line without stray pin; keyboard undo/redo")
+        print("PASS: right drag draws line without stray pin; keyboard undo/redo")
 
-        try drag(from: CGPoint(x: 500, y: 170), to: CGPoint(x: 650, y: 280), right: true)
+        try key("n")
+        try drag(from: CGPoint(x: 500, y: 170), to: CGPoint(x: 650, y: 280))
         try copy()
         let samples = try (520...630).map { try color(at: CGPoint(x: $0, y: 170)) }
         try check(samples.contains { abs($0.redComponent - orange.redComponent) < 0.025 }, "Rectangle edge has colored dashes")
         try check(samples.contains { abs($0.redComponent - backgroundColor!.redComponent) < 0.025 }, "Rectangle edge has gaps")
-        try expectColor(CGPoint(x: 570, y: 220), backgroundColor!, "Right-drag rectangle must remain unfilled")
+        try expectColor(CGPoint(x: 570, y: 220), backgroundColor!, "Left-drag rectangle must remain unfilled")
         try expectNextPin(3)
-        print("PASS: right drag creates unfilled rectangle without changing pin numbering")
+        print("PASS: left drag creates unfilled rectangle without changing pin numbering")
 
         let beforeOutAndBack = bytes(try copy())
         let beforeCancel = cancelCount
@@ -340,7 +368,7 @@ enum HarnessError: Error, CustomStringConvertible {
         try check(bytes(try copy()) == beforeOutAndBack, "Out-and-back left drag must leave no accidental pin")
         try drag(from: CGPoint(x: 710, y: 320), through: [CGPoint(x: 735, y: 350)],
                  to: CGPoint(x: 710, y: 320), right: true)
-        try check(bytes(try copy()) == beforeOutAndBack, "Out-and-back right drag must leave no rectangle")
+        try check(bytes(try copy()) == beforeOutAndBack, "Out-and-back right drag must leave no line")
         try drag(from: CGPoint(x: 10, y: 10), through: [CGPoint(x: 25, y: 25)],
                  to: CGPoint(x: 10, y: 10), right: true)
         try check(cancelCount == beforeCancel, "An ever-dragged right gesture must not become a cancel click")

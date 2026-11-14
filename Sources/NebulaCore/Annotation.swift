@@ -18,7 +18,7 @@ public enum AnnotationTool: String, CaseIterable, Sendable {
 
     public var symbol: String {
         switch self {
-        case .pin: return "1.circle"
+        case .pin: return "mappin.circle"
         case .ellipse: return "circle"
         case .rectangle: return "square"
         case .line: return "line.diagonal"
@@ -62,6 +62,7 @@ public struct Annotation: Equatable, Sendable {
     public var ink: Ink
     public var lineWidth: CGFloat
     public var number: Int?
+    public var erasures: [PenErasure] = []
 
     public init(tool: AnnotationTool, points: [CGPoint], ink: Ink = .coral,
                 lineWidth: CGFloat = 3, number: Int? = nil, id: UUID = UUID()) {
