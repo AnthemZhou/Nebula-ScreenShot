@@ -8,8 +8,7 @@ import QuartzCore
     private var measuredPattern = ""
     override init(frame: NSRect) {
         super.init(frame: frame)
-        // Keep pointer movement on its own backing layer instead of invalidating
-        // the full-screen screenshot beneath the readout.
+        // Keep crop dimension layout on its own backing layer.
         wantsLayer = true
         layerContentsRedrawPolicy = .onSetNeedsDisplay
         label.font = .monospacedDigitSystemFont(ofSize: 10, weight: .regular)

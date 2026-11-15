@@ -27,9 +27,11 @@ public enum AnnotationGeometry {
     public static func badge(for item: Annotation, selection: CGRect) -> CGRect? {
         guard item.tool == .pin, let target = item.points.first, selection.contains(target) else { return nil }
         let pin = PinGeometry.layout(at: target, number: item.number ?? 1, selection: selection)
-        let diameter = min(18, max(12, pin.body.width * 0.55), min(selection.width, selection.height))
-        let x = min(max(pin.body.maxX - diameter * 0.35, selection.minX), selection.maxX - diameter)
-        let y = min(max(pin.body.minY - diameter * 0.45, selection.minY), selection.maxY - diameter)
+        let diameter = min(14, max(9, pin.body.width * 0.42), min(selection.width, selection.height))
+        // Center the smaller badge on the bubble's upper-right arc so it feels
+        // attached to the pin, while keeping the number and tip unobstructed.
+        let x = min(max(pin.body.midX + pin.body.width * 0.36 - diameter / 2, selection.minX), selection.maxX - diameter)
+        let y = min(max(pin.body.minY + pin.body.height * 0.14 - diameter / 2, selection.minY), selection.maxY - diameter)
         return CGRect(x: x, y: y, width: diameter, height: diameter)
     }
 

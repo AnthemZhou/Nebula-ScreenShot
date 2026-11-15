@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.3 — 2026-11-16
+
+- Shrink the pin delete badge and attach it to the upper-right bubble edge, preserving stable hover, deletion and renumbering.
+- Replace persistent crop handles with a subtle edge or corner highlight on hover and while resizing; retain all edge/corner drag targets.
+- Remove pointer coordinates. Keep pixel dimensions anchored above the crop, without repainting the canvas during ordinary pointer motion.
+
 ## 1.1.2 — 2026-11-15
 
 - Fix metadata-cache cancellation races during rapid Esc → capture cycles. Canceled waiters cannot invalidate a later capture, return stale display filters after a display change, or clear newer loading work.

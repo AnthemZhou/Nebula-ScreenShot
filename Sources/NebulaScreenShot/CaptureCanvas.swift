@@ -163,43 +163,70 @@ import NebulaCore
             let outline = NSBezierPath(rect: selection)
             outline.lineWidth = 1 / max(1, window?.backingScaleFactor ?? pixelScale)
             outline.stroke()
-            if selection.width >= 8, selection.height >= 8 {
-                for item in SelectionGeometry.handles(in: selection) {
-                    let rect = CGRect(x: item.point.x - 2, y: item.point.y - 2, width: 4, height: 4)
-                    NSColor.white.setFill()
-                    NSBezierPath(roundedRect: rect, xRadius: 1.5, yRadius: 1.5).fill()
-                    NSColor(white: 0.15, alpha: 0.8).setStroke()
-                    let edge = NSBezierPath(roundedRect: rect, xRadius: 1.5, yRadius: 1.5)
-                    edge.lineWidth = 0.7
-                    edge.stroke()
-                }
-            }
+            drawSelectionHighlight(in: selection)
         }
     }
 
+    private var highlightedSelectionHandle: SelectionHandle? {
+        guard !exportBusy, let selection, selection.width >= 8, selection.height >= 8 else { return nil }
+        if case .resize(_, let handle, _) = interaction { return handle }
+        guard interaction == nil, let pointer else { return nil }
+        if hasToolbar && !toolbar.isHidden && toolbar.frame.contains(pointer) { return nil }
+        if spaceHeld && selection.contains(pointer) { return nil }
+        if hoveredPinBadge?.contains(pointer) == true { return nil }
+        if tool != .pen && tool != .eraser && selection.contains(pointer), editHandle(at: pointer) != nil { return nil }
+        return SelectionGeometry.hitHandle(at: pointer, in: selection)
+    }
+
+    private func drawSelectionHighlight(in rect: CGRect) {
+        guard let handle = highlightedSelectionHandle else { return }
+        let path = NSBezierPath()
+        let length = min(18, min(rect.width, rect.height) / 2)
+        let points: [CGPoint]
+        switch handle {
+        case .left: points = [CGPoint(x: rect.minX, y: rect.minY), CGPoint(x: rect.minX, y: rect.maxY)]
+        case .right: points = [CGPoint(x: rect.maxX, y: rect.minY), CGPoint(x: rect.maxX, y: rect.maxY)]
+        case .top: points = [CGPoint(x: rect.minX, y: rect.minY), CGPoint(x: rect.maxX, y: rect.minY)]
+        case .bottom: points = [CGPoint(x: rect.minX, y: rect.maxY), CGPoint(x: rect.maxX, y: rect.maxY)]
+        case .topLeft:
+            points = [CGPoint(x: rect.minX, y: rect.minY + length), rect.origin,
+                      CGPoint(x: rect.minX + length, y: rect.minY)]
+        case .topRight:
+            points = [CGPoint(x: rect.maxX - length, y: rect.minY), CGPoint(x: rect.maxX, y: rect.minY),
+                      CGPoint(x: rect.maxX, y: rect.minY + length)]
+        case .bottomLeft:
+            points = [CGPoint(x: rect.minX, y: rect.maxY - length), CGPoint(x: rect.minX, y: rect.maxY),
+                      CGPoint(x: rect.minX + length, y: rect.maxY)]
+        case .bottomRight:
+            points = [CGPoint(x: rect.maxX - length, y: rect.maxY), CGPoint(x: rect.maxX, y: rect.maxY),
+                      CGPoint(x: rect.maxX, y: rect.maxY - length)]
+        }
+        path.move(to: points[0])
+        for point in points.dropFirst() { path.line(to: point) }
+        path.lineCapStyle = .round
+        path.lineJoinStyle = .round
+        NSColor.white.withAlphaComponent(0.16).setStroke()
+        path.lineWidth = 4
+        path.stroke()
+        NSColor.white.withAlphaComponent(0.95).setStroke()
+        path.lineWidth = 1.5
+        path.stroke()
+    }
+
     private func updateHint() {
+        guard let selection else { hint.isHidden = true; return }
         let sx = screenshot.map { CGFloat($0.width) / bounds.width } ?? pixelScale
         let sy = screenshot.map { CGFloat($0.height) / bounds.height } ?? pixelScale
-        if let selection {
-            let origin: CGPoint
-            if case .select = interaction, let pointer { origin = CGPoint(x: pointer.x + 12, y: pointer.y + 10) }
-            else { origin = CGPoint(x: max(selection.minX, 8), y: selection.minY >= 22 ? selection.minY - 18 : selection.minY + 8) }
-            hint.update("\(Int((selection.width * sx).rounded())) × \(Int((selection.height * sy).rounded())) px",
-                        origin: origin, within: bounds)
-        } else if let pointer {
-            hint.update("\(Int((pointer.x * sx).rounded())), \(Int((pointer.y * sy).rounded()))",
-                        origin: CGPoint(x: pointer.x + 12, y: pointer.y + 10), within: bounds)
-        } else {
-            hint.isHidden = true
-            return
-        }
+        let origin = CGPoint(x: max(selection.minX, 8), y: selection.minY >= 22 ? selection.minY - 18 : selection.minY + 8)
+        hint.update("\(Int((selection.width * sx).rounded())) × \(Int((selection.height * sy).rounded())) px",
+                    origin: origin, within: bounds)
         hint.isHidden = hasToolbar && !toolbar.isHidden && toolbar.frame.intersects(hint.frame)
     }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         // .inVisibleRect follows layout automatically. Replacing the tracking area
-        // whenever the coordinate label moves produces spurious exit/enter events.
+        // whenever the size label moves produces spurious exit/enter events.
         guard hoverTracking == nil else { return }
         let tracking = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .cursorUpdate, .activeAlways, .inVisibleRect], owner: self, userInfo: nil)
         addTrackingArea(tracking)
@@ -221,12 +248,13 @@ import NebulaCore
     override func mouseMoved(with event: NSEvent) {
         guard interaction == nil else { return }
         let previousHover = hoverID
+        let previousSelectionHandle = highlightedSelectionHandle
         let previousPointer = pointer
         var point = point(for: event)
         let latestMouse = NSEvent.mouseLocation
         if let window, window.isVisible, window.frame.contains(latestMouse) {
             // Hardware cursors can get ahead of queued mouseMoved events. Use the
-            // latest position for hover/readout only; drawing keeps event geometry.
+            // latest position for hover only; drawing keeps event geometry.
             point = Geometry.clamp(convert(window.convertPoint(fromScreen: latestMouse), from: nil), to: bounds)
         }
         pointer = point
@@ -243,9 +271,8 @@ import NebulaCore
             let candidate = hitItem(at: point)?.id
             hoverID = candidate == newlyPlacedPinID ? nil : candidate
         }
-        updateHint()
         updatePointerCursor(at: point)
-        if previousHover != hoverID {
+        if previousHover != hoverID || previousSelectionHandle != highlightedSelectionHandle {
             needsDisplay = true
         } else if tool == .pen || tool == .eraser {
             invalidateBrushCursor(at: previousPointer)
@@ -255,7 +282,7 @@ import NebulaCore
     override func mouseEntered(with event: NSEvent) { mouseMoved(with: event) }
     override func cursorUpdate(with event: NSEvent) { updatePointerCursor(at: point(for: event)) }
     override func mouseExited(with event: NSEvent) {
-        if hoverID != nil { needsDisplay = true }
+        if hoverID != nil || highlightedSelectionHandle != nil { needsDisplay = true }
         if tool == .pen || tool == .eraser { invalidateBrushCursor(at: pointer) }
         hoverID = nil; pointer = nil; updateHint()
     }
@@ -303,7 +330,7 @@ import NebulaCore
                 let minus = NSBezierPath()
                 minus.move(to: CGPoint(x: badge.minX + badge.width * 0.28, y: badge.midY))
                 minus.line(to: CGPoint(x: badge.maxX - badge.width * 0.28, y: badge.midY))
-                minus.lineWidth = 1.5; minus.lineCapStyle = .round
+                minus.lineWidth = 1.25; minus.lineCapStyle = .round
                 NSColor.darkGray.setStroke(); minus.stroke()
             }
         } else if let pointer, selection.contains(pointer) {
@@ -575,6 +602,7 @@ import NebulaCore
         guard !exportBusy else { return }
         if event.keyCode == 49, !event.modifierFlags.contains(.command), interaction == nil {
             spaceHeld = true
+            needsDisplay = true
             window?.invalidateCursorRects(for: self)
             return
         }
@@ -606,6 +634,7 @@ import NebulaCore
     override func keyUp(with event: NSEvent) {
         if event.keyCode == 49 {
             spaceHeld = false
+            needsDisplay = true
             window?.invalidateCursorRects(for: self)
         } else { super.keyUp(with: event) }
     }

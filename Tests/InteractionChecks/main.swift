@@ -212,18 +212,38 @@ enum HarnessError: Error, CustomStringConvertible {
     func runPointerChecks() throws {
         guard let hint = canvas.subviews.compactMap({ $0 as? CaptureHint }).first,
               let label = descendants(of: hint).compactMap({ $0 as? NSTextField }).first else {
-            throw HarnessError.failed("Missing pointer readout")
+            throw HarnessError.failed("Missing crop size label")
         }
-        try hover(CGPoint(x: 100, y: 100))
-        let size = hint.frame.size
+        canvas.showInitialPointer(at: CGPoint(x: 100, y: 100))
+        try check(hint.isHidden, "Initial crosshair must have no coordinate label")
         for i in 0..<90 {
             let point = CGPoint(x: 100 + i * 3, y: 100 + i * 2)
             try hover(point)
-            try check(label.stringValue == "\(Int(point.x * 2)), \(Int(point.y * 2))", "Readout must use the latest coordinates")
-            try check(hint.frame.origin == CGPoint(x: point.x + 12, y: point.y + 10), "Readout follows without a delayed position update")
-            try check(hint.frame.size == size, "Equal-width digits must not trigger a new readout size")
+            try check(hint.isHidden, "Pointer motion without a crop must not show coordinates")
         }
-        print("PASS: 90 immediate coordinate updates with stable digit layout")
+        try drag(from: initialCrop.origin, to: CGPoint(x: initialCrop.maxX, y: initialCrop.maxY))
+        try check(!hint.isHidden && label.stringValue == "1640 × 920 px", "Retina crop dimensions remain available")
+        let labelFrame = hint.frame
+        try hover(CGPoint(x: 300, y: 300))
+        try check(hint.frame == labelFrame && hint.frame.maxY <= initialCrop.minY,
+                  "Dimensions stay above the crop instead of following the cursor")
+        let topSample = CGPoint(x: initialCrop.midX, y: initialCrop.minY - 0.5)
+        let idle = try renderedCanvasColor(at: topSample)
+        let corner = try renderedCanvasColor(at: CGPoint(x: initialCrop.minX + 1.5, y: initialCrop.minY + 1.5))
+        try check(corner.redComponent < 0.1, "An idle corner must not contain a square handle")
+        try hover(CGPoint(x: initialCrop.midX, y: initialCrop.minY + 3))
+        let active = try renderedCanvasColor(at: topSample)
+        try check(active.redComponent > idle.redComponent + 0.15, "Hover must visibly brighten the corresponding crop edge")
+        try hover(CGPoint(x: 300, y: 300))
+        let restored = try renderedCanvasColor(at: topSample)
+        try check(abs(restored.redComponent - idle.redComponent) < 0.01, "Leaving the edge must restore its hairline")
+        try drag(from: CGPoint(x: initialCrop.midX, y: initialCrop.minY + 3),
+                 to: CGPoint(x: initialCrop.midX, y: initialCrop.minY + 23))
+        try check(canvas.selection == CGRect(x: 40, y: 60, width: 820, height: 440),
+                  "A handle-free edge must still resize without jumping to the pointer")
+        canvas.resetSelection()
+        try check(hint.isHidden, "Reselecting must hide dimensions until the next drag")
+        print("PASS: coordinate-free crosshair, anchored Retina dimensions, handle-free edge highlight and resize")
     }
 
     func runExportStateChecks() throws {
@@ -257,8 +277,8 @@ enum HarnessError: Error, CustomStringConvertible {
         let shade = try renderedCanvasColor(at: CGPoint(x: 10, y: 10))
         try check(abs(shade.alphaComponent - 0.48) < 0.02, "Pending shade must be translucent immediately")
         try hover(CGPoint(x: 80, y: 90))
-        let labels = descendants(of: canvas).compactMap { $0 as? NSTextField }
-        try check(labels.contains { $0.stringValue == "160, 180" }, "Pixel coordinates must follow the pointer")
+        try check(canvas.subviews.compactMap { $0 as? CaptureHint }.allSatisfy(\.isHidden),
+                  "Pending capture must not show pointer coordinates")
         try check(CaptureCursor.selection.hotSpot == CGPoint(x: 10, y: 10), "Crosshair center must target the exact selection point")
         try drag(from: initialCrop.origin, to: CGPoint(x: initialCrop.maxX, y: initialCrop.maxY))
         let hole = try renderedCanvasColor(at: CGPoint(x: 300, y: 300))
@@ -296,7 +316,7 @@ enum HarnessError: Error, CustomStringConvertible {
         try check(canvas.selection == Geometry.rect(from: start, to: end), "Pixel handoff must not interrupt an in-flight drag")
         try key("", code: 53)
         try check(cancelCount == 1 && !window.isVisible, "Esc remains available throughout the pending flow")
-        print("PASS: immediate translucent shade, pointer coordinates, pending export guard, clean pixels and uninterrupted selection")
+        print("PASS: immediate translucent shade, clean crosshair, pending export guard, clean pixels and uninterrupted selection")
     }
 
     func runToolbarChecks() throws {
@@ -401,7 +421,7 @@ enum HarnessError: Error, CustomStringConvertible {
             let tracking = canvas.trackingAreas.first
             canvas.updateTrackingAreas()
             try check(canvas.hoveredPinBadge != nil, "Badge must stay visible from pin body to delete target")
-            try check(tracking === canvas.trackingAreas.first, "Moving readout must not recreate canvas tracking")
+            try check(tracking === canvas.trackingAreas.first, "Hover updates must not recreate canvas tracking")
         }
         try hover(CGPoint(x: bubble.minX - 3, y: bubble.midY))
         try check(canvas.hoveredPinBadge != nil, "Small edge jitter must retain the badge")
