@@ -139,7 +139,7 @@ import NebulaCore
         if let background {
             background.draw(in: bounds, from: .zero, operation: .copy, fraction: 1, respectFlipped: true, hints: nil)
             let shade = NSBezierPath(rect: bounds)
-            if let selection { shade.append(selectionOutline(in: selection)); shade.windingRule = .evenOdd }
+            if let selection { shade.append(selectionMask(in: selection)); shade.windingRule = .evenOdd }
             NSColor.black.withAlphaComponent(0.48).setFill()
             shade.fill()
         } else {
@@ -149,7 +149,7 @@ import NebulaCore
             bounds.fill(using: .copy)
             if let selection {
                 NSGraphicsContext.saveGraphicsState()
-                selectionOutline(in: selection).addClip()
+                selectionMask(in: selection).addClip()
                 NSColor.clear.setFill()
                 selection.fill(using: .copy)
                 NSGraphicsContext.restoreGraphicsState()
@@ -158,27 +158,65 @@ import NebulaCore
 
         if let selection {
             NSGraphicsContext.saveGraphicsState()
-            selectionOutline(in: selection).addClip()
+            selectionMask(in: selection).addClip()
             for annotation in displayAnnotations { AnnotationRenderer.draw(annotation, selection: selection) }
             drawEditingControls(selection: selection)
             NSGraphicsContext.restoreGraphicsState()
-            NSColor.white.withAlphaComponent(0.7).setStroke()
-            let outline = selectionOutline(in: selection)
-            outline.stroke()
+            NSColor.white.withAlphaComponent(0.4).setStroke()
+            for path in selectionBorderPaths(in: selection) { path.stroke() }
             drawSelectionHighlight(in: selection)
             drawPinDeleteBadge()
         }
     }
 
-    private func selectionOutline(in rect: CGRect) -> NSBezierPath {
+    private func selectionMask(in rect: CGRect) -> NSBezierPath {
         let radius = SelectionGeometry.cornerRadius(in: rect)
-        let path = NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
-        let dash = min(4, max(2, min(rect.width, rect.height) / 8))
-        path.lineWidth = 1
-        path.lineCapStyle = .round
-        path.lineJoinStyle = .round
-        path.setLineDash([dash, dash * 0.85], count: 2, phase: 0)
-        return path
+        return NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
+    }
+
+    private func selectionBorderPaths(in rect: CGRect) -> [NSBezierPath] {
+        // Snap only the UI stroke to device pixels, keeping capture geometry and
+        // pointer response exact. No timed animation or input smoothing is used.
+        let scale = max(1, window?.backingScaleFactor ?? pixelScale)
+        func snap(_ value: CGFloat) -> CGFloat { (value * scale).rounded() / scale }
+        let rect = CGRect(x: snap(rect.minX), y: snap(rect.minY),
+                          width: snap(rect.maxX) - snap(rect.minX), height: snap(rect.maxY) - snap(rect.minY))
+        guard rect.width > 0, rect.height > 0 else { return [] }
+        let radius = SelectionGeometry.cornerRadius(in: rect)
+        let k: CGFloat = 0.5522847498307936
+        let arcLength = radius * .pi / 2
+        func styled(_ path: NSBezierPath, origin: CGFloat) -> NSBezierPath {
+            path.lineWidth = 1
+            path.lineCapStyle = .round
+            path.lineJoinStyle = .round
+            let phase = (origin.truncatingRemainder(dividingBy: 13) + 13).truncatingRemainder(dividingBy: 13)
+            path.setLineDash([8, 5], count: 2, phase: phase)
+            return path
+        }
+
+        // Each horizontal edge owns its corner arcs. Straight sections use
+        // canvas X/Y as their dash origin so changing another edge's length
+        // cannot make stationary dashes crawl around the perimeter.
+        var paths: [NSBezierPath] = []
+        for (y, direction): (CGFloat, CGFloat) in [(rect.minY, 1), (rect.maxY, -1)] {
+            let path = NSBezierPath()
+            path.move(to: CGPoint(x: rect.minX, y: y + direction * radius))
+            path.curve(to: CGPoint(x: rect.minX + radius, y: y),
+                       controlPoint1: CGPoint(x: rect.minX, y: y + direction * radius * (1 - k)),
+                       controlPoint2: CGPoint(x: rect.minX + radius * (1 - k), y: y))
+            path.line(to: CGPoint(x: rect.maxX - radius, y: y))
+            path.curve(to: CGPoint(x: rect.maxX, y: y + direction * radius),
+                       controlPoint1: CGPoint(x: rect.maxX - radius * (1 - k), y: y),
+                       controlPoint2: CGPoint(x: rect.maxX, y: y + direction * radius * (1 - k)))
+            paths.append(styled(path, origin: rect.minX + radius - arcLength))
+        }
+        for x in [rect.minX, rect.maxX] {
+            let path = NSBezierPath()
+            path.move(to: CGPoint(x: x, y: rect.minY + radius))
+            path.line(to: CGPoint(x: x, y: rect.maxY - radius))
+            paths.append(styled(path, origin: rect.minY + radius))
+        }
+        return paths
     }
 
     private var highlightedSelectionHandle: SelectionHandle? {
@@ -226,15 +264,15 @@ import NebulaCore
         NSGraphicsContext.saveGraphicsState()
         defer { NSGraphicsContext.restoreGraphicsState() }
         NSBezierPath(rect: region).addClip()
-        // Reuse the full path so the dash phase and curved corners stay aligned
-        // when an edge highlights, instead of adding a second square outline.
-        let path = selectionOutline(in: rect)
-        NSColor.white.withAlphaComponent(0.16).setStroke()
-        path.lineWidth = 3
-        path.stroke()
-        NSColor.white.withAlphaComponent(0.95).setStroke()
-        path.lineWidth = 1.5
-        path.stroke()
+        // Reuse the same anchored segments; hovering only changes emphasis.
+        for path in selectionBorderPaths(in: rect) {
+            NSColor.white.withAlphaComponent(0.08).setStroke()
+            path.lineWidth = 2
+            path.stroke()
+            NSColor.white.withAlphaComponent(0.7).setStroke()
+            path.lineWidth = 1.25
+            path.stroke()
+        }
     }
 
     private func updateHint() {

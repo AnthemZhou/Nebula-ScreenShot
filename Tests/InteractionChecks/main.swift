@@ -182,7 +182,7 @@ enum HarnessError: Error, CustomStringConvertible {
                   "Visible next-pin indicator must remain \(number)")
     }
 
-    func renderedCanvasColor(at point: CGPoint) throws -> NSColor {
+    func renderedCanvasBitmap() throws -> NSBitmapImageRep {
         canvas.layoutSubtreeIfNeeded()
         // Sample the real canvas drawing directly: NSGlassEffectView needs
         // WindowServer compositing and clears cacheDisplay output in hidden windows.
@@ -199,6 +199,11 @@ enum HarnessError: Error, CustomStringConvertible {
         NSGraphicsContext.current = NSGraphicsContext(cgContext: graphics.cgContext, flipped: true)
         canvas.draw(canvas.bounds)
         NSGraphicsContext.restoreGraphicsState()
+        return bitmap
+    }
+
+    func renderedCanvasColor(at point: CGPoint) throws -> NSColor {
+        let bitmap = try renderedCanvasBitmap()
         let sx = CGFloat(bitmap.pixelsWide) / canvas.bounds.width
         let sy = CGFloat(bitmap.pixelsHigh) / canvas.bounds.height
         guard let color = bitmap.colorAt(x: Int(point.x * sx), y: Int(point.y * sy))?.usingColorSpace(.sRGB) else {
@@ -208,6 +213,40 @@ enum HarnessError: Error, CustomStringConvertible {
     }
 
     func hover(_ point: CGPoint) throws { canvas.mouseMoved(with: try mouse(.mouseMoved, point)) }
+
+    func runDashStabilityChecks() throws {
+        // Compare real rendered pixels along edges that stay still while the
+        // opposite corner moves, for all four initial drag directions.
+        for anchor in [CGPoint(x: 80, y: 80), CGPoint(x: 600, y: 80),
+                       CGPoint(x: 80, y: 500), CGPoint(x: 600, y: 500)] {
+            canvas.resetSelection()
+            let east = anchor.x == 80, south = anchor.y == 80
+            let first = CGPoint(x: east ? 480 : 200, y: south ? 320 : 200)
+            let second = CGPoint(x: first.x + (east ? 30 : -30), y: first.y + (south ? 20 : -40))
+            canvas.mouseDown(with: try mouse(.leftMouseDown, anchor))
+            canvas.mouseDragged(with: try mouse(.leftMouseDragged, first))
+            let before = try renderedCanvasBitmap()
+            canvas.mouseDragged(with: try mouse(.leftMouseDragged, second))
+            let after = try renderedCanvasBitmap()
+            var bright = 0, gaps = 0
+            for index in 0..<40 {
+                for point in [CGPoint(x: 320 + CGFloat(index), y: anchor.y),
+                              CGPoint(x: anchor.x, y: 240 + CGFloat(index))] {
+                    let x = Int(point.x * 2), y = Int(point.y * 2)
+                    let a = before.colorAt(x: x, y: y)!.usingColorSpace(.sRGB)!
+                    let b = after.colorAt(x: x, y: y)!.usingColorSpace(.sRGB)!
+                    try check(abs(a.redComponent - b.redComponent) < 0.015,
+                              "Stationary border dashes must not crawl when another edge grows")
+                    if a.redComponent > 0.2 { bright += 1 }
+                    if a.redComponent < 0.1 { gaps += 1 }
+                }
+            }
+            try check(bright > 10 && gaps > 10, "Stable border samples must include both visible dashes and gaps")
+            canvas.mouseUp(with: try mouse(.leftMouseUp, second))
+        }
+        canvas.resetSelection()
+        print("PASS: stationary dashed border pixels remain stable in all four drag directions")
+    }
 
     func runPointerChecks() throws {
         guard let hint = canvas.subviews.compactMap({ $0 as? CaptureHint }).first,
@@ -809,6 +848,7 @@ MainActor.assumeIsolated {
     app.setActivationPolicy(.prohibited)
     do {
         let pointer = try CanvasHarness()
+        try pointer.runDashStabilityChecks()
         try pointer.runPointerChecks()
         if !CommandLine.arguments.contains("--english") {
             let exportState = try CanvasHarness()
