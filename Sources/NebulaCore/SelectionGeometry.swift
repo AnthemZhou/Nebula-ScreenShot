@@ -15,6 +15,17 @@ public enum SelectionHandle: CaseIterable, Sendable {
 /// Selection bounds in a flipped view: top is minY, bottom is maxY.
 /// These operations never translate or otherwise modify annotation coordinates.
 public enum SelectionGeometry {
+    /// Prefer the shaded side of the crop, leaving the interior available for
+    /// annotation even in the smallest supported selections.
+    public static func hitBorder(at point: CGPoint, in rect: CGRect) -> SelectionHandle? {
+        guard !rect.isNull, rect.width >= 8, rect.height >= 8 else { return nil }
+        let inset = min(2, min(rect.width, rect.height) / 4)
+        let interior = rect.insetBy(dx: inset, dy: inset)
+        if point.x >= interior.minX && point.x <= interior.maxX &&
+           point.y >= interior.minY && point.y <= interior.maxY { return nil }
+        return hitHandle(at: point, in: rect, tolerance: 6)
+    }
+
     public static func handles(in rect: CGRect) -> [(handle: SelectionHandle, point: CGPoint)] {
         guard !rect.isNull else { return [] }
         let rect = rect.standardized

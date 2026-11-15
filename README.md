@@ -1,5 +1,7 @@
 # Nebula ScreenShot
 
+<img src="docs/icon.png" width="96" alt="Nebula ScreenShot 黑白圆角图标">
+
 轻量的 macOS 菜单栏截图与标注工具。按 **⌃⇧⌘5** 拖选区域，添加编号图钉、图形或手绘标记，再按 **回车** 复制到剪贴板。
 
 **当前版本：v1.1.3** · macOS 14+ · Apple Silicon / Intel · GPL-3.0-only

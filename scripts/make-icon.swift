@@ -14,11 +14,14 @@ for size in [16, 32, 128, 256, 512] {
         NSGraphicsContext.current = context
         context.cgContext.scaleBy(x: CGFloat(pixels) / 512, y: CGFloat(pixels) / 512)
         let shape = NSBezierPath(roundedRect: NSRect(x: 28, y: 28, width: 456, height: 456), xRadius: 108, yRadius: 108)
-        NSGradient(starting: NSColor(srgbRed: 0.1, green: 0.16, blue: 0.34, alpha: 1),
-                   ending: NSColor(srgbRed: 0.31, green: 0.17, blue: 0.56, alpha: 1))!.draw(in: shape, angle: 45)
-        NSColor(srgbRed: 0.55, green: 0.87, blue: 1, alpha: 1).setStroke()
+        NSColor.black.setFill()
+        shape.fill()
+        NSColor.white.withAlphaComponent(0.18).setStroke()
+        shape.lineWidth = 2
+        shape.stroke()
+        NSColor.white.setStroke()
         let path = NSBezierPath()
-        path.lineWidth = 19
+        path.lineWidth = max(20, 512 / CGFloat(pixels))
         path.lineCapStyle = .round
         path.lineJoinStyle = .round
         for (x, y, dx, dy) in [(128.0, 155.0, 1.0, 1.0), (384, 155, -1, 1), (128, 357, 1, -1), (384, 357, -1, -1)] {
@@ -27,12 +30,26 @@ for size in [16, 32, 128, 256, 512] {
             path.line(to: NSPoint(x: x + dx * 42, y: y))
         }
         path.stroke()
-        NSColor(srgbRed: 1, green: 0.31, blue: 0.4, alpha: 1).setFill()
-        NSBezierPath(ovalIn: NSRect(x: 200, y: 200, width: 112, height: 112)).fill()
-        let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.monospacedDigitSystemFont(ofSize: 72, weight: .bold), .foregroundColor: NSColor.white]
-        let text = "1" as NSString
-        let textSize = text.size(withAttributes: attributes)
-        text.draw(at: NSPoint(x: 256 - textSize.width / 2, y: 256 - textSize.height / 2), withAttributes: attributes)
+        // A white teardrop echoes numbered annotations; the silhouette remains
+        // readable at Finder/menu-sized resolutions without relying on color.
+        let pin = NSBezierPath()
+        pin.move(to: NSPoint(x: 256, y: 172))
+        pin.curve(to: NSPoint(x: 192, y: 270), controlPoint1: NSPoint(x: 222, y: 207), controlPoint2: NSPoint(x: 192, y: 230))
+        pin.curve(to: NSPoint(x: 256, y: 334), controlPoint1: NSPoint(x: 192, y: 306), controlPoint2: NSPoint(x: 220, y: 334))
+        pin.curve(to: NSPoint(x: 320, y: 270), controlPoint1: NSPoint(x: 292, y: 334), controlPoint2: NSPoint(x: 320, y: 306))
+        pin.curve(to: NSPoint(x: 256, y: 172), controlPoint1: NSPoint(x: 320, y: 230), controlPoint2: NSPoint(x: 290, y: 207))
+        pin.close()
+        NSColor.white.setFill()
+        pin.fill()
+        if pixels >= 64 {
+            let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.monospacedDigitSystemFont(ofSize: 70, weight: .bold), .foregroundColor: NSColor.black]
+            let text = "1" as NSString
+            let textSize = text.size(withAttributes: attributes)
+            text.draw(at: NSPoint(x: 256 - textSize.width / 2, y: 270 - textSize.height / 2), withAttributes: attributes)
+        } else {
+            NSColor.black.setFill()
+            NSBezierPath(ovalIn: NSRect(x: 240, y: 254, width: 32, height: 32)).fill()
+        }
         NSGraphicsContext.restoreGraphicsState()
         let suffix = scale == 2 ? "@2x" : ""
         try bitmap.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: "\(destination)/icon_\(size)x\(size)\(suffix).png"))

@@ -45,7 +45,7 @@ import NebulaCore
 
     private enum Interaction {
         case select(start: CGPoint, previous: CGRect?)
-        case resize(original: CGRect, handle: SelectionHandle, start: CGPoint)
+        case resize(original: CGRect, handle: SelectionHandle, start: CGPoint, dragged: Bool)
         case move(original: CGRect, start: CGPoint)
         case draw(start: CGPoint, tool: AnnotationTool, ink: Ink, width: CGFloat, right: Bool, dragged: Bool)
         case rightOutside(start: CGPoint, dragged: Bool)
@@ -164,18 +164,34 @@ import NebulaCore
             outline.lineWidth = 1 / max(1, window?.backingScaleFactor ?? pixelScale)
             outline.stroke()
             drawSelectionHighlight(in: selection)
+            drawPinDeleteBadge()
         }
     }
 
     private var highlightedSelectionHandle: SelectionHandle? {
         guard !exportBusy, let selection, selection.width >= 8, selection.height >= 8 else { return nil }
-        if case .resize(_, let handle, _) = interaction { return handle }
+        if case .resize(_, let handle, _, _) = interaction { return handle }
         guard interaction == nil, let pointer else { return nil }
         if hasToolbar && !toolbar.isHidden && toolbar.frame.contains(pointer) { return nil }
-        if spaceHeld && selection.contains(pointer) { return nil }
-        if hoveredPinBadge?.contains(pointer) == true { return nil }
-        if tool != .pen && tool != .eraser && selection.contains(pointer), editHandle(at: pointer) != nil { return nil }
-        return SelectionGeometry.hitHandle(at: pointer, in: selection)
+        return cropResizeHandle(at: pointer)
+    }
+
+    private func cropResizeHandle(at point: CGPoint) -> SelectionHandle? {
+        guard let selection, !exportBusy,
+              let handle = SelectionGeometry.hitBorder(at: point, in: selection) else { return nil }
+        if spaceHeld && selection.contains(point) { return nil }
+        if pinToDelete(at: point) != nil { return nil }
+        if tool != .pen && tool != .eraser && selection.contains(point),
+           editHandle(at: point) != nil || hitItem(at: point, tolerance: 1) != nil { return nil }
+        return handle
+    }
+
+    private func pinToDelete(at point: CGPoint) -> Annotation? {
+        guard tool != .pen, tool != .eraser, let selection, let pin = item(id: hoverID),
+              AnnotationGeometry.hitBadge(at: point, for: pin, selection: selection, within: bounds) else { return nil }
+        // The invisible click margin must not steal a neighboring mark's drag.
+        if hoveredPinBadge?.contains(point) != true, hitItem(at: point, tolerance: 0) != nil { return nil }
+        return pin
     }
 
     private func drawSelectionHighlight(in rect: CGRect) {
@@ -233,10 +249,13 @@ import NebulaCore
         hoverTracking = tracking
     }
 
-    private func item(id: UUID?) -> Annotation? { displayAnnotations.first { $0.id == id } }
-    private func hitItem(at point: CGPoint) -> Annotation? {
+    private func item(id: UUID?) -> Annotation? {
+        guard let id else { return nil }
+        return displayAnnotations.first { $0.id == id }
+    }
+    private func hitItem(at point: CGPoint, tolerance: CGFloat = 5) -> Annotation? {
         guard let selection else { return nil }
-        return displayAnnotations.reversed().first { AnnotationGeometry.hit($0, at: point, selection: selection) }
+        return displayAnnotations.reversed().first { AnnotationGeometry.hit($0, at: point, selection: selection, tolerance: tolerance) }
     }
     private func editHandle(at point: CGPoint) -> (Annotation, AnnotationHandle)? {
         for id in [hoverID, selectedID] {
@@ -259,12 +278,12 @@ import NebulaCore
         }
         pointer = point
         if let selection, let pin = item(id: newlyPlacedPinID),
-           AnnotationGeometry.pinHoverRegion(for: pin, selection: selection)?.contains(point) != true {
+           AnnotationGeometry.pinHoverRegion(for: pin, selection: selection, within: bounds)?.contains(point) != true {
             newlyPlacedPinID = nil
         }
         if hasToolbar && !toolbar.isHidden && toolbar.frame.contains(point) { hoverID = nil }
         else if let selection, let item = item(id: hoverID),
-                AnnotationGeometry.pinHoverRegion(for: item, selection: selection)?.contains(point) == true {
+                AnnotationGeometry.pinHoverRegion(for: item, selection: selection, within: bounds)?.contains(point) == true {
             // Keep the badge stable across the pin, its edge, and the path to minus.
         } else if let (item, _) = editHandle(at: point) { hoverID = item.id }
         else {
@@ -295,9 +314,10 @@ import NebulaCore
     private func updatePointerCursor(at point: CGPoint) {
         guard window?.isVisible == true else { return }
         if hasToolbar && !toolbar.isHidden && toolbar.frame.contains(point) { NSCursor.arrow.set(); return }
+        if pinToDelete(at: point) != nil { NSCursor.pointingHand.set(); return }
         if let selection {
             if spaceHeld && selection.contains(point) { NSCursor.openHand.set(); return }
-            if let handle = SelectionGeometry.hitHandle(at: point, in: selection) {
+            if let handle = cropResizeHandle(at: point) {
                 switch handle {
                 case .left, .right: NSCursor.resizeLeftRight.set(); return
                 case .top, .bottom: NSCursor.resizeUpDown.set(); return
@@ -310,7 +330,7 @@ import NebulaCore
 
     var hoveredPinBadge: CGRect? {
         guard tool != .pen, tool != .eraser, let selection, let pin = item(id: hoverID) else { return nil }
-        return AnnotationGeometry.badge(for: pin, selection: selection)
+        return AnnotationGeometry.badge(for: pin, selection: selection, within: bounds)
     }
 
     private func drawEditingControls(selection: CGRect) {
@@ -323,21 +343,23 @@ import NebulaCore
                     annotation.ink.color.setStroke(); circle.lineWidth = 1.5; circle.stroke()
                 }
             }
-            if let badge = hoveredPinBadge {
-                let circle = NSBezierPath(ovalIn: badge)
-                NSColor.white.setFill(); circle.fill()
-                NSColor(white: 0.65, alpha: 1).setStroke(); circle.lineWidth = 0.7; circle.stroke()
-                let minus = NSBezierPath()
-                minus.move(to: CGPoint(x: badge.minX + badge.width * 0.28, y: badge.midY))
-                minus.line(to: CGPoint(x: badge.maxX - badge.width * 0.28, y: badge.midY))
-                minus.lineWidth = 1.25; minus.lineCapStyle = .round
-                NSColor.darkGray.setStroke(); minus.stroke()
-            }
         } else if let pointer, selection.contains(pointer) {
             NSColor.white.setStroke()
             let cursor = NSBezierPath(ovalIn: CGRect(x: pointer.x - 7, y: pointer.y - 7, width: 14, height: 14))
             cursor.lineWidth = 1; cursor.stroke()
         }
+    }
+
+    private func drawPinDeleteBadge() {
+        guard let badge = hoveredPinBadge else { return }
+        let circle = NSBezierPath(ovalIn: badge)
+        NSColor.white.setFill(); circle.fill()
+        NSColor(white: 0.65, alpha: 1).setStroke(); circle.lineWidth = 0.7; circle.stroke()
+        let minus = NSBezierPath()
+        minus.move(to: CGPoint(x: badge.minX + badge.width * 0.28, y: badge.midY))
+        minus.line(to: CGPoint(x: badge.maxX - badge.width * 0.28, y: badge.midY))
+        minus.lineWidth = 1.25; minus.lineCapStyle = .round
+        NSColor.darkGray.setStroke(); minus.stroke()
     }
 
     private func erase(at point: CGPoint) {
@@ -381,8 +403,7 @@ import NebulaCore
             if spaceHeld, selection.contains(point) {
                 interaction = .move(original: selection, start: point)
                 if hasToolbar { toolbar.isHidden = true }
-            } else if tool != .eraser && tool != .pen, let pin = item(id: hoverID),
-                      let badge = AnnotationGeometry.badge(for: pin, selection: selection), badge.contains(point) {
+            } else if let pin = pinToDelete(at: point) {
                 history.remove(ids: [pin.id])
                 hoverID = nil; selectedID = nil
                 refresh()
@@ -390,8 +411,8 @@ import NebulaCore
             } else if tool != .eraser && tool != .pen, let (annotation, handle) = editHandle(at: point), selection.contains(point) {
                 selectedID = annotation.id
                 interaction = .edit(original: annotation, handle: handle, start: point)
-            } else if let handle = SelectionGeometry.hitHandle(at: point, in: selection) {
-                interaction = .resize(original: selection, handle: handle, start: point)
+            } else if let handle = cropResizeHandle(at: point) {
+                interaction = .resize(original: selection, handle: handle, start: point, dragged: false)
                 if hasToolbar { toolbar.isHidden = true }
             } else if selection.contains(point) {
                 if tool == .eraser {
@@ -448,7 +469,10 @@ import NebulaCore
         switch interaction {
         case .select(let start, _):
             selection = Geometry.rect(from: start, to: point).intersection(bounds)
-        case .resize(let original, let handle, let start):
+        case .resize(let original, let handle, let start, let wasDragged):
+            let dragged = wasDragged || hypot(point.x - start.x, point.y - start.y) >= Self.dragThreshold
+            self.interaction = .resize(original: original, handle: handle, start: start, dragged: dragged)
+            guard dragged else { return }
             guard let anchor = SelectionGeometry.handles(in: original).first(where: { $0.handle == handle })?.point else { return }
             let target = CGPoint(x: anchor.x + point.x - start.x, y: anchor.y + point.y - start.y)
             selection = SelectionGeometry.resize(original, handle: handle, to: target, within: bounds)
@@ -514,8 +538,9 @@ import NebulaCore
             } else {
                 selection = previous
             }
-        case .resize:
-            if let selection { self.selection = selection.integral.intersection(bounds) }
+        case .resize(let original, _, _, let dragged):
+            if dragged, let selection { self.selection = selection.integral.intersection(bounds) }
+            else { selection = original }
         case .move(let original, _):
             if let selection {
                 // Round only the position: rounding the entire rect outward grows the crop on every fractional move.
@@ -654,9 +679,9 @@ import NebulaCore
             addCursorRect(selection, cursor: .openHand)
             return
         }
-        addCursorRect(CGRect(x: selection.minX - 5, y: selection.minY, width: 10, height: selection.height), cursor: .resizeLeftRight)
-        addCursorRect(CGRect(x: selection.maxX - 5, y: selection.minY, width: 10, height: selection.height), cursor: .resizeLeftRight)
-        addCursorRect(CGRect(x: selection.minX, y: selection.minY - 5, width: selection.width, height: 10), cursor: .resizeUpDown)
-        addCursorRect(CGRect(x: selection.minX, y: selection.maxY - 5, width: selection.width, height: 10), cursor: .resizeUpDown)
+        addCursorRect(CGRect(x: selection.minX - 6, y: selection.minY, width: 8, height: selection.height), cursor: .resizeLeftRight)
+        addCursorRect(CGRect(x: selection.maxX - 2, y: selection.minY, width: 8, height: selection.height), cursor: .resizeLeftRight)
+        addCursorRect(CGRect(x: selection.minX, y: selection.minY - 6, width: selection.width, height: 8), cursor: .resizeUpDown)
+        addCursorRect(CGRect(x: selection.minX, y: selection.maxY - 2, width: selection.width, height: 8), cursor: .resizeUpDown)
     }
 }

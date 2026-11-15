@@ -231,19 +231,75 @@ enum HarnessError: Error, CustomStringConvertible {
         let idle = try renderedCanvasColor(at: topSample)
         let corner = try renderedCanvasColor(at: CGPoint(x: initialCrop.minX + 1.5, y: initialCrop.minY + 1.5))
         try check(corner.redComponent < 0.1, "An idle corner must not contain a square handle")
-        try hover(CGPoint(x: initialCrop.midX, y: initialCrop.minY + 3))
+        try hover(CGPoint(x: initialCrop.midX, y: initialCrop.minY - 3))
         let active = try renderedCanvasColor(at: topSample)
         try check(active.redComponent > idle.redComponent + 0.15, "Hover must visibly brighten the corresponding crop edge")
         try hover(CGPoint(x: 300, y: 300))
         let restored = try renderedCanvasColor(at: topSample)
         try check(abs(restored.redComponent - idle.redComponent) < 0.01, "Leaving the edge must restore its hairline")
-        try drag(from: CGPoint(x: initialCrop.midX, y: initialCrop.minY + 3),
-                 to: CGPoint(x: initialCrop.midX, y: initialCrop.minY + 23))
+        try drag(from: CGPoint(x: initialCrop.midX, y: initialCrop.minY - 3),
+                 to: CGPoint(x: initialCrop.midX, y: initialCrop.minY + 17))
         try check(canvas.selection == CGRect(x: 40, y: 60, width: 820, height: 440),
                   "A handle-free edge must still resize without jumping to the pointer")
         canvas.resetSelection()
         try check(hint.isHidden, "Reselecting must hide dimensions until the next drag")
         print("PASS: coordinate-free crosshair, anchored Retina dimensions, handle-free edge highlight and resize")
+    }
+
+    func runSmallCropChecks() throws {
+        for size: CGFloat in [8, 12, 24, 60, 100] {
+            canvas.resetSelection()
+            try key("n")
+            let crop = CGRect(x: 100, y: 100, width: size, height: size)
+            try drag(from: crop.origin, to: CGPoint(x: crop.maxX, y: crop.maxY))
+            let blank = bytes(try copy())
+            let target = CGPoint(x: crop.midX, y: crop.midY)
+            try click(target)
+            try expectNextPin(2)
+            try check(canvas.selection == crop, "Small crop interiors must accept pins instead of resizing")
+            try hover(CGPoint(x: 800, y: 200))
+            let body = PinGeometry.layout(at: target, number: 1, selection: crop).body
+            try hover(CGPoint(x: body.midX, y: body.midY))
+            try click(CGPoint(x: body.midX, y: body.midY))
+            try expectNextPin(2)
+            guard let badge = canvas.hoveredPinBadge else { throw HarnessError.failed("Small pin badge must be reachable") }
+            let badgePixel = try renderedCanvasColor(at: CGPoint(x: badge.midX, y: badge.minY + 2))
+            try check(badgePixel.redComponent > 0.7, "Delete badge must draw fully even beyond the crop")
+            let clickMargin = CGPoint(x: badge.maxX + 2, y: badge.midY)
+            try hover(clickMargin)
+            try check(canvas.hoveredPinBadge != nil, "Delete margin must remain visible outside a tiny crop")
+            try click(clickMargin)
+            try expectNextPin(1)
+            try check(canvas.selection == crop && bytes(try copy()) == blank,
+                      "Delete margin must remove only the pin, without reselecting or resizing")
+            try key("z", flags: [.command])
+            try expectNextPin(2)
+        }
+        canvas.resetSelection()
+        let crop = CGRect(x: 100, y: 100, width: 100, height: 80)
+        try drag(from: crop.origin, to: CGPoint(x: crop.maxX, y: crop.maxY))
+        let grab = CGPoint(x: 99, y: 140)
+        try drag(from: grab, to: CGPoint(x: 100, y: 141))
+        try check(canvas.selection == crop, "Minor pointer jitter must not resize the crop")
+        try key("p")
+        try drag(from: CGPoint(x: 103, y: 155), to: CGPoint(x: 125, y: 155))
+        try check(canvas.selection == crop, "Drawing three points inside an edge must not resize")
+        try key("n")
+        let target = CGPoint(x: 198, y: 140)
+        try click(target)
+        let body = PinGeometry.layout(at: target, number: 1, selection: crop).body
+        let bodyEdge = CGPoint(x: 199, y: body.midY + 2)
+        try hover(CGPoint(x: 800, y: 200))
+        try hover(bodyEdge)
+        let beforeMove = bytes(try copy())
+        try drag(from: bodyEdge, to: CGPoint(x: 189, y: bodyEdge.y))
+        try check(canvas.selection == crop && bytes(try copy()) != beforeMove,
+                  "Dragging a pin body beside the border must move the mark, not the crop")
+        try expectNextPin(2)
+        try drag(from: CGPoint(x: 205, y: 150), to: CGPoint(x: 225, y: 150))
+        try check(canvas.selection == CGRect(x: 100, y: 100, width: 120, height: 80),
+                  "The shaded side remains an easy, unambiguous resize target")
+        print("PASS: 8–100pt crops accept pins; delete margins, number protection, undo, border jitter and annotation priority")
     }
 
     func runExportStateChecks() throws {
@@ -674,10 +730,10 @@ enum HarnessError: Error, CustomStringConvertible {
 
         let beforeOffsetResize = canvas.selection!
         let beforeOffsetPixels = bytes(try copy())
-        let grabPoint = CGPoint(x: beforeOffsetResize.minX + 4, y: beforeOffsetResize.midY)
+        let grabPoint = CGPoint(x: beforeOffsetResize.minX - 4, y: beforeOffsetResize.midY)
         try click(grabPoint)
         try check(canvas.selection == beforeOffsetResize,
-                  "Clicking four points inside a resize hit area must not change crop")
+                  "Clicking four points outside a resize edge must not change crop")
         try expectNextPin(9)
         try drag(from: grabPoint, to: CGPoint(x: grabPoint.x + 12, y: grabPoint.y))
         try check(canvas.selection?.minX == beforeOffsetResize.minX + 12 &&
@@ -685,7 +741,7 @@ enum HarnessError: Error, CustomStringConvertible {
                   canvas.selection?.width == beforeOffsetResize.width - 12,
                   "Dragging an offset edge grab must apply the pointer delta without snapping")
         try copy()
-        let restorePoint = CGPoint(x: canvas.selection!.minX + 4, y: canvas.selection!.midY)
+        let restorePoint = CGPoint(x: canvas.selection!.minX - 4, y: canvas.selection!.midY)
         try drag(from: restorePoint, to: CGPoint(x: restorePoint.x - 12, y: restorePoint.y))
         try check(canvas.selection == beforeOffsetResize, "Reverse offset edge drag must restore the crop")
         try check(bytes(try copy()) == beforeOffsetPixels,
@@ -743,6 +799,8 @@ MainActor.assumeIsolated {
         if !CommandLine.arguments.contains("--english") {
             let exportState = try CanvasHarness()
             try exportState.runExportStateChecks()
+            let smallCrops = try CanvasHarness()
+            try smallCrops.runSmallCropChecks()
         }
         let harness = try CanvasHarness()
         if CommandLine.arguments.contains("--english") { try harness.runEnglishChecks(); exit(0) }

@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.4 — Unreleased
+
+- Keep compact pin delete badges clear of tiny pin numbers, let controls extend beyond the crop, and enlarge their invisible click margin without stealing pin-body drags. Keep badges on screen near display edges.
+- Bias crop resize targets toward the shaded exterior, prioritize nearby annotation edits, and ignore sub-threshold pointer jitter. Tiny crop interiors remain available for drawing and pins.
+- Replace the colorful app icon with a black rounded tile, white viewfinder and white teardrop pin; simplify the center detail at small icon sizes.
+- Extend regression checks to 8–100 pt crops, pin deletion margins, edge/annotation conflicts, and 50 successful capture/copy cycles with editor and panel release checks.
+
 ## 1.1.3 — 2026-11-16
 
 - Shrink the pin delete badge and attach it to the upper-right bubble edge, preserving stable hover, deletion and renumbering.

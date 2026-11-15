@@ -3,6 +3,30 @@ import AppKit
 import Testing
 @testable import NebulaCore
 
+@Test func smallPinDeleteBadgeKeepsNumberClearAndOffersAnOutsideClickMargin() throws {
+    let bounds = CGRect(x: 0, y: 0, width: 900, height: 640)
+    for size: CGFloat in [8, 12, 24, 60, 100, 400] {
+        let crop = CGRect(x: 100, y: 100, width: size, height: size)
+        let target = CGPoint(x: crop.midX, y: crop.midY)
+        let pin = Annotation(tool: .pin, points: [target], number: 1)
+        let body = PinGeometry.layout(at: target, number: 1, selection: crop).body
+        let center = CGPoint(x: body.midX, y: body.midY)
+        let badge = try #require(AnnotationGeometry.badge(for: pin, selection: crop, within: bounds))
+        #expect(!badge.contains(center))
+        #expect(!AnnotationGeometry.hitBadge(at: center, for: pin, selection: crop, within: bounds))
+        let margin = CGPoint(x: badge.maxX + 2, y: badge.midY)
+        #expect(AnnotationGeometry.hitBadge(at: margin, for: pin, selection: crop, within: bounds))
+        #expect(AnnotationGeometry.pinHoverRegion(for: pin, selection: crop, within: bounds)?.contains(margin) == true)
+        #expect(bounds.contains(badge))
+    }
+    let crop = CGRect(x: 0, y: 0, width: 20, height: 20)
+    for target in [CGPoint(x: 0, y: 0), CGPoint(x: 19, y: 0), CGPoint(x: 0, y: 19)] {
+        let pin = Annotation(tool: .pin, points: [target], number: 1)
+        let badge = try #require(AnnotationGeometry.badge(for: pin, selection: crop, within: bounds))
+        #expect(bounds.contains(badge))
+    }
+}
+
 @Test func pinSizeStaysReadableAndShrinksWithVerySmallSelections() {
     let target = CGPoint(x: 20, y: 20)
     func diameter(_ shortEdge: CGFloat) -> CGFloat {

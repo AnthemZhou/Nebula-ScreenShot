@@ -3,6 +3,19 @@ import Foundation
 import Testing
 @testable import NebulaCore
 
+@Test func cropBorderLeavesSmallInteriorsAvailableAndIsEasierToGrabOutside() {
+    for size: CGFloat in [8, 12, 20, 60, 400] {
+        let rect = CGRect(x: 20, y: 30, width: size, height: size)
+        #expect(SelectionGeometry.hitBorder(at: CGPoint(x: rect.midX, y: rect.midY), in: rect) == nil)
+        #expect(SelectionGeometry.hitBorder(at: CGPoint(x: rect.minX + 3, y: rect.midY), in: rect) == nil)
+        #expect(SelectionGeometry.hitBorder(at: CGPoint(x: rect.minX + 2, y: rect.midY), in: rect) == nil)
+        #expect(SelectionGeometry.hitBorder(at: CGPoint(x: rect.maxX - 2, y: rect.midY), in: rect) == nil)
+        #expect(SelectionGeometry.hitBorder(at: CGPoint(x: rect.minX - 5, y: rect.midY), in: rect) == .left)
+        #expect(SelectionGeometry.hitBorder(at: CGPoint(x: rect.minX - 7, y: rect.midY), in: rect) == nil)
+        #expect(SelectionGeometry.hitBorder(at: CGPoint(x: rect.maxX + 3, y: rect.maxY + 3), in: rect) == .bottomRight)
+    }
+}
+
 @Test func selectionHandlesUseFlippedCoordinatesInClockwiseOrder() {
     let handles = SelectionGeometry.handles(in: CGRect(x: 20, y: 30, width: 100, height: 80))
     let expected: [(SelectionHandle, CGPoint)] = [

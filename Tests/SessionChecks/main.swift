@@ -198,6 +198,29 @@ func check(_ condition: Bool, _ message: String) throws {
     try check(!coordinator.isActive && coordinator.panels.isEmpty && clipboard.data(forType: .png) == Data([1, 2, 3]),
               "Successful retry must copy and fully end the session")
     print("PASS: export cancellation, duplicate suppression, error recovery and private clipboard completion")
+
+    for cycle in 1...50 {
+        let sourceCall = source.calls + 1, encodeCall = encoder.calls + 1
+        coordinator.begin()
+        try await waitFor { source.pending[sourceCall] != nil }
+        source.complete(sourceCall, image: image)
+        try await waitFor { ready == 2 + cycle }
+        weak var finishedCanvas: CaptureCanvas?
+        weak var finishedPanel: NSPanel?
+        autoreleasepool {
+            let panel = coordinator.panels[0]
+            let canvas = panel.contentView as! CaptureCanvas
+            finishedCanvas = canvas; finishedPanel = panel
+            canvas.onCopy?(bitmap)
+        }
+        try await waitFor { encoder.calls == encodeCall }
+        encoder.complete(encodeCall)
+        try await waitFor { completed == 1 + cycle }
+        try await waitFor { finishedCanvas == nil && finishedPanel == nil }
+        try check(!coordinator.isActive && coordinator.panels.isEmpty,
+                  "Completed capture must release its editor and panel before the next one")
+    }
+    print("PASS: 50 successful capture/copy cycles; finished canvases and panels released")
 }
 
 MainActor.assumeIsolated {
