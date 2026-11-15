@@ -15,10 +15,31 @@ public enum SelectionHandle: CaseIterable, Sendable {
 /// Selection bounds in a flipped view: top is minY, bottom is maxY.
 /// These operations never translate or otherwise modify annotation coordinates.
 public enum SelectionGeometry {
+    public static func cornerRadius(in rect: CGRect) -> CGFloat {
+        min(10, max(0, min(rect.width, rect.height)) / 4)
+    }
+
     /// Prefer the shaded side of the crop, leaving the interior available for
     /// annotation even in the smallest supported selections.
-    public static func hitBorder(at point: CGPoint, in rect: CGRect) -> SelectionHandle? {
+    public static func hitBorder(at point: CGPoint, in rect: CGRect, cornerRadius: CGFloat = 0) -> SelectionHandle? {
         guard !rect.isNull, rect.width >= 8, rect.height >= 8 else { return nil }
+        let radius = min(max(0, cornerRadius), min(rect.width, rect.height) / 2)
+        if radius > 0 {
+            let corner: (SelectionHandle, CGPoint)?
+            if point.x < rect.minX + radius && point.y < rect.minY + radius {
+                corner = (.topLeft, CGPoint(x: rect.minX + radius, y: rect.minY + radius))
+            } else if point.x > rect.maxX - radius && point.y < rect.minY + radius {
+                corner = (.topRight, CGPoint(x: rect.maxX - radius, y: rect.minY + radius))
+            } else if point.x < rect.minX + radius && point.y > rect.maxY - radius {
+                corner = (.bottomLeft, CGPoint(x: rect.minX + radius, y: rect.maxY - radius))
+            } else if point.x > rect.maxX - radius && point.y > rect.maxY - radius {
+                corner = (.bottomRight, CGPoint(x: rect.maxX - radius, y: rect.maxY - radius))
+            } else { corner = nil }
+            if let (handle, center) = corner {
+                let distance = hypot(point.x - center.x, point.y - center.y) - radius
+                return distance > -2 && distance <= 6 ? handle : nil
+            }
+        }
         let inset = min(2, min(rect.width, rect.height) / 4)
         let interior = rect.insetBy(dx: inset, dy: inset)
         if point.x >= interior.minX && point.x <= interior.maxX &&

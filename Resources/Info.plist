@@ -6,7 +6,7 @@
     <key>CFBundleDisplayName</key><string>Nebula ScreenShot</string>
     <key>CFBundleExecutable</key><string>NebulaScreenShot</string>
     <key>CFBundleIdentifier</key><string>io.github.anthemzhou.NebulaScreenShot</string>
-    <key>CFBundleVersion</key><string>22</string>
+    <key>CFBundleVersion</key><string>23</string>
     <key>CFBundleShortVersionString</key><string>1.1.4</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>

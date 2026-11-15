@@ -139,7 +139,7 @@ import NebulaCore
         if let background {
             background.draw(in: bounds, from: .zero, operation: .copy, fraction: 1, respectFlipped: true, hints: nil)
             let shade = NSBezierPath(rect: bounds)
-            if let selection { shade.appendRect(selection); shade.windingRule = .evenOdd }
+            if let selection { shade.append(selectionOutline(in: selection)); shade.windingRule = .evenOdd }
             NSColor.black.withAlphaComponent(0.48).setFill()
             shade.fill()
         } else {
@@ -148,24 +148,37 @@ import NebulaCore
             NSColor.black.withAlphaComponent(0.48).setFill()
             bounds.fill(using: .copy)
             if let selection {
+                NSGraphicsContext.saveGraphicsState()
+                selectionOutline(in: selection).addClip()
                 NSColor.clear.setFill()
                 selection.fill(using: .copy)
+                NSGraphicsContext.restoreGraphicsState()
             }
         }
 
         if let selection {
             NSGraphicsContext.saveGraphicsState()
-            NSBezierPath(rect: selection).addClip()
+            selectionOutline(in: selection).addClip()
             for annotation in displayAnnotations { AnnotationRenderer.draw(annotation, selection: selection) }
             drawEditingControls(selection: selection)
             NSGraphicsContext.restoreGraphicsState()
-            NSColor.white.withAlphaComponent(0.55).setStroke()
-            let outline = NSBezierPath(rect: selection)
-            outline.lineWidth = 1 / max(1, window?.backingScaleFactor ?? pixelScale)
+            NSColor.white.withAlphaComponent(0.7).setStroke()
+            let outline = selectionOutline(in: selection)
             outline.stroke()
             drawSelectionHighlight(in: selection)
             drawPinDeleteBadge()
         }
+    }
+
+    private func selectionOutline(in rect: CGRect) -> NSBezierPath {
+        let radius = SelectionGeometry.cornerRadius(in: rect)
+        let path = NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
+        let dash = min(4, max(2, min(rect.width, rect.height) / 8))
+        path.lineWidth = 1
+        path.lineCapStyle = .round
+        path.lineJoinStyle = .round
+        path.setLineDash([dash, dash * 0.85], count: 2, phase: 0)
+        return path
     }
 
     private var highlightedSelectionHandle: SelectionHandle? {
@@ -178,7 +191,8 @@ import NebulaCore
 
     private func cropResizeHandle(at point: CGPoint) -> SelectionHandle? {
         guard let selection, !exportBusy,
-              let handle = SelectionGeometry.hitBorder(at: point, in: selection) else { return nil }
+              let handle = SelectionGeometry.hitBorder(at: point, in: selection,
+                  cornerRadius: SelectionGeometry.cornerRadius(in: selection)) else { return nil }
         if spaceHeld && selection.contains(point) { return nil }
         if pinToDelete(at: point) != nil { return nil }
         if tool != .pen && tool != .eraser && selection.contains(point),
@@ -196,33 +210,27 @@ import NebulaCore
 
     private func drawSelectionHighlight(in rect: CGRect) {
         guard let handle = highlightedSelectionHandle else { return }
-        let path = NSBezierPath()
+        let radius = SelectionGeometry.cornerRadius(in: rect)
         let length = min(18, min(rect.width, rect.height) / 2)
-        let points: [CGPoint]
+        let region: CGRect
         switch handle {
-        case .left: points = [CGPoint(x: rect.minX, y: rect.minY), CGPoint(x: rect.minX, y: rect.maxY)]
-        case .right: points = [CGPoint(x: rect.maxX, y: rect.minY), CGPoint(x: rect.maxX, y: rect.maxY)]
-        case .top: points = [CGPoint(x: rect.minX, y: rect.minY), CGPoint(x: rect.maxX, y: rect.minY)]
-        case .bottom: points = [CGPoint(x: rect.minX, y: rect.maxY), CGPoint(x: rect.maxX, y: rect.maxY)]
-        case .topLeft:
-            points = [CGPoint(x: rect.minX, y: rect.minY + length), rect.origin,
-                      CGPoint(x: rect.minX + length, y: rect.minY)]
-        case .topRight:
-            points = [CGPoint(x: rect.maxX - length, y: rect.minY), CGPoint(x: rect.maxX, y: rect.minY),
-                      CGPoint(x: rect.maxX, y: rect.minY + length)]
-        case .bottomLeft:
-            points = [CGPoint(x: rect.minX, y: rect.maxY - length), CGPoint(x: rect.minX, y: rect.maxY),
-                      CGPoint(x: rect.minX + length, y: rect.maxY)]
-        case .bottomRight:
-            points = [CGPoint(x: rect.maxX - length, y: rect.maxY), CGPoint(x: rect.maxX, y: rect.maxY),
-                      CGPoint(x: rect.maxX, y: rect.maxY - length)]
+        case .left: region = CGRect(x: rect.minX - 3, y: rect.minY + radius, width: 6, height: rect.height - 2 * radius)
+        case .right: region = CGRect(x: rect.maxX - 3, y: rect.minY + radius, width: 6, height: rect.height - 2 * radius)
+        case .top: region = CGRect(x: rect.minX + radius, y: rect.minY - 3, width: rect.width - 2 * radius, height: 6)
+        case .bottom: region = CGRect(x: rect.minX + radius, y: rect.maxY - 3, width: rect.width - 2 * radius, height: 6)
+        case .topLeft: region = CGRect(x: rect.minX - 3, y: rect.minY - 3, width: length + 3, height: length + 3)
+        case .topRight: region = CGRect(x: rect.maxX - length, y: rect.minY - 3, width: length + 3, height: length + 3)
+        case .bottomLeft: region = CGRect(x: rect.minX - 3, y: rect.maxY - length, width: length + 3, height: length + 3)
+        case .bottomRight: region = CGRect(x: rect.maxX - length, y: rect.maxY - length, width: length + 3, height: length + 3)
         }
-        path.move(to: points[0])
-        for point in points.dropFirst() { path.line(to: point) }
-        path.lineCapStyle = .round
-        path.lineJoinStyle = .round
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        NSBezierPath(rect: region).addClip()
+        // Reuse the full path so the dash phase and curved corners stay aligned
+        // when an edge highlights, instead of adding a second square outline.
+        let path = selectionOutline(in: rect)
         NSColor.white.withAlphaComponent(0.16).setStroke()
-        path.lineWidth = 4
+        path.lineWidth = 3
         path.stroke()
         NSColor.white.withAlphaComponent(0.95).setStroke()
         path.lineWidth = 1.5

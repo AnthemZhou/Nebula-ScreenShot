@@ -3,6 +3,21 @@ import Foundation
 import Testing
 @testable import NebulaCore
 
+@Test func roundedCropCornerTargetsFollowTheVisibleArc() {
+    let rect = CGRect(x: 100, y: 100, width: 200, height: 160)
+    let radius = SelectionGeometry.cornerRadius(in: rect)
+    let samples: [(CGPoint, SelectionHandle)] = [
+        (CGPoint(x: 103, y: 103), .topLeft), (CGPoint(x: 297, y: 103), .topRight),
+        (CGPoint(x: 103, y: 257), .bottomLeft), (CGPoint(x: 297, y: 257), .bottomRight)
+    ]
+    for (point, handle) in samples {
+        #expect(SelectionGeometry.hitBorder(at: point, in: rect, cornerRadius: radius) == handle)
+    }
+    #expect(SelectionGeometry.hitBorder(at: CGPoint(x: 107, y: 107), in: rect, cornerRadius: radius) == nil)
+    #expect(SelectionGeometry.hitBorder(at: CGPoint(x: 93, y: 93), in: rect, cornerRadius: radius) == nil)
+    #expect(SelectionGeometry.cornerRadius(in: CGRect(x: 0, y: 0, width: 8, height: 8)) == 2)
+}
+
 @Test func cropBorderLeavesSmallInteriorsAvailableAndIsEasierToGrabOutside() {
     for size: CGFloat in [8, 12, 20, 60, 400] {
         let rect = CGRect(x: 20, y: 30, width: size, height: size)

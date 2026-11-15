@@ -227,8 +227,14 @@ enum HarnessError: Error, CustomStringConvertible {
         try hover(CGPoint(x: 300, y: 300))
         try check(hint.frame == labelFrame && hint.frame.maxY <= initialCrop.minY,
                   "Dimensions stay above the crop instead of following the cursor")
-        let topSample = CGPoint(x: initialCrop.midX, y: initialCrop.minY - 0.5)
-        let idle = try renderedCanvasColor(at: topSample)
+        var topSample = CGPoint(x: initialCrop.midX, y: initialCrop.minY - 0.5)
+        var idle = try renderedCanvasColor(at: topSample)
+        // Sample a dash rather than its gap; the pattern stays fixed on hover.
+        for dx: CGFloat in [2, 4] {
+            let point = CGPoint(x: initialCrop.midX + dx, y: initialCrop.minY - 0.5)
+            let color = try renderedCanvasColor(at: point)
+            if color.redComponent > idle.redComponent { topSample = point; idle = color }
+        }
         let corner = try renderedCanvasColor(at: CGPoint(x: initialCrop.minX + 1.5, y: initialCrop.minY + 1.5))
         try check(corner.redComponent < 0.1, "An idle corner must not contain a square handle")
         try hover(CGPoint(x: initialCrop.midX, y: initialCrop.minY - 3))
@@ -241,6 +247,9 @@ enum HarnessError: Error, CustomStringConvertible {
                  to: CGPoint(x: initialCrop.midX, y: initialCrop.minY + 17))
         try check(canvas.selection == CGRect(x: 40, y: 60, width: 820, height: 440),
                   "A handle-free edge must still resize without jumping to the pointer")
+        try drag(from: CGPoint(x: 43, y: 63), to: CGPoint(x: 33, y: 53))
+        try check(canvas.selection == CGRect(x: 30, y: 50, width: 830, height: 450),
+                  "Dragging the visible rounded arc must resize the corner")
         canvas.resetSelection()
         try check(hint.isHidden, "Reselecting must hide dimensions until the next drag")
         print("PASS: coordinate-free crosshair, anchored Retina dimensions, handle-free edge highlight and resize")
@@ -339,6 +348,9 @@ enum HarnessError: Error, CustomStringConvertible {
         try drag(from: initialCrop.origin, to: CGPoint(x: initialCrop.maxX, y: initialCrop.maxY))
         let hole = try renderedCanvasColor(at: CGPoint(x: 300, y: 300))
         try check(hole.alphaComponent < 0.01, "Pending crop must reveal the undimmed desktop")
+        let roundedCorner = try renderedCanvasColor(at: CGPoint(x: initialCrop.minX + 1, y: initialCrop.minY + 1))
+        try check(abs(roundedCorner.alphaComponent - 0.48) < 0.02,
+                  "Pending shade must use the same rounded opening as the final screenshot")
         for point in [CGPoint(x: 20, y: 200), CGPoint(x: 880, y: 200), CGPoint(x: 300, y: 20), CGPoint(x: 300, y: 620)] {
             let outside = try renderedCanvasColor(at: point)
             try check(abs(outside.alphaComponent - 0.48) < 0.02, "Outside shade must keep exactly one opacity layer")
@@ -361,6 +373,8 @@ enum HarnessError: Error, CustomStringConvertible {
         let sourceColor = cleanReference.colorAt(x: 40, y: 40)!.usingColorSpace(.sRGB)!
         try expectColor(CGPoint(x: 60, y: 60), sourceColor,
                         "Clipboard output must contain the original image without dimming")
+        try expectColor(CGPoint(x: initialCrop.minX + 0.5, y: initialCrop.minY + 0.5), sourceColor,
+                        "Rounded preview corners must not mask or darken the rectangular export")
 
         canvas.resetSelection()
         let start = CGPoint(x: 70, y: 80), middle = CGPoint(x: 240, y: 220), end = CGPoint(x: 480, y: 360)
