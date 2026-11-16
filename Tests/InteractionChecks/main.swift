@@ -214,7 +214,7 @@ enum HarnessError: Error, CustomStringConvertible {
 
     func hover(_ point: CGPoint) throws { canvas.mouseMoved(with: try mouse(.mouseMoved, point)) }
 
-    func runDashStabilityChecks() throws {
+    func runBorderStabilityChecks() throws {
         // Compare real rendered pixels along edges that stay still while the
         // opposite corner moves, for all four initial drag directions.
         for anchor in [CGPoint(x: 80, y: 80), CGPoint(x: 600, y: 80),
@@ -228,7 +228,7 @@ enum HarnessError: Error, CustomStringConvertible {
             let before = try renderedCanvasBitmap()
             canvas.mouseDragged(with: try mouse(.leftMouseDragged, second))
             let after = try renderedCanvasBitmap()
-            var bright = 0, gaps = 0
+            var bright = 0
             for index in 0..<40 {
                 for point in [CGPoint(x: 320 + CGFloat(index), y: anchor.y),
                               CGPoint(x: anchor.x, y: 240 + CGFloat(index))] {
@@ -236,16 +236,15 @@ enum HarnessError: Error, CustomStringConvertible {
                     let a = before.colorAt(x: x, y: y)!.usingColorSpace(.sRGB)!
                     let b = after.colorAt(x: x, y: y)!.usingColorSpace(.sRGB)!
                     try check(abs(a.redComponent - b.redComponent) < 0.015,
-                              "Stationary border dashes must not crawl when another edge grows")
+                              "Stationary solid edges must not shift when another edge grows")
                     if a.redComponent > 0.2 { bright += 1 }
-                    if a.redComponent < 0.1 { gaps += 1 }
                 }
             }
-            try check(bright > 10 && gaps > 10, "Stable border samples must include both visible dashes and gaps")
+            try check(bright == 80, "The solid selection outline must remain continuous, without dash gaps")
             canvas.mouseUp(with: try mouse(.leftMouseUp, second))
         }
         canvas.resetSelection()
-        print("PASS: stationary dashed border pixels remain stable in all four drag directions")
+        print("PASS: continuous solid border pixels remain stable in all four drag directions")
     }
 
     func runBorderContrastChecks() throws {
@@ -262,19 +261,19 @@ enum HarnessError: Error, CustomStringConvertible {
             let bitmap = try renderedCanvasBitmap()
             let edge = (200..<300).map { bitmap.colorAt(x: $0, y: 79)!.usingColorSpace(.sRGB)!.redComponent }
             let surface = bitmap.colorAt(x: 200, y: 60)!.usingColorSpace(.sRGB)!.redComponent
-            try check(edge.max()! > surface + 0.15, "Idle highlighter dashes must stand out on both light and dark content")
-            try check(edge.max()! - edge.min()! > 0.12, "Glow must keep the dash gaps visible")
+            try check(edge.max()! > surface + 0.15, "Solid outline must stand out on both light and dark content")
+            try check(edge.max()! - edge.min()! < 0.02, "Straight selection edges must have uniform brightness and no gaps")
             if gray == 1 {
                 for y in 76..<80 {
                     for x in 200..<300 {
                         let sample = bitmap.colorAt(x: x, y: y)!.usingColorSpace(.sRGB)!.redComponent
-                        try check(sample >= surface - 0.01, "White highlight must not add a dark outline outside the crop")
+                        try check(sample >= surface - 0.01, "Solid outline must not add a dark outer stroke")
                     }
                 }
             }
         }
         canvas.resetSelection()
-        print("PASS: highlighter border stays distinct on white and dark backgrounds, with visible dash gaps")
+        print("PASS: solid outline stays continuous on white and dark backgrounds, without a dark outer stroke")
     }
 
     func runPointerChecks() throws {
@@ -297,7 +296,7 @@ enum HarnessError: Error, CustomStringConvertible {
                   "Dimensions stay above the crop instead of following the cursor")
         var topSample = CGPoint(x: initialCrop.midX, y: initialCrop.minY - 0.5)
         var idle = try renderedCanvasColor(at: topSample)
-        // Sample a dash rather than its gap; the pattern stays fixed on hover.
+        // Compare the same outline position before and after hover.
         for dx: CGFloat in [2, 4] {
             let point = CGPoint(x: initialCrop.midX + dx, y: initialCrop.minY - 0.5)
             let color = try renderedCanvasColor(at: point)
@@ -877,7 +876,7 @@ MainActor.assumeIsolated {
     app.setActivationPolicy(.prohibited)
     do {
         let pointer = try CanvasHarness()
-        try pointer.runDashStabilityChecks()
+        try pointer.runBorderStabilityChecks()
         try pointer.runPointerChecks()
         let contrast = try CanvasHarness()
         try contrast.runBorderContrastChecks()

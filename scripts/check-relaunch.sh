@@ -9,6 +9,6 @@ swiftc -swift-version 5 -target "$CHECK_ARCH-apple-macos14.0" -emit-library -emi
     -emit-module-path "$CHECK_DIR/NebulaCore.swiftmodule" -o "$CHECK_DIR/libNebulaCore.dylib"
 swiftc -swift-version 5 -target "$CHECK_ARCH-apple-macos14.0" \
     -I "$CHECK_DIR" -L "$CHECK_DIR" -lNebulaCore -Xlinker -rpath -Xlinker "$CHECK_DIR" \
-    Sources/NebulaScreenShot/AppRelauncher.swift Tests/RelaunchChecks/main.swift \
+    Sources/NebulaScreenShot/{AppRelauncher,PermissionLifecycle}.swift Tests/RelaunchChecks/main.swift \
     -o "$CHECK_DIR/relaunch-checks"
 "$CHECK_DIR/relaunch-checks"

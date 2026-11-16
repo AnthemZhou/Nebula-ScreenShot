@@ -48,8 +48,8 @@ import ScreenCaptureKit
            !CommandLine.arguments.contains("--request-screen-permission") { prepareCaptureIfAllowed() }
         NotificationCenter.default.addObserver(self, selector: #selector(displaysChanged),
                                                name: NSApplication.didChangeScreenParametersNotification, object: nil)
-        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(checkPermissionChange),
-            name: NSWorkspace.didActivateApplicationNotification, object: nil)
+        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(applicationDeactivated(_:)),
+            name: NSWorkspace.didDeactivateApplicationNotification, object: nil)
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(sessionWillEnd),
             name: NSWorkspace.willPowerOffNotification, object: nil)
         if CommandLine.arguments.contains("--repair-screen-permission") {
@@ -131,6 +131,11 @@ import ScreenCaptureKit
 
     private func beginAuthorizedCapture(afterMenuDismissal: Bool = false) {
         guard !permissionFlowActive, !permissionRestartPlanned, !capture.isActive else { return }
+        if permissionPrompt.isWaiting {
+            permissionLifecycle.checkForGrant()
+            if !permissionRestartPlanned { openScreenPermissionSettings() }
+            return
+        }
         let granted = CGPreflightScreenCaptureAccess()
         switch permissionPrompt.actionBeforeCapture(granted: granted) {
         case .capture: capture.begin(afterMenuDismissal: afterMenuDismissal)
@@ -163,7 +168,7 @@ import ScreenCaptureKit
     }
 
     @objc private func openScreenPermission() {
-        if CGPreflightScreenCaptureAccess() { openScreenPermissionSettings() }
+        if permissionPrompt.isWaiting || CGPreflightScreenCaptureAccess() { openScreenPermissionSettings() }
         else { requestNativePermission() }
     }
 
@@ -291,7 +296,11 @@ import ScreenCaptureKit
         }
     }
 
-    @objc private func checkPermissionChange() { permissionLifecycle.checkForGrant() }
+    @objc private func applicationDeactivated(_ notification: Notification) {
+        guard let application = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+              PermissionRelaunchPolicy.isSystemSettings(application.bundleIdentifier) else { return }
+        permissionLifecycle.checkForGrant()
+    }
 
     private func restartAfterConsent() {
         guard !explicitQuit, !sessionEnding, !permissionRestartPlanned else { return }
@@ -362,13 +371,13 @@ import ScreenCaptureKit
             (origin == nil && (event == nil || isSettings(frontmost)))
         let preserve = !explicitQuit && !ending && (permissionRestartPlanned ||
             permissionLifecycle.preserveForQuit(explicitQuit: explicitQuit, sessionEnding: ending, settingsQuit: settingsQuit))
+        let wasWaiting = permissionLifecycle.isWaiting
         if !preserve { permissionLifecycle.cancel(); plannedRelaunch?.cancel() }
-        permissionLogger.notice("Application quitting; permission handoff: \(preserve, privacy: .public); origin: \(origin ?? "none", privacy: .public)")
+        permissionLogger.notice("Application quitting; permission handoff: \(preserve, privacy: .public); origin: \(origin ?? "none", privacy: .public); waiting: \(wasWaiting, privacy: .public); explicit: \(self.explicitQuit, privacy: .public); session ending: \(ending, privacy: .public); reason: \(reason ?? 0, privacy: .public)")
         return .terminateNow
     }
     func applicationDidBecomeActive(_ notification: Notification) {
         if !hotKey.isRegistered { hotKey.register() }
-        permissionLifecycle.checkForGrant()
     }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         showWelcome()

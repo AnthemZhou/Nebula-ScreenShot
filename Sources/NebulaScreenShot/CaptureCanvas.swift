@@ -174,65 +174,21 @@ import NebulaCore
     }
 
     private func drawSelectionBorder(in rect: CGRect) {
-        // Keep a white-only highlight. A dark under-stroke reads as a second
-        // border on light content and makes the selection look unnecessarily heavy.
-        for path in selectionBorderPaths(in: rect) {
-            NSGraphicsContext.saveGraphicsState()
-            let glow = NSShadow()
-            glow.shadowColor = NSColor.white.withAlphaComponent(0.55)
-            glow.shadowBlurRadius = 3
-            glow.shadowOffset = .zero
-            glow.set()
-            NSColor.white.withAlphaComponent(0.82).setStroke()
-            path.lineWidth = 1
-            path.stroke()
-            NSGraphicsContext.restoreGraphicsState()
-        }
+        NSColor.white.withAlphaComponent(0.72).setStroke()
+        selectionBorderPath(in: rect).stroke()
     }
 
-    private func selectionBorderPaths(in rect: CGRect) -> [NSBezierPath] {
-        // Snap only the UI stroke to device pixels, keeping capture geometry and
-        // pointer response exact. No timed animation or input smoothing is used.
+    private func selectionBorderPath(in rect: CGRect) -> NSBezierPath {
+        // Align only the visual outline; capture bounds and drag coordinates stay exact.
         let scale = max(1, window?.backingScaleFactor ?? pixelScale)
         func snap(_ value: CGFloat) -> CGFloat { (value * scale).rounded() / scale }
-        let rect = CGRect(x: snap(rect.minX), y: snap(rect.minY),
-                          width: snap(rect.maxX) - snap(rect.minX), height: snap(rect.maxY) - snap(rect.minY))
-        guard rect.width > 0, rect.height > 0 else { return [] }
-        let radius = SelectionGeometry.cornerRadius(in: rect)
-        let k: CGFloat = 0.5522847498307936
-        let arcLength = radius * .pi / 2
-        func styled(_ path: NSBezierPath, origin: CGFloat) -> NSBezierPath {
-            path.lineWidth = 1
-            path.lineCapStyle = .round
-            path.lineJoinStyle = .round
-            let phase = (origin.truncatingRemainder(dividingBy: 13) + 13).truncatingRemainder(dividingBy: 13)
-            path.setLineDash([8, 5], count: 2, phase: phase)
-            return path
-        }
-
-        // Each horizontal edge owns its corner arcs. Straight sections use
-        // canvas X/Y as their dash origin so changing another edge's length
-        // cannot make stationary dashes crawl around the perimeter.
-        var paths: [NSBezierPath] = []
-        for (y, direction): (CGFloat, CGFloat) in [(rect.minY, 1), (rect.maxY, -1)] {
-            let path = NSBezierPath()
-            path.move(to: CGPoint(x: rect.minX, y: y + direction * radius))
-            path.curve(to: CGPoint(x: rect.minX + radius, y: y),
-                       controlPoint1: CGPoint(x: rect.minX, y: y + direction * radius * (1 - k)),
-                       controlPoint2: CGPoint(x: rect.minX + radius * (1 - k), y: y))
-            path.line(to: CGPoint(x: rect.maxX - radius, y: y))
-            path.curve(to: CGPoint(x: rect.maxX, y: y + direction * radius),
-                       controlPoint1: CGPoint(x: rect.maxX - radius * (1 - k), y: y),
-                       controlPoint2: CGPoint(x: rect.maxX, y: y + direction * radius * (1 - k)))
-            paths.append(styled(path, origin: rect.minX + radius - arcLength))
-        }
-        for x in [rect.minX, rect.maxX] {
-            let path = NSBezierPath()
-            path.move(to: CGPoint(x: x, y: rect.minY + radius))
-            path.line(to: CGPoint(x: x, y: rect.maxY - radius))
-            paths.append(styled(path, origin: rect.minY + radius))
-        }
-        return paths
+        let aligned = CGRect(x: snap(rect.minX), y: snap(rect.minY),
+                             width: snap(rect.maxX) - snap(rect.minX), height: snap(rect.maxY) - snap(rect.minY))
+        let radius = SelectionGeometry.cornerRadius(in: aligned)
+        let path = NSBezierPath(roundedRect: aligned, xRadius: radius, yRadius: radius)
+        path.lineWidth = 1
+        path.lineJoinStyle = .round
+        return path
     }
 
     private var highlightedSelectionHandle: SelectionHandle? {
@@ -280,15 +236,13 @@ import NebulaCore
         NSGraphicsContext.saveGraphicsState()
         defer { NSGraphicsContext.restoreGraphicsState() }
         NSBezierPath(rect: region).addClip()
-        // Reuse the same anchored segments; hovering only changes emphasis.
-        for path in selectionBorderPaths(in: rect) {
-            NSColor.white.withAlphaComponent(0.22).setStroke()
-            path.lineWidth = 3
-            path.stroke()
-            NSColor.white.setStroke()
-            path.lineWidth = 1.5
-            path.stroke()
-        }
+        let path = selectionBorderPath(in: rect)
+        NSColor.white.withAlphaComponent(0.12).setStroke()
+        path.lineWidth = 3
+        path.stroke()
+        NSColor.white.setStroke()
+        path.lineWidth = 1.5
+        path.stroke()
     }
 
     private func updateHint() {

@@ -3,8 +3,9 @@
 ## 1.1.4 — Unreleased
 
 - Use one asynchronous ScreenCaptureKit consent request; remove the separate Core Graphics request path and concurrent Settings launch. Keep shortcuts waiting and the automatic relaunch watcher armed until access is confirmed. Perform a pending ad-hoc upgrade repair before the first dialog.
+- Stop polling permission while the native consent dialog is active or handing off to Settings. Observe access when Settings closes/deactivates or the user retries capture, retaining the quit/reopen helper.
 - Present the complete frozen desktop and shade together, eliminating the visible live-desktop-to-screenshot transition and its shadow change. Use macOS 26 direct region screenshots without metadata enumeration or application-layer exclusion; retain a display-filter fallback on macOS 14–15. Keep Escape available while preparing, releasing its temporary binding on success, error or cancellation.
-- Trial a rounded crop opening with longer, coordinate-anchored white dashes and a soft white-only highlighter glow, without a dark under-stroke. Keep resize hover emphasis and rectangular, undimmed exports.
+- Use a thin, continuous white rounded crop outline without dashes, glow or a dark under-stroke. Keep resize hover emphasis and rectangular, undimmed exports.
 - Keep compact pin delete badges clear of tiny pin numbers, let controls extend beyond the crop, and enlarge their invisible click margin without stealing pin-body drags. Keep badges on screen near display edges.
 - Bias crop resize targets toward the shaded exterior, prioritize nearby annotation edits, and ignore sub-threshold pointer jitter. Tiny crop interiors remain available for drawing and pins.
 - Replace the colorful app icon with a black rounded tile, white viewfinder and white teardrop pin; simplify the center detail at small icon sizes.
