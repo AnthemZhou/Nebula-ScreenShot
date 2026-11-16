@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 import NebulaCore
 import OSLog
 import QuartzCore
+import Carbon
 
 @MainActor final class CapturePanel: NSPanel {
     var allowsKey = true
@@ -24,6 +25,8 @@ import QuartzCore
     private var savePanel: NSSavePanel?
     private var sessionID: UUID?
     private var previousApplication: NSRunningApplication?
+    private let pendingEscape = HotKey(keyCode: UInt32(kVK_Escape), modifiers: 0,
+        identifier: EventHotKeyID(signature: 0x4E425343, id: 2))
     private(set) var isActive = false
     var onError: ((String) -> Void)?
     var onPermissionNeeded: (() -> Void)?
@@ -41,25 +44,25 @@ import QuartzCore
 
     func begin(demo: Bool = false, afterMenuDismissal: Bool = false) {
         guard !isActive else { return }
-        // Let ScreenCaptureKit report its actual authorization result. A separate
-        // Core Graphics preflight must not prevent this call or substitute for it.
+        // AppDelegate serializes permission before entry. ScreenCaptureKit still
+        // reports revocation/errors that occur between that check and capture.
         isActive = true
         let started = ProcessInfo.processInfo.systemUptime
         let session = UUID()
         sessionID = session
         previousApplication = presentsWindows ? NSWorkspace.shared.frontmostApplication : nil
         let screens = NSScreen.screens
-        if !afterMenuDismissal { presentShade(screens, started: started) }
+        preparePanels(screens)
+        let prepared = ProcessInfo.processInfo.systemUptime
         captureTask = Task { @MainActor [weak self] in
             guard let self else { return }
             defer { if self.sessionID == session { self.captureTask = nil } }
             do {
-                // Hotkeys submit the interactive shade synchronously, before any capture work.
-                // Only a menu action needs time for its menu to close.
+                // Only a menu action needs time for its menu to close. No live
+                // transparent shade is shown before the desktop has been frozen.
                 if afterMenuDismissal {
                     try await Task.sleep(for: .milliseconds(120))
                     guard self.sessionID == session else { return }
-                    self.presentShade(screens, started: started)
                 }
                 try Task.checkCancellation()
                 let snapshots: [(NSScreen, CGImage)]
@@ -71,16 +74,20 @@ import QuartzCore
                     self.logger.notice("ScreenCaptureKit capture requested")
                     snapshots = try await self.source.capture(screens)
                 }
-                guard !snapshots.isEmpty else { throw CaptureError.noDisplay }
+                guard !snapshots.isEmpty, snapshots.count == self.panels.count,
+                      self.panels.allSatisfy({ panel in snapshots.contains { $0.0.frame == panel.frame } }) else {
+                    throw CaptureError.noDisplay
+                }
                 try Task.checkCancellation()
                 guard self.sessionID == session else { return }
                 let captured = ProcessInfo.processInfo.systemUptime
-                self.installSnapshots(snapshots)
+                let presentation = self.installSnapshots(snapshots)
                 if !demo {
                     self.onCaptureReady?()
                     let totalMS = Int((ProcessInfo.processInfo.systemUptime - started) * 1000)
                     let panelsMS = Int((ProcessInfo.processInfo.systemUptime - captured) * 1000)
                     self.logger.notice("Screenshot selection ready; displays: \(snapshots.count, privacy: .public); total \(totalMS, privacy: .public) ms; panels \(panelsMS, privacy: .public) ms")
+                    self.logger.notice("Presentation timings: panel setup \(Int((prepared - started) * 1000), privacy: .public) ms; image layers \(presentation.layers, privacy: .public) ms; show/focus \(presentation.show, privacy: .public) ms")
                 }
             } catch is CancellationError {
                 if self.sessionID == session { self.finish() }
@@ -98,17 +105,26 @@ import QuartzCore
         }
     }
 
-    func prepare() { source.prepareIfAllowed() }
-    func displaysChanged() { source.invalidate(); prepare() }
+    func prepare() {
+        source.prepareIfAllowed { [weak self] in self?.onPermissionNeeded?() }
+    }
+    func displaysChanged(prepare shouldPrepare: Bool = true) {
+        source.invalidate()
+        if shouldPrepare { prepare() }
+    }
 
-    private func presentShade(_ screens: [NSScreen], started: TimeInterval) {
-        let mouse = NSEvent.mouseLocation
+    private func preparePanels(_ screens: [NSScreen]) {
+        if presentsWindows {
+            pendingEscape.onPress = { [weak self] in self?.finish() }
+            pendingEscape.register()
+        }
         for screen in screens {
-            // Take keyboard focus without activating Nebula or changing the underlying app's Space.
+            // Build offscreen; keep the original window's focus and shadow until
+            // the complete frozen desktop and its shade are ready to display.
             let panel = CapturePanel(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel],
                                      backing: .buffered, defer: false)
             panel.animationBehavior = .none
-            panel.allowsKey = presentsWindows
+            panel.allowsKey = false
             panel.setFrame(screen.frame, display: false)
             panel.level = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 1)
             panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
@@ -130,37 +146,43 @@ import QuartzCore
             }
             canvas.onBeginSelection = { [weak self, weak panel] in
                 for other in self?.panels ?? [] where other !== panel { other.orderOut(nil) }
-                if let panel, self?.presentsWindows == true, !panel.isKeyWindow { panel.makeKey() }
+                if let panel, self?.presentsWindows == true, panel.allowsKey, !panel.isKeyWindow { panel.makeKey() }
             }
             panel.contentView = canvas
             panel.makeFirstResponder(canvas)
             panels.append(panel)
         }
-        guard presentsWindows else { return }
-        for panel in panels { panel.orderFrontRegardless(); panel.displayIfNeeded() }
-        let keyPanel = panels.first(where: { $0.frame.contains(mouse) }) ?? panels.first
-        keyPanel?.makeKey()
-        if let panel = keyPanel, let canvas = panel.contentView as? CaptureCanvas {
-            canvas.showInitialPointer(at: canvas.convert(panel.convertPoint(fromScreen: mouse), from: nil))
-            panel.displayIfNeeded()
-        }
-        CATransaction.flush()
-        let elapsedMS = Int((ProcessInfo.processInfo.systemUptime - started) * 1000)
-        logger.notice("Capture shade submitted; displays: \(screens.count, privacy: .public); \(elapsedMS, privacy: .public) ms; awaiting fresh pixels")
     }
 
-    private func installSnapshots(_ snapshots: [(NSScreen, CGImage)]) {
+    private func installSnapshots(_ snapshots: [(NSScreen, CGImage)]) -> (layers: Int, show: Int) {
+        let started = ProcessInfo.processInfo.systemUptime
         for (screen, image) in snapshots {
             guard let panel = panels.first(where: { $0.frame == screen.frame }),
                   let canvas = panel.contentView as? CaptureCanvas else { continue }
             canvas.installScreenshot(image)
             panel.isOpaque = true
-            if presentsWindows { panel.displayIfNeeded() }
+            if presentsWindows { panel.display() }
         }
-        CATransaction.flush()
+        let installed = ProcessInfo.processInfo.systemUptime
+        // The very first visible frame already contains the frozen desktop and
+        // final shade. There is no live-desktop → filtered-image shadow transition.
+        if presentsWindows {
+            for panel in panels { panel.orderFrontRegardless(); panel.displayIfNeeded() }
+            CATransaction.flush()
+            panels.forEach { $0.allowsKey = true }
+            let mouse = NSEvent.mouseLocation
+            let keyPanel = panels.first(where: { $0.frame.contains(mouse) }) ?? panels.first
+            keyPanel?.makeKey()
+            if let panel = keyPanel, let canvas = panel.contentView as? CaptureCanvas {
+                canvas.showInitialPointer(at: canvas.convert(panel.convertPoint(fromScreen: mouse), from: nil))
+            }
+        }
+        pendingEscape.unregister()
+        return (Int((installed - started) * 1000), Int((ProcessInfo.processInfo.systemUptime - installed) * 1000))
     }
 
     func finish(restoreFocus: Bool = true) {
+        pendingEscape.unregister()
         sessionID = nil
         captureTask?.cancel()
         captureTask = nil
@@ -271,13 +293,13 @@ import QuartzCore
     }
 
     enum CaptureError: LocalizedError {
-        case noDisplay, encoding, clipboard, missingOverlayExclusion
+        case noDisplay, noImage, encoding, clipboard
         var errorDescription: String? {
             switch self {
             case .noDisplay: return L10n.text("没有找到可捕获的显示器。", "No display is available for capture.")
             case .encoding: return L10n.text("PNG 编码失败。", "PNG encoding failed.")
             case .clipboard: return L10n.text("无法写入剪贴板，请重试。", "Unable to write to the clipboard. Please try again.")
-            case .missingOverlayExclusion: return L10n.text("暂时无法从截图中排除选区遮罩，请重试。", "Unable to exclude the selection overlay. Please try again.")
+            case .noImage: return L10n.text("未收到截图画面，请重试。", "No screenshot image was returned. Please try again.")
             }
         }
     }

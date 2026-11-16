@@ -1,20 +1,22 @@
 # Nebula ScreenShot
 
+<img src="docs/icon.png" width="96" alt="Nebula ScreenShot 黑白圆角图标">
+
 轻量的 macOS 菜单栏截图与标注工具。按 **⌃⇧⌘5** 拖选区域，添加编号图钉、图形或手绘标记，再按 **回车** 复制到剪贴板。
 
-**当前版本：v1.1.3** · macOS 14+ · Apple Silicon / Intel · GPL-3.0-only
+**当前版本：v1.1.4** · macOS 14+ · Apple Silicon / Intel · GPL-3.0-only
 
-[**下载 v1.1.3（Universal ZIP）**](https://github.com/AnthemZhou/Nebula-ScreenShot/releases/download/v1.1.3/Nebula-ScreenShot-1.1.3-universal.zip) · [发行说明](https://github.com/AnthemZhou/Nebula-ScreenShot/releases/tag/v1.1.3) · [安装](#安装) · [首次授权](#首次授权) · [使用](#使用) · [快捷键](#快捷键) · [常见问题](#常见问题)
+[**下载 v1.1.4（Universal ZIP）**](https://github.com/AnthemZhou/Nebula-ScreenShot/releases/download/v1.1.4/Nebula-ScreenShot-1.1.4-universal.zip) · [发行说明](https://github.com/AnthemZhou/Nebula-ScreenShot/releases/tag/v1.1.4) · [安装](#安装) · [首次授权](#首次授权) · [使用](#使用) · [快捷键](#快捷键) · [常见问题](#常见问题)
 
 ## 安装
 
-1. 下载上方的 **`Nebula-ScreenShot-1.1.3-universal.zip`**。同一个安装包适用于 Apple Silicon 和 Intel，无需选择架构；GitHub 的 `Source code` 是源码，不是应用安装包。
+1. 下载上方的 **`Nebula-ScreenShot-1.1.4-universal.zip`**。同一个安装包适用于 Apple Silicon 和 Intel，无需选择架构；GitHub 的 `Source code` 是源码，不是应用安装包。
 2. 双击 ZIP 解压，将 **Nebula ScreenShot.app** 拖入「应用程序」文件夹，再从那里打开。也可以安装到用户自己的 `~/Applications`，后续更新请沿用同一位置。
 3. 在屏幕顶部菜单栏找到 Nebula 的取景框图标。应用常驻菜单栏；关闭「关于」窗口不会退出应用。
 
 **首次打开被 macOS 阻止？** 当前下载包尚未经过 Apple Developer ID 签名与公证。确认文件来自本仓库的 Release 后，先尝试打开一次，再到 **系统设置 → 隐私与安全性 → 仍要打开**，按系统提示确认。详见 [Apple 的打开说明](https://support.apple.com/zh-cn/102445)。
 
-需要核对下载文件时，可使用发行页附带的 [SHA-256 校验文件](https://github.com/AnthemZhou/Nebula-ScreenShot/releases/download/v1.1.3/Nebula-ScreenShot-1.1.3-universal.zip.sha256)。
+需要核对下载文件时，可使用发行页附带的 [SHA-256 校验文件](https://github.com/AnthemZhou/Nebula-ScreenShot/releases/download/v1.1.4/Nebula-ScreenShot-1.1.4-universal.zip.sha256)。
 
 ## 首次授权
 
@@ -31,7 +33,7 @@ Nebula 只捕获屏幕画面，不录制音频。想先熟悉标注，可选择�
 ## 使用
 
 1. 按 **⌃⇧⌘5**：屏幕变暗，光标变为十字准星。
-2. **按住左键拖选区域**，松开后出现标注工具栏。画面准备期间可先拖选，准备完成后才能复制或保存。
+2. **按住左键拖选区域**，松开后出现标注工具栏。截图画面准备期间可按 Esc 取消。
 3. 默认使用图钉模式：**点击打钉、左键拖框、右键拖箭头**。需要圆圈、直线或画笔时，从工具栏或快捷键切换。
 4. 按 **Return / Enter** 或 **⌘C** 复制并结束截图，然后在聊天、文档等支持图片的应用中按 **⌘V** 粘贴。
 
@@ -55,7 +57,7 @@ Nebula 只捕获屏幕画面，不录制音频。想先熟悉标注，可选择�
 | 平移截图范围 | 在选区内按住空格，再按住左键拖动 |
 | 退出截图 | 按 Esc，或在画布空白处右键单击；右键拖动选区内会画箭头 |
 
-调整截图范围时，已有标注保留在原画面位置，最终导出按新的选区裁剪。每个选区位于一块显示器内，支持在不同显示器上分别截图。
+选区采用圆角细白实线，鼠标靠近边缘时高亮。圆角仅用于编辑界面，导出的图片仍为完整矩形。调整截图范围时，已有标注保留在原画面位置，最终导出按新的选区裁剪。每个选区位于一块显示器内，支持在不同显示器上分别截图。
 
 ### 工具栏
 
@@ -130,13 +132,17 @@ Nebula 只捕获屏幕画面，不录制音频。想先熟悉标注，可选择�
 
 不会。截图和标注在本机处理，没有账号、云端上传或埋点；只有主动保存时才生成图片文件。复制后的图片由你自行粘贴到目标应用。
 
-## v1.1.3 更新
+## v1.1.4 更新
 
-- 缩小图钉删除按钮，贴近图钉右上角，保留稳定悬停和删除后的自动重编号。
-- 移除选区边框上的常驻方块手柄；鼠标靠近边缘或四角时高亮提示，仍可拖动调整范围。
-- 移除截图光标旁的坐标，选区宽高尺寸固定显示在选区上方。
+- 更快进入截图：截图、暗色遮罩和标注分层绘制，减少全屏重绘；同时修复入场时顶层窗口阴影跳变。
+- 修复点击「打开系统设置」后重复出现同一授权提示的问题，等待授权时不再持续轮询权限。
+- 选区改为细白色圆角实线，保留边缘悬停高亮和拖动调整，导出仍为完整矩形。
+- 改善小截图中的图钉删除按钮：更靠近图钉、保持数字清晰，删除更容易点中；降低选区边缘拖动与标注编辑之间的误触。
+- 换用黑白圆角应用图标。
 
-50 项核心测试、中英文编辑交互，以及快捷键与连续截图各 100 次自动检查已通过。完整记录见 [CHANGELOG.md](CHANGELOG.md)。
+本机双屏实测中，从快捷键回调到选区就绪，首次约 **201 ms**，随后三次约 **70–94 ms**；速度受设备、显示器和系统状态影响。用户已确认进入明显更快，拖选和标注正常。
+
+55 项核心测试、中英文编辑交互、100 次快捷键投递、100 次快速取消、50 次截图复制及窗口释放检查已通过。完整记录见 [CHANGELOG.md](CHANGELOG.md)，性能与桌面验收见 [选区改进记录](docs/ROUNDED_SELECTION_EXPERIMENT.md)。
 
 ## 开发
 
@@ -147,7 +153,7 @@ Nebula 只捕获屏幕画面，不录制音频。想先熟悉标注，可选择�
 <details>
 <summary>English quick start</summary>
 
-Requires macOS 14 or later. [Download v1.1.3](https://github.com/AnthemZhou/Nebula-ScreenShot/releases/download/v1.1.3/Nebula-ScreenShot-1.1.3-universal.zip), unzip, move **Nebula ScreenShot.app** to Applications, and open it. The Universal app supports Apple Silicon and Intel. This release is ad-hoc signed and not notarized; if macOS blocks it, follow [Apple’s opening instructions](https://support.apple.com/102445) after verifying its source.
+Requires macOS 14 or later. [Download v1.1.4](https://github.com/AnthemZhou/Nebula-ScreenShot/releases/download/v1.1.4/Nebula-ScreenShot-1.1.4-universal.zip), unzip, move **Nebula ScreenShot.app** to Applications, and open it. The Universal app supports Apple Silicon and Intel. This release is ad-hoc signed and not notarized; if macOS blocks it, follow [Apple’s opening instructions](https://support.apple.com/102445) after verifying its source.
 
 Press **Control–Shift–Command–5** and allow screen recording when macOS asks. Follow any quit/reopen prompt; Nebula restores its menu-bar app and shortcut automatically. Press the shortcut again and drag a region. In the default pin mode, click to number points, left-drag a rounded rectangle, and right-drag an arrow. The slider menu contains shapes and stroke widths; pen, eraser, undo/redo and PNG save are on the toolbar.
 

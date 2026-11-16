@@ -24,24 +24,44 @@ public enum AnnotationGeometry {
             .min { hypot($0.point.x - point.x, $0.point.y - point.y) < hypot($1.point.x - point.x, $1.point.y - point.y) }?.handle
     }
 
-    public static func badge(for item: Annotation, selection: CGRect) -> CGRect? {
+    public static func badge(for item: Annotation, selection: CGRect, within bounds: CGRect? = nil) -> CGRect? {
         guard item.tool == .pin, let target = item.points.first, selection.contains(target) else { return nil }
         let pin = PinGeometry.layout(at: target, number: item.number ?? 1, selection: selection)
-        let diameter = min(14, max(9, pin.body.width * 0.42), min(selection.width, selection.height))
-        // Center the smaller badge on the bubble's upper-right arc so it feels
-        // attached to the pin, while keeping the number and tip unobstructed.
-        let x = min(max(pin.body.midX + pin.body.width * 0.36 - diameter / 2, selection.minX), selection.maxX - diameter)
-        let y = min(max(pin.body.minY + pin.body.height * 0.14 - diameter / 2, selection.minY), selection.maxY - diameter)
-        return CGRect(x: x, y: y, width: diameter, height: diameter)
+        let diameter = min(14, max(9, pin.body.width * 0.42))
+        // Small pins need more clearance around the number. Controls can extend
+        // beyond the crop; only the display bounds should constrain them.
+        let distance = max(pin.body.width * 0.51, diameter / 2 + pin.fontSize * 0.45 + 1)
+        let offset = max(distance / sqrt(2), diameter / 2 + 0.75)
+        let candidates = [CGPoint(x: offset, y: -offset), CGPoint(x: -offset, y: -offset),
+                          CGPoint(x: offset, y: offset), CGPoint(x: -offset, y: offset)].map {
+            CGRect(x: pin.body.midX + $0.x - diameter / 2,
+                   y: pin.body.midY + $0.y - diameter / 2, width: diameter, height: diameter)
+        }
+        guard let bounds else { return candidates[0] }
+        if let fitting = candidates.first(where: { bounds.contains($0.insetBy(dx: -1, dy: -1)) }) { return fitting }
+        let first = candidates[0]
+        return CGRect(x: min(max(first.minX, bounds.minX), bounds.maxX - diameter),
+                      y: min(max(first.minY, bounds.minY), bounds.maxY - diameter), width: diameter, height: diameter)
+    }
+
+    public static func hitBadge(at point: CGPoint, for item: Annotation, selection: CGRect,
+                                within bounds: CGRect? = nil) -> Bool {
+        guard let badge = badge(for: item, selection: selection, within: bounds), let target = item.points.first else { return false }
+        if hypot(point.x - badge.midX, point.y - badge.midY) <= badge.width / 2 { return true }
+        let body = PinGeometry.layout(at: target, number: item.number ?? 1, selection: selection).body
+        // Make the compact control easier to click, without turning a pin-body
+        // drag into a deletion. The margin is active only on the hovered pin.
+        let padding = max(0, (20 - badge.width) / 2)
+        return !body.contains(point) && badge.insetBy(dx: -padding, dy: -padding).contains(point)
     }
 
     /// One continuous retention region connects a pin with its delete badge.
     /// Enter on the pin itself; leave only after moving beyond this small margin.
-    public static func pinHoverRegion(for item: Annotation, selection: CGRect) -> CGRect? {
-        guard let badge = badge(for: item, selection: selection), let target = item.points.first else { return nil }
+    public static func pinHoverRegion(for item: Annotation, selection: CGRect, within bounds: CGRect? = nil) -> CGRect? {
+        guard let badge = badge(for: item, selection: selection, within: bounds), let target = item.points.first else { return nil }
         let body = PinGeometry.layout(at: target, number: item.number ?? 1, selection: selection).body
         return body.union(CGRect(origin: target, size: .zero)).union(badge)
-            .insetBy(dx: -6, dy: -6).intersection(selection)
+            .insetBy(dx: -6, dy: -6)
     }
 
     public static func hit(_ item: Annotation, at point: CGPoint, selection: CGRect, tolerance: CGFloat = 5) -> Bool {
@@ -52,7 +72,8 @@ public enum AnnotationGeometry {
             guard selection.contains(first) else { return false }
             let pin = PinGeometry.layout(at: first, number: item.number ?? 1, selection: selection)
             let rect = pin.body.union(CGRect(x: first.x, y: first.y, width: 0, height: 0))
-            return rect.insetBy(dx: -2, dy: -2).contains(point)
+            let padding = min(2, max(0, tolerance))
+            return rect.insetBy(dx: -padding, dy: -padding).contains(point)
         case .line: return distance(point, to: first, last) <= hitWidth
         case .arrow:
             let head = Geometry.arrowHead(start: first, end: last, lineWidth: item.lineWidth)

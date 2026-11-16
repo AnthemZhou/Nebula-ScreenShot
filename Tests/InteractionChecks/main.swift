@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 import AppKit
 import NebulaCore
+import QuartzCore
 
 // Calls only this process's own AppKit view methods. No posted system events,
 // visible windows, screen capture, pasteboard access, or changes to the installed app.
@@ -182,7 +183,7 @@ enum HarnessError: Error, CustomStringConvertible {
                   "Visible next-pin indicator must remain \(number)")
     }
 
-    func renderedCanvasColor(at point: CGPoint) throws -> NSColor {
+    func renderedCanvasBitmap() throws -> NSBitmapImageRep {
         canvas.layoutSubtreeIfNeeded()
         // Sample the real canvas drawing directly: NSGlassEffectView needs
         // WindowServer compositing and clears cacheDisplay output in hidden windows.
@@ -199,6 +200,11 @@ enum HarnessError: Error, CustomStringConvertible {
         NSGraphicsContext.current = NSGraphicsContext(cgContext: graphics.cgContext, flipped: true)
         canvas.draw(canvas.bounds)
         NSGraphicsContext.restoreGraphicsState()
+        return bitmap
+    }
+
+    func renderedCanvasColor(at point: CGPoint) throws -> NSColor {
+        let bitmap = try renderedCanvasBitmap()
         let sx = CGFloat(bitmap.pixelsWide) / canvas.bounds.width
         let sy = CGFloat(bitmap.pixelsHigh) / canvas.bounds.height
         guard let color = bitmap.colorAt(x: Int(point.x * sx), y: Int(point.y * sy))?.usingColorSpace(.sRGB) else {
@@ -208,6 +214,129 @@ enum HarnessError: Error, CustomStringConvertible {
     }
 
     func hover(_ point: CGPoint) throws { canvas.mouseMoved(with: try mouse(.mouseMoved, point)) }
+
+    func runPresentationChecks() throws {
+        let context = CGContext(data: nil, width: 1800, height: 1280, bitsPerComponent: 8, bytesPerRow: 0,
+                                space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        for (rect, color) in [(CGRect(x: 0, y: 0, width: 900, height: 640), CGColor(red: 0.8, green: 0.2, blue: 0.1, alpha: 1)),
+                              (CGRect(x: 900, y: 0, width: 900, height: 640), CGColor(red: 0.1, green: 0.8, blue: 0.2, alpha: 1)),
+                              (CGRect(x: 0, y: 640, width: 900, height: 640), CGColor(red: 0.2, green: 0.1, blue: 0.8, alpha: 1)),
+                              (CGRect(x: 900, y: 640, width: 900, height: 640), CGColor(red: 0.8, green: 0.7, blue: 0.1, alpha: 1))] {
+            context.setFillColor(color); context.fill(rect)
+        }
+        canvas.installScreenshot(context.makeImage()!)
+        func layerFrame(reference: Bool = false) throws -> NSBitmapImageRep {
+            window.display()
+            // Glass requires WindowServer and clears offscreen layer rendering.
+            // Compare the desktop/shade independently of toolbar material.
+            let visibleToolbars = canvas.subviews.compactMap { $0 as? AnnotationToolbar }.filter { !$0.isHidden }
+            visibleToolbars.forEach { $0.isHidden = true }
+            defer { visibleToolbars.forEach { $0.isHidden = false } }
+            CATransaction.flush()
+            let context = CGContext(data: nil, width: 1800, height: 1280, bitsPerComponent: 8, bytesPerRow: 0,
+                                    space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            context.translateBy(x: 0, y: 1280)
+            context.scaleBy(x: 2, y: -2)
+            if reference {
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: true)
+                canvas.draw(canvas.bounds)
+                NSGraphicsContext.restoreGraphicsState()
+            } else { canvas.layer!.render(in: context) }
+            return NSBitmapImageRep(cgImage: context.makeImage()!)
+        }
+        let initial = try layerFrame()
+        // Enter the real AppKit drawing path, then compare points outside the crop.
+        // Colored quadrants catch upside-down/rotated contents as well as double shade.
+        try drag(from: CGPoint(x: 300, y: 200), to: CGPoint(x: 600, y: 400))
+        try check(canvas.hitTest(CGPoint(x: 400, y: 300)) === canvas,
+                  "The annotation plane must let native pointer events reach the canvas")
+        let editing = try layerFrame()
+        let reference = try layerFrame(reference: true)
+        for (x, y) in [(20, 20), (1780, 20), (20, 1260), (1780, 1260)] {
+            let a = initial.colorAt(x: x, y: y)!.usingColorSpace(.sRGB)!
+            let b = editing.colorAt(x: x, y: y)!.usingColorSpace(.sRGB)!
+            try check(abs(a.redComponent-b.redComponent) < 0.015 && abs(a.greenComponent-b.greenComponent) < 0.015 && abs(a.blueComponent-b.blueComponent) < 0.015,
+                      "First frame and editing must have identical orientation, colors and shade: \(a) vs \(b)")
+        }
+        for (x, y) in [(20, 20), (1780, 1260), (700, 500), (1100, 700)] {
+            let a = editing.colorAt(x: x, y: y)!.usingColorSpace(.sRGB)!
+            let b = reference.colorAt(x: x, y: y)!.usingColorSpace(.sRGB)!
+            try check(abs(a.redComponent-b.redComponent) < 0.015 && abs(a.greenComponent-b.greenComponent) < 0.015 && abs(a.blueComponent-b.blueComponent) < 0.015,
+                      "Composited crop opening must match the bitmap renderer: \(a) vs \(b)")
+        }
+        canvas.resetSelection()
+        let reset = try layerFrame()
+        let a = initial.colorAt(x: 20, y: 20)!, b = reset.colorAt(x: 20, y: 20)!
+        try check(abs(a.redComponent-b.redComponent) < 0.015 && abs(a.blueComponent-b.blueComponent) < 0.015,
+                  "Reselecting must restore the same initial shade")
+        try check(!window.isVisible, "Presentation check must stay hidden")
+        print("PASS: direct-layer first frame matches editing and reset; correct orientation and no shade flash")
+    }
+
+    func runBorderStabilityChecks() throws {
+        // Compare real rendered pixels along edges that stay still while the
+        // opposite corner moves, for all four initial drag directions.
+        for anchor in [CGPoint(x: 80, y: 80), CGPoint(x: 600, y: 80),
+                       CGPoint(x: 80, y: 500), CGPoint(x: 600, y: 500)] {
+            canvas.resetSelection()
+            let east = anchor.x == 80, south = anchor.y == 80
+            let first = CGPoint(x: east ? 480 : 200, y: south ? 320 : 200)
+            let second = CGPoint(x: first.x + (east ? 30 : -30), y: first.y + (south ? 20 : -40))
+            canvas.mouseDown(with: try mouse(.leftMouseDown, anchor))
+            canvas.mouseDragged(with: try mouse(.leftMouseDragged, first))
+            let before = try renderedCanvasBitmap()
+            canvas.mouseDragged(with: try mouse(.leftMouseDragged, second))
+            let after = try renderedCanvasBitmap()
+            var bright = 0
+            for index in 0..<40 {
+                for point in [CGPoint(x: 320 + CGFloat(index), y: anchor.y),
+                              CGPoint(x: anchor.x, y: 240 + CGFloat(index))] {
+                    let x = Int(point.x * 2), y = Int(point.y * 2)
+                    let a = before.colorAt(x: x, y: y)!.usingColorSpace(.sRGB)!
+                    let b = after.colorAt(x: x, y: y)!.usingColorSpace(.sRGB)!
+                    try check(abs(a.redComponent - b.redComponent) < 0.015,
+                              "Stationary solid edges must not shift when another edge grows")
+                    if a.redComponent > 0.2 { bright += 1 }
+                }
+            }
+            try check(bright == 80, "The solid selection outline must remain continuous, without dash gaps")
+            canvas.mouseUp(with: try mouse(.leftMouseUp, second))
+        }
+        canvas.resetSelection()
+        print("PASS: continuous solid border pixels remain stable in all four drag directions")
+    }
+
+    func runBorderContrastChecks() throws {
+        for gray: CGFloat in [0.03, 1] {
+            let context = CGContext(data: nil, width: 1800, height: 1280, bitsPerComponent: 8, bytesPerRow: 0,
+                                    space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            context.setFillColor(CGColor(gray: gray, alpha: 1))
+            context.fill(CGRect(x: 0, y: 0, width: 1800, height: 1280))
+            canvas.installScreenshot(context.makeImage()!)
+            canvas.resetSelection()
+            try drag(from: initialCrop.origin, to: CGPoint(x: initialCrop.maxX, y: initialCrop.maxY))
+            try hover(CGPoint(x: 300, y: 300))
+            let bitmap = try renderedCanvasBitmap()
+            let edge = (200..<300).map { bitmap.colorAt(x: $0, y: 79)!.usingColorSpace(.sRGB)!.redComponent }
+            let surface = bitmap.colorAt(x: 200, y: 60)!.usingColorSpace(.sRGB)!.redComponent
+            try check(edge.max()! > surface + 0.15, "Solid outline must stand out on both light and dark content")
+            try check(edge.max()! - edge.min()! < 0.02, "Straight selection edges must have uniform brightness and no gaps")
+            if gray == 1 {
+                for y in 76..<80 {
+                    for x in 200..<300 {
+                        let sample = bitmap.colorAt(x: x, y: y)!.usingColorSpace(.sRGB)!.redComponent
+                        try check(sample >= surface - 0.01, "Solid outline must not add a dark outer stroke")
+                    }
+                }
+            }
+        }
+        canvas.resetSelection()
+        print("PASS: solid outline stays continuous on white and dark backgrounds, without a dark outer stroke")
+    }
 
     func runPointerChecks() throws {
         guard let hint = canvas.subviews.compactMap({ $0 as? CaptureHint }).first,
@@ -227,23 +356,88 @@ enum HarnessError: Error, CustomStringConvertible {
         try hover(CGPoint(x: 300, y: 300))
         try check(hint.frame == labelFrame && hint.frame.maxY <= initialCrop.minY,
                   "Dimensions stay above the crop instead of following the cursor")
-        let topSample = CGPoint(x: initialCrop.midX, y: initialCrop.minY - 0.5)
-        let idle = try renderedCanvasColor(at: topSample)
+        var topSample = CGPoint(x: initialCrop.midX, y: initialCrop.minY - 0.5)
+        var idle = try renderedCanvasColor(at: topSample)
+        // Compare the same outline position before and after hover.
+        for dx: CGFloat in [2, 4] {
+            let point = CGPoint(x: initialCrop.midX + dx, y: initialCrop.minY - 0.5)
+            let color = try renderedCanvasColor(at: point)
+            if color.redComponent > idle.redComponent { topSample = point; idle = color }
+        }
         let corner = try renderedCanvasColor(at: CGPoint(x: initialCrop.minX + 1.5, y: initialCrop.minY + 1.5))
         try check(corner.redComponent < 0.1, "An idle corner must not contain a square handle")
-        try hover(CGPoint(x: initialCrop.midX, y: initialCrop.minY + 3))
+        try hover(CGPoint(x: initialCrop.midX, y: initialCrop.minY - 3))
         let active = try renderedCanvasColor(at: topSample)
         try check(active.redComponent > idle.redComponent + 0.15, "Hover must visibly brighten the corresponding crop edge")
         try hover(CGPoint(x: 300, y: 300))
         let restored = try renderedCanvasColor(at: topSample)
         try check(abs(restored.redComponent - idle.redComponent) < 0.01, "Leaving the edge must restore its hairline")
-        try drag(from: CGPoint(x: initialCrop.midX, y: initialCrop.minY + 3),
-                 to: CGPoint(x: initialCrop.midX, y: initialCrop.minY + 23))
+        try drag(from: CGPoint(x: initialCrop.midX, y: initialCrop.minY - 3),
+                 to: CGPoint(x: initialCrop.midX, y: initialCrop.minY + 17))
         try check(canvas.selection == CGRect(x: 40, y: 60, width: 820, height: 440),
                   "A handle-free edge must still resize without jumping to the pointer")
+        try drag(from: CGPoint(x: 43, y: 63), to: CGPoint(x: 33, y: 53))
+        try check(canvas.selection == CGRect(x: 30, y: 50, width: 830, height: 450),
+                  "Dragging the visible rounded arc must resize the corner")
         canvas.resetSelection()
         try check(hint.isHidden, "Reselecting must hide dimensions until the next drag")
         print("PASS: coordinate-free crosshair, anchored Retina dimensions, handle-free edge highlight and resize")
+    }
+
+    func runSmallCropChecks() throws {
+        for size: CGFloat in [8, 12, 24, 60, 100] {
+            canvas.resetSelection()
+            try key("n")
+            let crop = CGRect(x: 100, y: 100, width: size, height: size)
+            try drag(from: crop.origin, to: CGPoint(x: crop.maxX, y: crop.maxY))
+            let blank = bytes(try copy())
+            let target = CGPoint(x: crop.midX, y: crop.midY)
+            try click(target)
+            try expectNextPin(2)
+            try check(canvas.selection == crop, "Small crop interiors must accept pins instead of resizing")
+            try hover(CGPoint(x: 800, y: 200))
+            let body = PinGeometry.layout(at: target, number: 1, selection: crop).body
+            try hover(CGPoint(x: body.midX, y: body.midY))
+            try click(CGPoint(x: body.midX, y: body.midY))
+            try expectNextPin(2)
+            guard let badge = canvas.hoveredPinBadge else { throw HarnessError.failed("Small pin badge must be reachable") }
+            let badgePixel = try renderedCanvasColor(at: CGPoint(x: badge.midX, y: badge.minY + 2))
+            try check(badgePixel.redComponent > 0.7, "Delete badge must draw fully even beyond the crop")
+            let clickMargin = CGPoint(x: badge.maxX + 2, y: badge.midY)
+            try hover(clickMargin)
+            try check(canvas.hoveredPinBadge != nil, "Delete margin must remain visible outside a tiny crop")
+            try click(clickMargin)
+            try expectNextPin(1)
+            try check(canvas.selection == crop && bytes(try copy()) == blank,
+                      "Delete margin must remove only the pin, without reselecting or resizing")
+            try key("z", flags: [.command])
+            try expectNextPin(2)
+        }
+        canvas.resetSelection()
+        let crop = CGRect(x: 100, y: 100, width: 100, height: 80)
+        try drag(from: crop.origin, to: CGPoint(x: crop.maxX, y: crop.maxY))
+        let grab = CGPoint(x: 99, y: 140)
+        try drag(from: grab, to: CGPoint(x: 100, y: 141))
+        try check(canvas.selection == crop, "Minor pointer jitter must not resize the crop")
+        try key("p")
+        try drag(from: CGPoint(x: 103, y: 155), to: CGPoint(x: 125, y: 155))
+        try check(canvas.selection == crop, "Drawing three points inside an edge must not resize")
+        try key("n")
+        let target = CGPoint(x: 198, y: 140)
+        try click(target)
+        let body = PinGeometry.layout(at: target, number: 1, selection: crop).body
+        let bodyEdge = CGPoint(x: 199, y: body.midY + 2)
+        try hover(CGPoint(x: 800, y: 200))
+        try hover(bodyEdge)
+        let beforeMove = bytes(try copy())
+        try drag(from: bodyEdge, to: CGPoint(x: 189, y: bodyEdge.y))
+        try check(canvas.selection == crop && bytes(try copy()) != beforeMove,
+                  "Dragging a pin body beside the border must move the mark, not the crop")
+        try expectNextPin(2)
+        try drag(from: CGPoint(x: 205, y: 150), to: CGPoint(x: 225, y: 150))
+        try check(canvas.selection == CGRect(x: 100, y: 100, width: 120, height: 80),
+                  "The shaded side remains an easy, unambiguous resize target")
+        print("PASS: 8–100pt crops accept pins; delete margins, number protection, undo, border jitter and annotation priority")
     }
 
     func runExportStateChecks() throws {
@@ -283,6 +477,9 @@ enum HarnessError: Error, CustomStringConvertible {
         try drag(from: initialCrop.origin, to: CGPoint(x: initialCrop.maxX, y: initialCrop.maxY))
         let hole = try renderedCanvasColor(at: CGPoint(x: 300, y: 300))
         try check(hole.alphaComponent < 0.01, "Pending crop must reveal the undimmed desktop")
+        let roundedCorner = try renderedCanvasColor(at: CGPoint(x: initialCrop.minX + 1, y: initialCrop.minY + 1))
+        try check(abs(roundedCorner.alphaComponent - 0.48) < 0.02,
+                  "Pending shade must use the same rounded opening as the final screenshot")
         for point in [CGPoint(x: 20, y: 200), CGPoint(x: 880, y: 200), CGPoint(x: 300, y: 20), CGPoint(x: 300, y: 620)] {
             let outside = try renderedCanvasColor(at: point)
             try check(abs(outside.alphaComponent - 0.48) < 0.02, "Outside shade must keep exactly one opacity layer")
@@ -305,6 +502,8 @@ enum HarnessError: Error, CustomStringConvertible {
         let sourceColor = cleanReference.colorAt(x: 40, y: 40)!.usingColorSpace(.sRGB)!
         try expectColor(CGPoint(x: 60, y: 60), sourceColor,
                         "Clipboard output must contain the original image without dimming")
+        try expectColor(CGPoint(x: initialCrop.minX + 0.5, y: initialCrop.minY + 0.5), sourceColor,
+                        "Rounded preview corners must not mask or darken the rectangular export")
 
         canvas.resetSelection()
         let start = CGPoint(x: 70, y: 80), middle = CGPoint(x: 240, y: 220), end = CGPoint(x: 480, y: 360)
@@ -674,10 +873,10 @@ enum HarnessError: Error, CustomStringConvertible {
 
         let beforeOffsetResize = canvas.selection!
         let beforeOffsetPixels = bytes(try copy())
-        let grabPoint = CGPoint(x: beforeOffsetResize.minX + 4, y: beforeOffsetResize.midY)
+        let grabPoint = CGPoint(x: beforeOffsetResize.minX - 4, y: beforeOffsetResize.midY)
         try click(grabPoint)
         try check(canvas.selection == beforeOffsetResize,
-                  "Clicking four points inside a resize hit area must not change crop")
+                  "Clicking four points outside a resize edge must not change crop")
         try expectNextPin(9)
         try drag(from: grabPoint, to: CGPoint(x: grabPoint.x + 12, y: grabPoint.y))
         try check(canvas.selection?.minX == beforeOffsetResize.minX + 12 &&
@@ -685,7 +884,7 @@ enum HarnessError: Error, CustomStringConvertible {
                   canvas.selection?.width == beforeOffsetResize.width - 12,
                   "Dragging an offset edge grab must apply the pointer delta without snapping")
         try copy()
-        let restorePoint = CGPoint(x: canvas.selection!.minX + 4, y: canvas.selection!.midY)
+        let restorePoint = CGPoint(x: canvas.selection!.minX - 4, y: canvas.selection!.midY)
         try drag(from: restorePoint, to: CGPoint(x: restorePoint.x - 12, y: restorePoint.y))
         try check(canvas.selection == beforeOffsetResize, "Reverse offset edge drag must restore the crop")
         try check(bytes(try copy()) == beforeOffsetPixels,
@@ -738,11 +937,18 @@ MainActor.assumeIsolated {
     let app = NSApplication.shared
     app.setActivationPolicy(.prohibited)
     do {
+        let presentation = try CanvasHarness()
+        try presentation.runPresentationChecks()
         let pointer = try CanvasHarness()
+        try pointer.runBorderStabilityChecks()
         try pointer.runPointerChecks()
+        let contrast = try CanvasHarness()
+        try contrast.runBorderContrastChecks()
         if !CommandLine.arguments.contains("--english") {
             let exportState = try CanvasHarness()
             try exportState.runExportStateChecks()
+            let smallCrops = try CanvasHarness()
+            try smallCrops.runSmallCropChecks()
         }
         let harness = try CanvasHarness()
         if CommandLine.arguments.contains("--english") { try harness.runEnglishChecks(); exit(0) }

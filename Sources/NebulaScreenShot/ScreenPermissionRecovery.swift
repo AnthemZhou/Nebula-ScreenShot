@@ -5,7 +5,7 @@ import NebulaCore
 @MainActor enum ScreenPermissionRecovery {
     private static let bundleIdentifier = "io.github.anthemzhou.NebulaScreenShot"
 
-    /// Invoked by explicit repair, or once after an ad-hoc upgrade's actual capture denial.
+    /// Invoked by explicit repair, or before consent for a denied ad-hoc upgrade.
     /// Returns once the relaunch helper has started; the caller can then quit safely.
     static func resetAndPrepareRelaunch() async throws -> AppRelauncher.Session {
         let bundle = Bundle.main

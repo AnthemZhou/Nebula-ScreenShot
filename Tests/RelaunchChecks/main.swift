@@ -3,6 +3,40 @@ import AppKit
 import Darwin
 import NebulaCore
 
+@MainActor final class FixtureConsentSession: ConsentRelaunchSession {
+    var isRunning = true
+    var readinessChecks = 0
+    func waitUntilReady() async throws { readinessChecks += 1 }
+    func cancel() { isRunning = false }
+}
+
+@MainActor func checkConsentObservation() async throws {
+    var accessChecks = 0, granted = false, restarts = 0
+    let session = FixtureConsentSession()
+    let lifecycle = PermissionLifecycle(checkAccess: { accessChecks += 1; return granted }, makeSession: { session })
+    lifecycle.onGranted = { restarts += 1 }
+    try await lifecycle.prepare()
+    try await lifecycle.prepare()
+    // The former 500ms loop and the pre-prompt preflight would both fail this.
+    try await Task.sleep(for: .milliseconds(700))
+    guard accessChecks == 0, session.readinessChecks == 1, lifecycle.isWaiting else {
+        throw NSError(domain: "Consent UI must remain free of background permission probes", code: 1)
+    }
+    lifecycle.checkForGrant()
+    guard accessChecks == 1, restarts == 0, lifecycle.isWaiting else {
+        throw NSError(domain: "Denied user retry must keep the existing handoff", code: 2)
+    }
+    granted = true
+    lifecycle.checkForGrant()
+    lifecycle.checkForGrant()
+    guard accessChecks == 2, restarts == 1 else {
+        throw NSError(domain: "Leaving Settings after consent must restart exactly once", code: 3)
+    }
+    lifecycle.cancel()
+    guard !session.isRunning else { throw NSError(domain: "Explicit cancel must remove the handoff", code: 4) }
+    print("PASS: no permission checks while native UI is pending; explicit observation grants one restart")
+}
+
 // Own fixture processes only: never opens Nebula, requests permission, or posts input.
 MainActor.assumeIsolated {
     let args = CommandLine.arguments
@@ -60,5 +94,10 @@ MainActor.assumeIsolated {
             guard result == expected else { throw NSError(domain: "\(mode): \(result), expected \(expected)", code: 2) }
             print("PASS: permission parent handoff \(mode): \(result)")
         }
+        Task { @MainActor in
+            do { try await checkConsentObservation(); exit(0) }
+            catch { fputs("\(error)\n", stderr); exit(1) }
+        }
+        RunLoop.main.run()
     } catch { fputs("\(error)\n", stderr); exit(1) }
 }
