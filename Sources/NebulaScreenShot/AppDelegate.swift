@@ -3,6 +3,7 @@ import AppKit
 import NebulaCore
 import OSLog
 import Carbon
+import ScreenCaptureKit
 
 @MainActor final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
@@ -136,7 +137,7 @@ import Carbon
         case .requestConsent: requestNativePermission(retryCaptureIfGranted: true)
         case .waitForConsent:
             permissionLifecycle.checkForGrant()
-            if !permissionRestartPlanned { requestNativePermission(openSettingsAfterRequest: true) }
+            if !permissionRestartPlanned { requestNativePermission() }
         }
     }
 
@@ -162,7 +163,8 @@ import Carbon
     }
 
     @objc private func openScreenPermission() {
-        requestNativePermission(openSettingsAfterRequest: true)
+        if CGPreflightScreenCaptureAccess() { openScreenPermissionSettings() }
+        else { requestNativePermission() }
     }
 
     private func openScreenPermissionSettings() {
@@ -212,7 +214,7 @@ import Carbon
         }
     }
 
-    private func requestNativePermission(retryCaptureIfGranted: Bool = false, openSettingsAfterRequest: Bool = false) {
+    private func requestNativePermission(retryCaptureIfGranted: Bool = false) {
         guard !permissionFlowActive, !permissionRestartPlanned else { return }
         permissionFlowActive = true
         // Repair only before the first prompt. Resetting after ScreenCaptureKit
@@ -229,20 +231,29 @@ import Carbon
                 // The helper must be watching before native consent can terminate this app.
                 try await self.permissionLifecycle.prepare()
                 guard !self.explicitQuit, !self.sessionEnding else { self.permissionLifecycle.cancel(); return }
-                let action = self.permissionPrompt.actionAfterDenial {
-                    NSApp.activate(ignoringOtherApps: true)
-                    self.permissionLogger.notice("Requesting native screen consent; automatic relaunch armed")
-                    return CGRequestScreenCaptureAccess()
+                guard self.permissionPrompt.beginRequest() else {
+                    self.openScreenPermissionSettings()
+                    return
                 }
-                switch action {
-                case .retryCapture:
+                self.permissionLogger.notice("Requesting native consent through ScreenCaptureKit once; automatic relaunch armed")
+                do {
+                    // Use the same framework as capture. Do not combine its native
+                    // consent UI with the legacy Core Graphics permission dialog.
+                    // This enumerates content only; no screen pixels are recorded.
+                    _ = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+                    guard !self.explicitQuit, !self.sessionEnding, !self.permissionRestartPlanned else { return }
+                    self.permissionPrompt.completeRequest(granted: true)
+                    self.permissionLogger.notice("ScreenCaptureKit consent request completed with access")
                     self.permissionLifecycle.cancel()
                     if retryCaptureIfGranted { self.capture.begin() }
-                    else { self.prepareCaptureIfAllowed() }
-                case .waitForSystem: self.permissionRepairItem.isHidden = false
-                case .openSettings: self.openScreenPermissionSettings()
+                } catch {
+                    guard ScreenCaptureFailure.isPermissionDenied(error) else { throw error }
+                    self.permissionPrompt.completeRequest(granted: false)
+                    self.permissionRepairItem.isHidden = false
+                    self.permissionLogger.notice("Native consent pending; no second request, retry or automatic Settings launch")
                 }
-                if openSettingsAfterRequest && action != .openSettings { self.openScreenPermissionSettings() }
+                // The native dialog owns its Open Settings button. Opening Settings
+                // here as well races the system's dialog dismissal/activation.
             } catch {
                 self.permissionLifecycle.cancel()
                 self.showError(error.localizedDescription)

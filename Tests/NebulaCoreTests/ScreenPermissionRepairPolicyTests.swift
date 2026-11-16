@@ -42,14 +42,3 @@ import Testing
                                                   previouslyLaunched: true, savedPending: legacy.pending)
     #expect(relaunched.consumeBeforeConsent(granted: false) == true)
 }
-
-@Test func nativeRequestWaitsWithoutAnAppAlertOrAutomaticRetry() {
-    var prompt = ScreenPermissionPrompt()
-    var requests = 0
-    #expect(prompt.actionAfterDenial(using: { requests += 1; return false }) == .waitForSystem)
-    #expect(prompt.actionAfterDenial(using: { requests += 1; return false }) == .openSettings)
-    #expect(requests == 1)
-    var granted = ScreenPermissionPrompt()
-    #expect(granted.actionAfterDenial(using: { true }) == .retryCapture)
-    #expect(granted.actionAfterDenial(using: { true }) == .openSettings)
-}

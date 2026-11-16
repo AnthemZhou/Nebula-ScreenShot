@@ -264,6 +264,14 @@ enum HarnessError: Error, CustomStringConvertible {
             let surface = bitmap.colorAt(x: 200, y: 60)!.usingColorSpace(.sRGB)!.redComponent
             try check(edge.max()! > surface + 0.15, "Idle highlighter dashes must stand out on both light and dark content")
             try check(edge.max()! - edge.min()! > 0.12, "Glow must keep the dash gaps visible")
+            if gray == 1 {
+                for y in 76..<80 {
+                    for x in 200..<300 {
+                        let sample = bitmap.colorAt(x: x, y: y)!.usingColorSpace(.sRGB)!.redComponent
+                        try check(sample >= surface - 0.01, "White highlight must not add a dark outline outside the crop")
+                    }
+                }
+            }
         }
         canvas.resetSelection()
         print("PASS: highlighter border stays distinct on white and dark backgrounds, with visible dash gaps")

@@ -52,17 +52,16 @@ import Carbon
         sessionID = session
         previousApplication = presentsWindows ? NSWorkspace.shared.frontmostApplication : nil
         let screens = NSScreen.screens
-        if !afterMenuDismissal { presentShade(screens, started: started) }
+        preparePanels(screens)
         captureTask = Task { @MainActor [weak self] in
             guard let self else { return }
             defer { if self.sessionID == session { self.captureTask = nil } }
             do {
-                // Hotkeys submit the interactive shade synchronously, before any capture work.
-                // Only a menu action needs time for its menu to close.
+                // Only a menu action needs time for its menu to close. No live
+                // transparent shade is shown before the desktop has been frozen.
                 if afterMenuDismissal {
                     try await Task.sleep(for: .milliseconds(120))
                     guard self.sessionID == session else { return }
-                    self.presentShade(screens, started: started)
                 }
                 try Task.checkCancellation()
                 let snapshots: [(NSScreen, CGImage)]
@@ -74,7 +73,10 @@ import Carbon
                     self.logger.notice("ScreenCaptureKit capture requested")
                     snapshots = try await self.source.capture(screens)
                 }
-                guard !snapshots.isEmpty else { throw CaptureError.noDisplay }
+                guard !snapshots.isEmpty, snapshots.count == self.panels.count,
+                      self.panels.allSatisfy({ panel in snapshots.contains { $0.0.frame == panel.frame } }) else {
+                    throw CaptureError.noDisplay
+                }
                 try Task.checkCancellation()
                 guard self.sessionID == session else { return }
                 let captured = ProcessInfo.processInfo.systemUptime
@@ -109,19 +111,18 @@ import Carbon
         if shouldPrepare { prepare() }
     }
 
-    private func presentShade(_ screens: [NSScreen], started: TimeInterval) {
-        let mouse = NSEvent.mouseLocation
+    private func preparePanels(_ screens: [NSScreen]) {
         if presentsWindows {
             pendingEscape.onPress = { [weak self] in self?.finish() }
             pendingEscape.register()
         }
         for screen in screens {
-            // Keep the original window's focus/shadow while the shade is transparent.
-            // Keyboard focus moves only after fresh pixels cover the live desktop.
+            // Build offscreen; keep the original window's focus and shadow until
+            // the complete frozen desktop and its shade are ready to display.
             let panel = CapturePanel(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel],
                                      backing: .buffered, defer: false)
             panel.animationBehavior = .none
-            panel.allowsKey = presentsWindows && !pendingEscape.isRegistered
+            panel.allowsKey = false
             panel.setFrame(screen.frame, display: false)
             panel.level = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 1)
             panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
@@ -149,18 +150,6 @@ import Carbon
             panel.makeFirstResponder(canvas)
             panels.append(panel)
         }
-        guard presentsWindows else { return }
-        for panel in panels { panel.orderFrontRegardless(); panel.displayIfNeeded() }
-        let keyPanel = panels.first(where: { $0.frame.contains(mouse) }) ?? panels.first
-        // If Escape could not be reserved, preserve cancellation via normal focus.
-        if keyPanel?.allowsKey == true { keyPanel?.makeKey() }
-        if let panel = keyPanel, let canvas = panel.contentView as? CaptureCanvas {
-            canvas.showInitialPointer(at: canvas.convert(panel.convertPoint(fromScreen: mouse), from: nil))
-            panel.displayIfNeeded()
-        }
-        CATransaction.flush()
-        let elapsedMS = Int((ProcessInfo.processInfo.systemUptime - started) * 1000)
-        logger.notice("Capture shade submitted; displays: \(screens.count, privacy: .public); \(elapsedMS, privacy: .public) ms; awaiting fresh pixels")
     }
 
     private func installSnapshots(_ snapshots: [(NSScreen, CGImage)]) {
@@ -169,17 +158,20 @@ import Carbon
                   let canvas = panel.contentView as? CaptureCanvas else { continue }
             canvas.installScreenshot(image)
             panel.isOpaque = true
-            if presentsWindows { panel.displayIfNeeded() }
+            if presentsWindows { panel.display() }
         }
-        CATransaction.flush()
-        // The frozen desktop must be submitted before making a panel key; otherwise
-        // the front window's live shadow shrinks visibly during capture preparation.
+        // The very first visible frame already contains the frozen desktop and
+        // final shade. There is no live-desktop → filtered-image shadow transition.
         if presentsWindows {
+            for panel in panels { panel.orderFrontRegardless(); panel.displayIfNeeded() }
+            CATransaction.flush()
             panels.forEach { $0.allowsKey = true }
             let mouse = NSEvent.mouseLocation
-            let visible = panels.filter(\.isVisible)
-            let keyPanel = visible.first(where: { $0.frame.contains(mouse) }) ?? visible.first
+            let keyPanel = panels.first(where: { $0.frame.contains(mouse) }) ?? panels.first
             keyPanel?.makeKey()
+            if let panel = keyPanel, let canvas = panel.contentView as? CaptureCanvas {
+                canvas.showInitialPointer(at: canvas.convert(panel.convertPoint(fromScreen: mouse), from: nil))
+            }
         }
         pendingEscape.unregister()
     }
@@ -296,13 +288,13 @@ import Carbon
     }
 
     enum CaptureError: LocalizedError {
-        case noDisplay, encoding, clipboard, missingOverlayExclusion
+        case noDisplay, noImage, encoding, clipboard
         var errorDescription: String? {
             switch self {
             case .noDisplay: return L10n.text("没有找到可捕获的显示器。", "No display is available for capture.")
             case .encoding: return L10n.text("PNG 编码失败。", "PNG encoding failed.")
             case .clipboard: return L10n.text("无法写入剪贴板，请重试。", "Unable to write to the clipboard. Please try again.")
-            case .missingOverlayExclusion: return L10n.text("暂时无法从截图中排除选区遮罩，请重试。", "Unable to exclude the selection overlay. Please try again.")
+            case .noImage: return L10n.text("未收到截图画面，请重试。", "No screenshot image was returned. Please try again.")
             }
         }
     }

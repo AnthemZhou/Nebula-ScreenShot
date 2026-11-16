@@ -180,7 +180,8 @@ func check(_ condition: Bool, _ message: String) throws {
     try check(coordinator.isActive && errors == 0 && ready == 0, "Old capture disturbed the new session")
     source.complete(101, image: image)
     try await waitFor { ready == 1 }
-    try check(coordinator.panels.allSatisfy { ($0.contentView as? CaptureCanvas)?.screenshot != nil }, "Missing fresh pixels")
+    try check(coordinator.panels.allSatisfy { $0.isOpaque && ($0.contentView as? CaptureCanvas)?.screenshot != nil },
+              "Every display must have an opaque frozen image before presentation")
     print("PASS: 100 rapid begin/cancel cycles; stale successes/errors cannot close the next capture")
 
     let canvas = coordinator.panels[0].contentView as! CaptureCanvas

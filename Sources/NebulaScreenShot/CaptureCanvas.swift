@@ -174,12 +174,9 @@ import NebulaCore
     }
 
     private func drawSelectionBorder(in rect: CGRect) {
-        // A soft halo makes the thin dashes legible on dark content; a subtle
-        // dark under-stroke keeps the same white highlight visible on white.
+        // Keep a white-only highlight. A dark under-stroke reads as a second
+        // border on light content and makes the selection look unnecessarily heavy.
         for path in selectionBorderPaths(in: rect) {
-            NSColor.black.withAlphaComponent(0.22).setStroke()
-            path.lineWidth = 2
-            path.stroke()
             NSGraphicsContext.saveGraphicsState()
             let glow = NSShadow()
             glow.shadowColor = NSColor.white.withAlphaComponent(0.55)

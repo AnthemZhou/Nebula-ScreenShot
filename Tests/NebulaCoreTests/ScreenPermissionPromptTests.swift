@@ -4,60 +4,58 @@ import Testing
 
 @Test func deniedConsentDoesNotPromptAgainWhenOpeningSettingsOrRetrying() {
     var prompt = ScreenPermissionPrompt()
-    var requests = 0
-    let request = { requests += 1; return false }
-    #expect(prompt.requestOnce(using: request) == false)
-    #expect(prompt.requestOnce(using: request) == nil)
-    #expect(prompt.requestOnce(using: request) == nil)
-    #expect(requests == 1)
+    #expect(prompt.beginRequest() == true)
+    // Claim is held while the framework is still awaiting its callback.
+    #expect(prompt.beginRequest() == false)
+    prompt.completeRequest(granted: false)
+    #expect(prompt.beginRequest() == false)
+    #expect(prompt.actionBeforeCapture(granted: false) == .waitForConsent)
 }
 
 @Test func grantedConsentAllowsOnlyOneImmediateCaptureRetry() {
     var prompt = ScreenPermissionPrompt()
-    var retries = 0
-    for _ in 0..<3 {
-        if prompt.requestOnce(using: { true }) == true { retries += 1 }
-    }
-    #expect(retries == 1)
+    #expect(prompt.beginRequest() == true)
+    prompt.completeRequest(granted: true)
+    #expect(prompt.actionBeforeCapture(granted: true) == .capture)
+    #expect(prompt.beginRequest() == false)
 }
 
 @Test func newProcessCanRequestConsentAgainAfterPermissionRecovery() {
     var previousProcess = ScreenPermissionPrompt()
-    #expect(previousProcess.requestOnce(using: { false }) == false)
+    #expect(previousProcess.beginRequest() == true)
+    previousProcess.completeRequest(granted: false)
     var relaunchedProcess = ScreenPermissionPrompt()
-    #expect(relaunchedProcess.requestOnce(using: { true }) == true)
+    #expect(relaunchedProcess.beginRequest() == true)
 }
 
 @Test func implicitSystemPromptIsNotFollowedByExplicitPromptOrAnotherCapture() {
     var prompt = ScreenPermissionPrompt()
     #expect(prompt.actionBeforeCapture(granted: true) == .capture)
-    // Access changed after preflight; ScreenCaptureKit showed the native prompt.
     prompt.captureDenied()
-    var requests = 0
     for _ in 0..<10 {
         #expect(prompt.actionBeforeCapture(granted: false) == .waitForConsent)
-        #expect(prompt.actionAfterDenial(using: { requests += 1; return false }) == .openSettings)
+        #expect(prompt.beginRequest() == false)
     }
-    #expect(requests == 0)
 }
 
 @Test func waitingForNativeConsentBlocksCaptureUntilPermissionRestart() {
     var prompt = ScreenPermissionPrompt()
     #expect(prompt.actionBeforeCapture(granted: false) == .requestConsent)
-    #expect(prompt.actionAfterDenial(using: { false }) == .waitForSystem)
+    #expect(prompt.beginRequest() == true)
+    prompt.completeRequest(granted: false)
     for granted in [false, false, true] {
         #expect(prompt.actionBeforeCapture(granted: granted) == .waitForConsent)
     }
-    // The replacement process can capture after the system grants consent.
     let replacement = ScreenPermissionPrompt()
     #expect(replacement.actionBeforeCapture(granted: true) == .capture)
 }
 
-@Test func synchronousConsentGrantDoesNotBlockImmediateCapture() {
+@Test func startingConsentDoesNotCountAsGrantingScreenAccess() {
     var prompt = ScreenPermissionPrompt()
-    #expect(prompt.actionAfterDenial(using: { true }) == .retryCapture)
+    #expect(prompt.beginRequest() == true)
+    #expect(prompt.isWaiting)
+    #expect(prompt.actionBeforeCapture(granted: false) == .waitForConsent)
+    prompt.completeRequest(granted: true)
     #expect(!prompt.isWaiting)
-    #expect(prompt.actionBeforeCapture(granted: true) == .capture)
-    prompt.captureSucceeded()
     #expect(prompt.actionBeforeCapture(granted: true) == .capture)
 }
