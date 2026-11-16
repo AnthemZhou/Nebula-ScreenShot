@@ -5,31 +5,33 @@ import Testing
 @Test func firstInstallAndStableSignaturesDoNotResetPermission() {
     var fresh = ScreenPermissionRepairPolicy(identity: "new", previousIdentity: nil, isAdHoc: true,
                                              previouslyLaunched: false, savedPending: false)
-    #expect(fresh.consumeAfterCaptureDenial() == false)
+    #expect(fresh.consumeBeforeConsent(granted: false) == false)
     var signed = ScreenPermissionRepairPolicy(identity: "new", previousIdentity: "old", isAdHoc: false,
                                               previouslyLaunched: true, savedPending: true)
-    #expect(signed.consumeAfterCaptureDenial() == false)
+    #expect(signed.consumeBeforeConsent(granted: false) == false)
     var unknown = ScreenPermissionRepairPolicy(identity: nil, previousIdentity: "old", isAdHoc: true,
                                                previouslyLaunched: true, savedPending: true)
-    #expect(unknown.consumeAfterCaptureDenial() == false)
+    #expect(unknown.consumeBeforeConsent(granted: false) == false)
 }
 
 @Test func changedAdHocBuildRepairsOnlyOnceAcrossRelaunches() {
     var policy = ScreenPermissionRepairPolicy(identity: "new", previousIdentity: "old", isAdHoc: true,
                                                previouslyLaunched: true, savedPending: false)
     #expect(policy.pending)
-    #expect(policy.consumeAfterCaptureDenial() == true)
-    #expect(policy.consumeAfterCaptureDenial() == false)
+    #expect(policy.consumeBeforeConsent(granted: true) == false)
+    #expect(policy.pending)
+    #expect(policy.consumeBeforeConsent(granted: false) == true)
+    #expect(policy.consumeBeforeConsent(granted: false) == false)
     var relaunched = ScreenPermissionRepairPolicy(identity: "new", previousIdentity: "new", isAdHoc: true,
                                                   previouslyLaunched: true, savedPending: policy.pending)
-    #expect(relaunched.consumeAfterCaptureDenial() == false)
+    #expect(relaunched.consumeBeforeConsent(granted: false) == false)
 }
 
 @Test func successfulCaptureClearsUpgradeRepairWithoutTouchingPermission() {
     var policy = ScreenPermissionRepairPolicy(identity: "new", previousIdentity: "old", isAdHoc: true,
                                                previouslyLaunched: true, savedPending: false)
     policy.captureSucceeded()
-    #expect(policy.consumeAfterCaptureDenial() == false)
+    #expect(policy.consumeBeforeConsent(granted: false) == false)
 }
 
 @Test func legacyInstallAndUnattemptedUpgradeRetainOneRepairOpportunity() {
@@ -38,7 +40,7 @@ import Testing
     #expect(legacy.pending)
     var relaunched = ScreenPermissionRepairPolicy(identity: "new", previousIdentity: "new", isAdHoc: true,
                                                   previouslyLaunched: true, savedPending: legacy.pending)
-    #expect(relaunched.consumeAfterCaptureDenial() == true)
+    #expect(relaunched.consumeBeforeConsent(granted: false) == true)
 }
 
 @Test func nativeRequestWaitsWithoutAnAppAlertOrAutomaticRetry() {

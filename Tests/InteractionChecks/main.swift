@@ -248,6 +248,27 @@ enum HarnessError: Error, CustomStringConvertible {
         print("PASS: stationary dashed border pixels remain stable in all four drag directions")
     }
 
+    func runBorderContrastChecks() throws {
+        for gray: CGFloat in [0.03, 1] {
+            let context = CGContext(data: nil, width: 1800, height: 1280, bitsPerComponent: 8, bytesPerRow: 0,
+                                    space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            context.setFillColor(CGColor(gray: gray, alpha: 1))
+            context.fill(CGRect(x: 0, y: 0, width: 1800, height: 1280))
+            canvas.installScreenshot(context.makeImage()!)
+            canvas.resetSelection()
+            try drag(from: initialCrop.origin, to: CGPoint(x: initialCrop.maxX, y: initialCrop.maxY))
+            try hover(CGPoint(x: 300, y: 300))
+            let bitmap = try renderedCanvasBitmap()
+            let edge = (200..<300).map { bitmap.colorAt(x: $0, y: 79)!.usingColorSpace(.sRGB)!.redComponent }
+            let surface = bitmap.colorAt(x: 200, y: 60)!.usingColorSpace(.sRGB)!.redComponent
+            try check(edge.max()! > surface + 0.15, "Idle highlighter dashes must stand out on both light and dark content")
+            try check(edge.max()! - edge.min()! > 0.12, "Glow must keep the dash gaps visible")
+        }
+        canvas.resetSelection()
+        print("PASS: highlighter border stays distinct on white and dark backgrounds, with visible dash gaps")
+    }
+
     func runPointerChecks() throws {
         guard let hint = canvas.subviews.compactMap({ $0 as? CaptureHint }).first,
               let label = descendants(of: hint).compactMap({ $0 as? NSTextField }).first else {
@@ -850,6 +871,8 @@ MainActor.assumeIsolated {
         let pointer = try CanvasHarness()
         try pointer.runDashStabilityChecks()
         try pointer.runPointerChecks()
+        let contrast = try CanvasHarness()
+        try contrast.runBorderContrastChecks()
         if !CommandLine.arguments.contains("--english") {
             let exportState = try CanvasHarness()
             try exportState.runExportStateChecks()

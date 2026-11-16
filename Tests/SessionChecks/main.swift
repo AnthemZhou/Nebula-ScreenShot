@@ -9,12 +9,15 @@ enum CheckFailure: Error { case failed(String) }
 func check(_ condition: Bool, _ message: String) throws {
     if !condition { throw CheckFailure.failed(message) }
 }
-@MainActor func waitFor(_ condition: () -> Bool) async throws {
-    for _ in 0..<10_000 {
+@MainActor func waitFor(file: StaticString = #fileID, line: UInt = #line, _ condition: () -> Bool) async throws {
+    let deadline = ProcessInfo.processInfo.systemUptime + 3
+    while ProcessInfo.processInfo.systemUptime < deadline {
         if condition() { return }
-        await Task.yield()
+        // A continuously runnable main-actor task can starve AppKit's run-loop
+        // autorelease drain. Allow a turn, and bound the wait by elapsed time.
+        try await Task.sleep(for: .milliseconds(1))
     }
-    try check(condition(), "Timed out waiting for a fixture callback")
+    try check(condition(), "Timed out waiting for a fixture callback at \(file):\(line)")
 }
 
 @MainActor final class FakeSource: CaptureProviding {
@@ -24,7 +27,8 @@ func check(_ condition: Bool, _ message: String) throws {
     }
     var calls = 0
     var pending: [Int: Pending] = [:]
-    func prepareIfAllowed() {}
+    var warmupDenied: (() -> Void)?
+    func prepareIfAllowed(onPermissionDenied: @escaping () -> Void) { warmupDenied = onPermissionDenied }
     func invalidate() {}
     func capture(_ screens: [NSScreen]) async throws -> [(NSScreen, CGImage)] {
         calls += 1
@@ -151,6 +155,12 @@ func check(_ condition: Bool, _ message: String) throws {
     coordinator.onError = { _ in errors += 1 }
     coordinator.onCaptureReady = { ready += 1 }
     coordinator.onComplete = { _ in completed += 1 }
+    var permissionDenials = 0
+    coordinator.onPermissionNeeded = { permissionDenials += 1 }
+    coordinator.prepare()
+    source.warmupDenied?()
+    try check(permissionDenials == 1 && source.calls == 0,
+              "Metadata consent denial must reach the same permission flow without another capture")
     defer { coordinator.finish(restoreFocus: false) }
     for id in 1...100 {
         coordinator.begin()
@@ -158,6 +168,8 @@ func check(_ condition: Bool, _ message: String) throws {
         coordinator.begin() // Held/repeated shortcut cannot stack sessions.
         try check(source.calls == id && coordinator.panels.count == NSScreen.screens.count, "Duplicate session")
         try check(coordinator.panels.allSatisfy { !$0.isVisible }, "Fixture must not show windows")
+        try check(coordinator.panels.allSatisfy { !$0.canBecomeKey && !$0.isOpaque && !$0.hasShadow },
+                  "Pending shade must not take focus or add a shadow before fresh pixels")
         coordinator.finish(restoreFocus: false)
         try check(!coordinator.isActive && coordinator.panels.isEmpty, "Cancel left panels or active state")
     }
@@ -201,7 +213,9 @@ func check(_ condition: Bool, _ message: String) throws {
 
     for cycle in 1...50 {
         let sourceCall = source.calls + 1, encodeCall = encoder.calls + 1
-        coordinator.begin()
+        // Hidden fixtures have no user-event autorelease pool. Bound window
+        // construction explicitly so AppKit temporaries cannot outlive a cycle.
+        autoreleasepool { coordinator.begin() }
         try await waitFor { source.pending[sourceCall] != nil }
         source.complete(sourceCall, image: image)
         try await waitFor { ready == 2 + cycle }
@@ -216,6 +230,13 @@ func check(_ condition: Bool, _ message: String) throws {
         try await waitFor { encoder.calls == encodeCall }
         encoder.complete(encodeCall)
         try await waitFor { completed == 1 + cycle }
+        // NSApplication may keep its current event's autorelease pool while a
+        // hidden fixture receives no input. A private application event advances
+        // that pool without posting any keyboard/mouse event to the desktop.
+        let tick = NSEvent.otherEvent(with: .applicationDefined, location: .zero,
+            modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0, context: nil, subtype: 0, data1: 0, data2: 0)!
+        NSApp.postEvent(tick, atStart: false)
         try await waitFor { finishedCanvas == nil && finishedPanel == nil }
         try check(!coordinator.isActive && coordinator.panels.isEmpty,
                   "Completed capture must release its editor and panel before the next one")

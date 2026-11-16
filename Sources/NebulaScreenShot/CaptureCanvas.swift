@@ -162,8 +162,7 @@ import NebulaCore
             for annotation in displayAnnotations { AnnotationRenderer.draw(annotation, selection: selection) }
             drawEditingControls(selection: selection)
             NSGraphicsContext.restoreGraphicsState()
-            NSColor.white.withAlphaComponent(0.4).setStroke()
-            for path in selectionBorderPaths(in: selection) { path.stroke() }
+            drawSelectionBorder(in: selection)
             drawSelectionHighlight(in: selection)
             drawPinDeleteBadge()
         }
@@ -172,6 +171,26 @@ import NebulaCore
     private func selectionMask(in rect: CGRect) -> NSBezierPath {
         let radius = SelectionGeometry.cornerRadius(in: rect)
         return NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
+    }
+
+    private func drawSelectionBorder(in rect: CGRect) {
+        // A soft halo makes the thin dashes legible on dark content; a subtle
+        // dark under-stroke keeps the same white highlight visible on white.
+        for path in selectionBorderPaths(in: rect) {
+            NSColor.black.withAlphaComponent(0.22).setStroke()
+            path.lineWidth = 2
+            path.stroke()
+            NSGraphicsContext.saveGraphicsState()
+            let glow = NSShadow()
+            glow.shadowColor = NSColor.white.withAlphaComponent(0.55)
+            glow.shadowBlurRadius = 3
+            glow.shadowOffset = .zero
+            glow.set()
+            NSColor.white.withAlphaComponent(0.82).setStroke()
+            path.lineWidth = 1
+            path.stroke()
+            NSGraphicsContext.restoreGraphicsState()
+        }
     }
 
     private func selectionBorderPaths(in rect: CGRect) -> [NSBezierPath] {
@@ -266,11 +285,11 @@ import NebulaCore
         NSBezierPath(rect: region).addClip()
         // Reuse the same anchored segments; hovering only changes emphasis.
         for path in selectionBorderPaths(in: rect) {
-            NSColor.white.withAlphaComponent(0.08).setStroke()
-            path.lineWidth = 2
+            NSColor.white.withAlphaComponent(0.22).setStroke()
+            path.lineWidth = 3
             path.stroke()
-            NSColor.white.withAlphaComponent(0.7).setStroke()
-            path.lineWidth = 1.25
+            NSColor.white.setStroke()
+            path.lineWidth = 1.5
             path.stroke()
         }
     }

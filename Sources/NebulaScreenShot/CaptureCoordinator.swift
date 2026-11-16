@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 import NebulaCore
 import OSLog
 import QuartzCore
+import Carbon
 
 @MainActor final class CapturePanel: NSPanel {
     var allowsKey = true
@@ -24,6 +25,8 @@ import QuartzCore
     private var savePanel: NSSavePanel?
     private var sessionID: UUID?
     private var previousApplication: NSRunningApplication?
+    private let pendingEscape = HotKey(keyCode: UInt32(kVK_Escape), modifiers: 0,
+        identifier: EventHotKeyID(signature: 0x4E425343, id: 2))
     private(set) var isActive = false
     var onError: ((String) -> Void)?
     var onPermissionNeeded: (() -> Void)?
@@ -41,8 +44,8 @@ import QuartzCore
 
     func begin(demo: Bool = false, afterMenuDismissal: Bool = false) {
         guard !isActive else { return }
-        // Let ScreenCaptureKit report its actual authorization result. A separate
-        // Core Graphics preflight must not prevent this call or substitute for it.
+        // AppDelegate serializes permission before entry. ScreenCaptureKit still
+        // reports revocation/errors that occur between that check and capture.
         isActive = true
         let started = ProcessInfo.processInfo.systemUptime
         let session = UUID()
@@ -98,17 +101,27 @@ import QuartzCore
         }
     }
 
-    func prepare() { source.prepareIfAllowed() }
-    func displaysChanged() { source.invalidate(); prepare() }
+    func prepare() {
+        source.prepareIfAllowed { [weak self] in self?.onPermissionNeeded?() }
+    }
+    func displaysChanged(prepare shouldPrepare: Bool = true) {
+        source.invalidate()
+        if shouldPrepare { prepare() }
+    }
 
     private func presentShade(_ screens: [NSScreen], started: TimeInterval) {
         let mouse = NSEvent.mouseLocation
+        if presentsWindows {
+            pendingEscape.onPress = { [weak self] in self?.finish() }
+            pendingEscape.register()
+        }
         for screen in screens {
-            // Take keyboard focus without activating Nebula or changing the underlying app's Space.
+            // Keep the original window's focus/shadow while the shade is transparent.
+            // Keyboard focus moves only after fresh pixels cover the live desktop.
             let panel = CapturePanel(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel],
                                      backing: .buffered, defer: false)
             panel.animationBehavior = .none
-            panel.allowsKey = presentsWindows
+            panel.allowsKey = presentsWindows && !pendingEscape.isRegistered
             panel.setFrame(screen.frame, display: false)
             panel.level = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 1)
             panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
@@ -130,7 +143,7 @@ import QuartzCore
             }
             canvas.onBeginSelection = { [weak self, weak panel] in
                 for other in self?.panels ?? [] where other !== panel { other.orderOut(nil) }
-                if let panel, self?.presentsWindows == true, !panel.isKeyWindow { panel.makeKey() }
+                if let panel, self?.presentsWindows == true, panel.allowsKey, !panel.isKeyWindow { panel.makeKey() }
             }
             panel.contentView = canvas
             panel.makeFirstResponder(canvas)
@@ -139,7 +152,8 @@ import QuartzCore
         guard presentsWindows else { return }
         for panel in panels { panel.orderFrontRegardless(); panel.displayIfNeeded() }
         let keyPanel = panels.first(where: { $0.frame.contains(mouse) }) ?? panels.first
-        keyPanel?.makeKey()
+        // If Escape could not be reserved, preserve cancellation via normal focus.
+        if keyPanel?.allowsKey == true { keyPanel?.makeKey() }
         if let panel = keyPanel, let canvas = panel.contentView as? CaptureCanvas {
             canvas.showInitialPointer(at: canvas.convert(panel.convertPoint(fromScreen: mouse), from: nil))
             panel.displayIfNeeded()
@@ -158,9 +172,20 @@ import QuartzCore
             if presentsWindows { panel.displayIfNeeded() }
         }
         CATransaction.flush()
+        // The frozen desktop must be submitted before making a panel key; otherwise
+        // the front window's live shadow shrinks visibly during capture preparation.
+        if presentsWindows {
+            panels.forEach { $0.allowsKey = true }
+            let mouse = NSEvent.mouseLocation
+            let visible = panels.filter(\.isVisible)
+            let keyPanel = visible.first(where: { $0.frame.contains(mouse) }) ?? visible.first
+            keyPanel?.makeKey()
+        }
+        pendingEscape.unregister()
     }
 
     func finish(restoreFocus: Bool = true) {
+        pendingEscape.unregister()
         sessionID = nil
         captureTask?.cancel()
         captureTask = nil

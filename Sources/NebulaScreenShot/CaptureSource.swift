@@ -6,7 +6,7 @@ import NebulaCore
 
 /// Reuses display filters only. Every capture requests fresh pixels; no background screen stream.
 @MainActor protocol CaptureProviding {
-    func prepareIfAllowed()
+    func prepareIfAllowed(onPermissionDenied: @escaping () -> Void)
     func invalidate()
     func capture(_ screens: [NSScreen]) async throws -> [(NSScreen, CGImage)]
 }
@@ -21,13 +21,17 @@ import NebulaCore
     private var warmup: Task<Void, Never>?
     private let exclusion = CaptureExclusion()
 
-    func prepareIfAllowed() {
-        // This preflight controls optional metadata warmup only, never a user-requested capture.
+    func prepareIfAllowed(onPermissionDenied: @escaping () -> Void) {
+        // Warmup must not trigger a consent prompt in the background.
         guard !cache.hasValue, !cache.isLoading, warmup == nil, CGPreflightScreenCaptureAccess() else { return }
         let generation = cache.generation
         warmup = Task { @MainActor [weak self] in
             guard let self else { return }
-            _ = try? await self.loadFilters()
+            do { _ = try await self.loadFilters() }
+            catch {
+                if !Task.isCancelled, self.cache.generation == generation,
+                   ScreenCaptureFailure.isPermissionDenied(error) { onPermissionDenied() }
+            }
             if self.cache.generation == generation { self.warmup = nil }
         }
     }
@@ -98,6 +102,7 @@ import NebulaCore
             config.width = Int(screen.frame.width * screen.backingScaleFactor)
             config.height = Int(screen.frame.height * screen.backingScaleFactor)
             config.showsCursor = false
+            config.ignoreShadowsDisplay = false
             config.captureResolution = .best
             // All displays start together instead of serially waiting for each screenshot.
             tasks.append(Task { @MainActor in

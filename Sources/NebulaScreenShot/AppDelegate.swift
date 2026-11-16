@@ -29,6 +29,7 @@ import Carbon
         capture.onError = { [weak self] in self?.showError($0) }
         capture.onPermissionNeeded = { [weak self] in self?.showPermissionHelp() }
         capture.onCaptureReady = { [weak self] in
+            self?.permissionPrompt.captureSucceeded()
             self?.permissionLifecycle.cancel()
             self?.permissionUpgrade.clear()
             self?.permissionRepairItem.isHidden = true
@@ -43,7 +44,7 @@ import Carbon
         hotKey.onPress = { [weak self] in self?.captureFromShortcut() }
         hotKey.register()
         if !CommandLine.arguments.contains("--repair-screen-permission") &&
-           !CommandLine.arguments.contains("--request-screen-permission") { capture.prepare() }
+           !CommandLine.arguments.contains("--request-screen-permission") { prepareCaptureIfAllowed() }
         NotificationCenter.default.addObserver(self, selector: #selector(displaysChanged),
                                                name: NSApplication.didChangeScreenParametersNotification, object: nil)
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(checkPermissionChange),
@@ -60,7 +61,7 @@ import Carbon
         } else if CommandLine.arguments.contains("--demo") {
             capture.begin(demo: true)
         } else if CommandLine.arguments.contains("--capture") {
-            capture.begin()
+            beginAuthorizedCapture()
         } else if firstLaunch {
             showWelcome()
         }
@@ -117,14 +118,33 @@ import Carbon
     @objc private func beginCapture() {
         guard !permissionFlowActive else { return }
         welcome?.window?.orderOut(nil)
-        capture.begin(afterMenuDismissal: true)
+        beginAuthorizedCapture(afterMenuDismissal: true)
     }
 
     private func captureFromShortcut() {
         guard !permissionFlowActive else { return }
         statusItem.menu?.cancelTracking()
         welcome?.window?.orderOut(nil)
-        capture.begin()
+        beginAuthorizedCapture()
+    }
+
+    private func beginAuthorizedCapture(afterMenuDismissal: Bool = false) {
+        guard !permissionFlowActive, !permissionRestartPlanned, !capture.isActive else { return }
+        let granted = CGPreflightScreenCaptureAccess()
+        switch permissionPrompt.actionBeforeCapture(granted: granted) {
+        case .capture: capture.begin(afterMenuDismissal: afterMenuDismissal)
+        case .requestConsent: requestNativePermission(retryCaptureIfGranted: true)
+        case .waitForConsent:
+            permissionLifecycle.checkForGrant()
+            if !permissionRestartPlanned { requestNativePermission(openSettingsAfterRequest: true) }
+        }
+    }
+
+    private func prepareCaptureIfAllowed() {
+        // A changed build must resolve its permission at the user's first capture,
+        // not indirectly through background ScreenCaptureKit metadata warmup.
+        guard !permissionFlowActive, !permissionPrompt.isWaiting, !permissionUpgrade.isPending else { return }
+        capture.prepare()
     }
 
     @objc private func beginDemo() {
@@ -177,20 +197,31 @@ import Carbon
         guard !permissionFlowActive else { return }
         permissionRepairItem.isHidden = false
         statusItem.button?.toolTip = L10n.text("屏幕录制权限待授权 · 可在菜单中修复授权", "Screen recording permission required · Repair available in the menu")
-        // Only a changed ad-hoc build gets one automatic repair after a real denial.
-        // The persisted claim prevents resets on subsequent denials or relaunches.
-        if permissionUpgrade.consumeAfterCaptureDenial() {
-            permissionLogger.notice("Repairing outdated ad-hoc screen permission once")
-            permissionFlowActive = true
-            recoverScreenPermission()
-            return
+        permissionPrompt.captureDenied()
+        permissionLogger.notice("ScreenCaptureKit denied access; observing existing native consent without another request")
+        observePendingConsent()
+    }
+
+    private func observePendingConsent() {
+        permissionFlowActive = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.permissionFlowActive = false }
+            do { try await self.permissionLifecycle.prepare() }
+            catch { self.permissionLifecycle.cancel(); self.showError(error.localizedDescription) }
         }
-        requestNativePermission(retryCaptureIfGranted: true)
     }
 
     private func requestNativePermission(retryCaptureIfGranted: Bool = false, openSettingsAfterRequest: Bool = false) {
-        guard !permissionFlowActive else { return }
+        guard !permissionFlowActive, !permissionRestartPlanned else { return }
         permissionFlowActive = true
+        // Repair only before the first prompt. Resetting after ScreenCaptureKit
+        // has prompted causes the same native dialog to appear a second time.
+        if !permissionPrompt.isWaiting && permissionUpgrade.consumeBeforeConsent(granted: CGPreflightScreenCaptureAccess()) {
+            permissionLogger.notice("Repairing outdated ad-hoc authorization before requesting native consent")
+            recoverScreenPermission()
+            return
+        }
         Task { @MainActor [weak self] in
             guard let self else { return }
             defer { self.permissionFlowActive = false }
@@ -198,15 +229,16 @@ import Carbon
                 // The helper must be watching before native consent can terminate this app.
                 try await self.permissionLifecycle.prepare()
                 guard !self.explicitQuit, !self.sessionEnding else { self.permissionLifecycle.cancel(); return }
-                NSApp.activate(ignoringOtherApps: true)
                 let action = self.permissionPrompt.actionAfterDenial {
+                    NSApp.activate(ignoringOtherApps: true)
                     self.permissionLogger.notice("Requesting native screen consent; automatic relaunch armed")
                     return CGRequestScreenCaptureAccess()
                 }
                 switch action {
                 case .retryCapture:
+                    self.permissionLifecycle.cancel()
                     if retryCaptureIfGranted { self.capture.begin() }
-                    else { self.capture.prepare() }
+                    else { self.prepareCaptureIfAllowed() }
                 case .waitForSystem: self.permissionRepairItem.isHidden = false
                 case .openSettings: self.openScreenPermissionSettings()
                 }
@@ -252,6 +284,7 @@ import Carbon
 
     private func restartAfterConsent() {
         guard !explicitQuit, !sessionEnding, !permissionRestartPlanned else { return }
+        permissionRestartPlanned = true
         permissionFlowActive = true
         capture.finish(restoreFocus: false)
         Task { @MainActor [weak self] in
@@ -264,6 +297,7 @@ import Carbon
                 NSApp.terminate(nil)
             } catch {
                 self.permissionLifecycle.cancel()
+                self.permissionRestartPlanned = false
                 self.permissionFlowActive = false
                 self.showError(error.localizedDescription)
             }
@@ -279,7 +313,7 @@ import Carbon
     @objc private func openHelp() { NSWorkspace.shared.open(URL(string: "https://github.com/AnthemZhou/Nebula-ScreenShot#使用")!) }
     @objc private func displaysChanged() {
         if capture.isActive { capture.finish() }
-        capture.displaysChanged()
+        capture.displaysChanged(prepare: !permissionFlowActive && !permissionPrompt.isWaiting && !permissionUpgrade.isPending)
     }
     @objc private func openRepository() { NSWorkspace.shared.open(URL(string: "https://github.com/AnthemZhou/Nebula-ScreenShot")!) }
     @objc private func quit() {

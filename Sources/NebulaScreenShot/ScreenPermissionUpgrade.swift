@@ -21,8 +21,10 @@ final class ScreenPermissionUpgrade {
         persist()
     }
 
-    func consumeAfterCaptureDenial() -> Bool {
-        let shouldRepair = policy.consumeAfterCaptureDenial()
+    var isPending: Bool { policy.pending }
+
+    func consumeBeforeConsent(granted: Bool) -> Bool {
+        let shouldRepair = policy.consumeBeforeConsent(granted: granted)
         persist()
         return shouldRepair
     }

@@ -2,6 +2,9 @@
 
 ## 1.1.4 — Unreleased
 
+- Serialize native screen-recording consent before capture, prevent another request after ScreenCaptureKit has already prompted, and keep waiting shortcuts out of the capture path. Perform a pending ad-hoc upgrade repair before the first dialog, retaining the automatic consent relaunch.
+- Keep the live desktop's focus while the immediate shade is waiting for pixels; transfer keyboard focus after the frozen image is displayed. Reserve Escape only for this brief preparation phase, releasing it on success, error or cancellation.
+- Trial a rounded crop opening with longer, coordinate-anchored white dashes and a soft highlighter glow. Keep resize hover emphasis and rectangular, undimmed exports.
 - Keep compact pin delete badges clear of tiny pin numbers, let controls extend beyond the crop, and enlarge their invisible click margin without stealing pin-body drags. Keep badges on screen near display edges.
 - Bias crop resize targets toward the shaded exterior, prioritize nearby annotation edits, and ignore sub-threshold pointer jitter. Tiny crop interiors remain available for drawing and pins.
 - Replace the colorful app icon with a black rounded tile, white viewfinder and white teardrop pin; simplify the center detail at small icon sizes.

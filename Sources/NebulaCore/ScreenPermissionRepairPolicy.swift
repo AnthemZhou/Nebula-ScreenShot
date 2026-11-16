@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 import Foundation
 
-/// Only an actual capture denial may consume this one-time ad-hoc upgrade repair.
+/// A known ad-hoc upgrade may repair denied authorization before any native prompt.
 public struct ScreenPermissionRepairPolicy {
     public private(set) var pending: Bool
 
@@ -11,8 +11,8 @@ public struct ScreenPermissionRepairPolicy {
         pending = identity == previousIdentity ? savedPending : previouslyLaunched
     }
 
-    public mutating func consumeAfterCaptureDenial() -> Bool {
-        guard pending else { return false }
+    public mutating func consumeBeforeConsent(granted: Bool) -> Bool {
+        guard pending, !granted else { return false }
         pending = false
         return true
     }
