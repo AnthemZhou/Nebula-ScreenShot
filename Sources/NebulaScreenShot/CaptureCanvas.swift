@@ -1,10 +1,28 @@
 // SPDX-License-Identifier: GPL-3.0-only
 import AppKit
 import NebulaCore
+import QuartzCore
+
+/// A transparent, non-interactive annotation plane above the frozen desktop.
+@MainActor private final class CaptureMarkingsView: NSView {
+    private let paint: () -> Void
+    init(paint: @escaping () -> Void) {
+        self.paint = paint
+        super.init(frame: .zero)
+        wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func draw(_ dirtyRect: NSRect) { paint() }
+}
 
 @MainActor final class CaptureCanvas: NSView {
     private(set) var screenshot: CGImage?
     private var background: NSImage?
+    private let shadeLayer = CAShapeLayer()
+    private lazy var markings = CaptureMarkingsView { [weak self] in self?.drawMarkings() }
     private let pixelScale: CGFloat
     private(set) var selection: CGRect?
     private var draft: Annotation?
@@ -60,6 +78,9 @@ import NebulaCore
     var onReselect: (() -> Void)?
 
     override var isFlipped: Bool { true }
+    // Keep the frozen desktop on the compositor instead of rasterizing both
+    // Retina displays on entry and again on every selection/annotation change.
+    override var wantsUpdateLayer: Bool { true }
     override var acceptsFirstResponder: Bool { true }
     override var needsPanelToBecomeKey: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -71,6 +92,8 @@ import NebulaCore
         super.init(frame: frame)
         wantsLayer = true
         layerContentsRedrawPolicy = .onSetNeedsDisplay
+        markings.isHidden = true
+        addSubview(markings)
         addSubview(hint)
         updateHint()
     }
@@ -135,6 +158,37 @@ import NebulaCore
         refresh()
     }
 
+    override func updateLayer() {
+        guard let layer else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.contents = screenshot
+        layer.contentsGravity = .resize
+        shadeLayer.frame = bounds
+        shadeLayer.fillColor = NSColor.black.withAlphaComponent(0.48).cgColor
+        shadeLayer.fillRule = .evenOdd
+        let path = CGMutablePath()
+        path.addRect(bounds)
+        if let selection {
+            let radius = SelectionGeometry.cornerRadius(in: selection)
+            path.addRoundedRect(in: selection, cornerWidth: radius, cornerHeight: radius)
+            // The overlay only needs backing pixels around the crop and its
+            // controls. No full-screen annotation buffer is allocated on entry.
+            let region = selection.insetBy(dx: -64, dy: -64).intersection(bounds)
+            markings.frame = region
+            markings.bounds = region
+            markings.isHidden = false
+            markings.needsDisplay = true
+        } else {
+            markings.isHidden = true
+        }
+        shadeLayer.path = path
+        if shadeLayer.superlayer == nil { layer.insertSublayer(shadeLayer, at: 0) }
+        CATransaction.commit()
+    }
+
+    // Bitmap previews use the same drawing geometry. Live presentation keeps
+    // the image and shade on separate layers and draws only the annotation plane.
     override func draw(_ dirtyRect: NSRect) {
         if let background {
             background.draw(in: bounds, from: .zero, operation: .copy, fraction: 1, respectFlipped: true, hints: nil)
@@ -156,6 +210,10 @@ import NebulaCore
             }
         }
 
+        drawMarkings()
+    }
+
+    private func drawMarkings() {
         if let selection {
             NSGraphicsContext.saveGraphicsState()
             selectionMask(in: selection).addClip()

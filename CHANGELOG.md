@@ -2,6 +2,7 @@
 
 ## 1.1.4 — Unreleased
 
+- Composite the frozen desktop and rounded shade directly with Core Animation, drawing annotations in a separate crop-sized plane. Avoid full-screen bitmap redraws on entry and during selection; add separate panel setup, image-layer and presentation timings.
 - Use one asynchronous ScreenCaptureKit consent request; remove the separate Core Graphics request path and concurrent Settings launch. Keep shortcuts waiting and the automatic relaunch watcher armed until access is confirmed. Perform a pending ad-hoc upgrade repair before the first dialog.
 - Stop polling permission while the native consent dialog is active or handing off to Settings. Observe access when Settings closes/deactivates or the user retries capture, retaining the quit/reopen helper.
 - Present the complete frozen desktop and shade together, eliminating the visible live-desktop-to-screenshot transition and its shadow change. Use macOS 26 direct region screenshots without metadata enumeration or application-layer exclusion; retain a display-filter fallback on macOS 14–15. Keep Escape available while preparing, releasing its temporary binding on success, error or cancellation.

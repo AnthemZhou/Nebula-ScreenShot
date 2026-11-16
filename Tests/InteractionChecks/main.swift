@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 import AppKit
 import NebulaCore
+import QuartzCore
 
 // Calls only this process's own AppKit view methods. No posted system events,
 // visible windows, screen capture, pasteboard access, or changes to the installed app.
@@ -213,6 +214,67 @@ enum HarnessError: Error, CustomStringConvertible {
     }
 
     func hover(_ point: CGPoint) throws { canvas.mouseMoved(with: try mouse(.mouseMoved, point)) }
+
+    func runPresentationChecks() throws {
+        let context = CGContext(data: nil, width: 1800, height: 1280, bitsPerComponent: 8, bytesPerRow: 0,
+                                space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        for (rect, color) in [(CGRect(x: 0, y: 0, width: 900, height: 640), CGColor(red: 0.8, green: 0.2, blue: 0.1, alpha: 1)),
+                              (CGRect(x: 900, y: 0, width: 900, height: 640), CGColor(red: 0.1, green: 0.8, blue: 0.2, alpha: 1)),
+                              (CGRect(x: 0, y: 640, width: 900, height: 640), CGColor(red: 0.2, green: 0.1, blue: 0.8, alpha: 1)),
+                              (CGRect(x: 900, y: 640, width: 900, height: 640), CGColor(red: 0.8, green: 0.7, blue: 0.1, alpha: 1))] {
+            context.setFillColor(color); context.fill(rect)
+        }
+        canvas.installScreenshot(context.makeImage()!)
+        func layerFrame(reference: Bool = false) throws -> NSBitmapImageRep {
+            window.display()
+            // Glass requires WindowServer and clears offscreen layer rendering.
+            // Compare the desktop/shade independently of toolbar material.
+            let visibleToolbars = canvas.subviews.compactMap { $0 as? AnnotationToolbar }.filter { !$0.isHidden }
+            visibleToolbars.forEach { $0.isHidden = true }
+            defer { visibleToolbars.forEach { $0.isHidden = false } }
+            CATransaction.flush()
+            let context = CGContext(data: nil, width: 1800, height: 1280, bitsPerComponent: 8, bytesPerRow: 0,
+                                    space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            context.translateBy(x: 0, y: 1280)
+            context.scaleBy(x: 2, y: -2)
+            if reference {
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: true)
+                canvas.draw(canvas.bounds)
+                NSGraphicsContext.restoreGraphicsState()
+            } else { canvas.layer!.render(in: context) }
+            return NSBitmapImageRep(cgImage: context.makeImage()!)
+        }
+        let initial = try layerFrame()
+        // Enter the real AppKit drawing path, then compare points outside the crop.
+        // Colored quadrants catch upside-down/rotated contents as well as double shade.
+        try drag(from: CGPoint(x: 300, y: 200), to: CGPoint(x: 600, y: 400))
+        try check(canvas.hitTest(CGPoint(x: 400, y: 300)) === canvas,
+                  "The annotation plane must let native pointer events reach the canvas")
+        let editing = try layerFrame()
+        let reference = try layerFrame(reference: true)
+        for (x, y) in [(20, 20), (1780, 20), (20, 1260), (1780, 1260)] {
+            let a = initial.colorAt(x: x, y: y)!.usingColorSpace(.sRGB)!
+            let b = editing.colorAt(x: x, y: y)!.usingColorSpace(.sRGB)!
+            try check(abs(a.redComponent-b.redComponent) < 0.015 && abs(a.greenComponent-b.greenComponent) < 0.015 && abs(a.blueComponent-b.blueComponent) < 0.015,
+                      "First frame and editing must have identical orientation, colors and shade: \(a) vs \(b)")
+        }
+        for (x, y) in [(20, 20), (1780, 1260), (700, 500), (1100, 700)] {
+            let a = editing.colorAt(x: x, y: y)!.usingColorSpace(.sRGB)!
+            let b = reference.colorAt(x: x, y: y)!.usingColorSpace(.sRGB)!
+            try check(abs(a.redComponent-b.redComponent) < 0.015 && abs(a.greenComponent-b.greenComponent) < 0.015 && abs(a.blueComponent-b.blueComponent) < 0.015,
+                      "Composited crop opening must match the bitmap renderer: \(a) vs \(b)")
+        }
+        canvas.resetSelection()
+        let reset = try layerFrame()
+        let a = initial.colorAt(x: 20, y: 20)!, b = reset.colorAt(x: 20, y: 20)!
+        try check(abs(a.redComponent-b.redComponent) < 0.015 && abs(a.blueComponent-b.blueComponent) < 0.015,
+                  "Reselecting must restore the same initial shade")
+        try check(!window.isVisible, "Presentation check must stay hidden")
+        print("PASS: direct-layer first frame matches editing and reset; correct orientation and no shade flash")
+    }
 
     func runBorderStabilityChecks() throws {
         // Compare real rendered pixels along edges that stay still while the
@@ -875,6 +937,8 @@ MainActor.assumeIsolated {
     let app = NSApplication.shared
     app.setActivationPolicy(.prohibited)
     do {
+        let presentation = try CanvasHarness()
+        try presentation.runPresentationChecks()
         let pointer = try CanvasHarness()
         try pointer.runBorderStabilityChecks()
         try pointer.runPointerChecks()

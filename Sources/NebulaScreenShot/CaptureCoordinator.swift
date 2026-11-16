@@ -53,6 +53,7 @@ import Carbon
         previousApplication = presentsWindows ? NSWorkspace.shared.frontmostApplication : nil
         let screens = NSScreen.screens
         preparePanels(screens)
+        let prepared = ProcessInfo.processInfo.systemUptime
         captureTask = Task { @MainActor [weak self] in
             guard let self else { return }
             defer { if self.sessionID == session { self.captureTask = nil } }
@@ -80,12 +81,13 @@ import Carbon
                 try Task.checkCancellation()
                 guard self.sessionID == session else { return }
                 let captured = ProcessInfo.processInfo.systemUptime
-                self.installSnapshots(snapshots)
+                let presentation = self.installSnapshots(snapshots)
                 if !demo {
                     self.onCaptureReady?()
                     let totalMS = Int((ProcessInfo.processInfo.systemUptime - started) * 1000)
                     let panelsMS = Int((ProcessInfo.processInfo.systemUptime - captured) * 1000)
                     self.logger.notice("Screenshot selection ready; displays: \(snapshots.count, privacy: .public); total \(totalMS, privacy: .public) ms; panels \(panelsMS, privacy: .public) ms")
+                    self.logger.notice("Presentation timings: panel setup \(Int((prepared - started) * 1000), privacy: .public) ms; image layers \(presentation.layers, privacy: .public) ms; show/focus \(presentation.show, privacy: .public) ms")
                 }
             } catch is CancellationError {
                 if self.sessionID == session { self.finish() }
@@ -152,7 +154,8 @@ import Carbon
         }
     }
 
-    private func installSnapshots(_ snapshots: [(NSScreen, CGImage)]) {
+    private func installSnapshots(_ snapshots: [(NSScreen, CGImage)]) -> (layers: Int, show: Int) {
+        let started = ProcessInfo.processInfo.systemUptime
         for (screen, image) in snapshots {
             guard let panel = panels.first(where: { $0.frame == screen.frame }),
                   let canvas = panel.contentView as? CaptureCanvas else { continue }
@@ -160,6 +163,7 @@ import Carbon
             panel.isOpaque = true
             if presentsWindows { panel.display() }
         }
+        let installed = ProcessInfo.processInfo.systemUptime
         // The very first visible frame already contains the frozen desktop and
         // final shade. There is no live-desktop → filtered-image shadow transition.
         if presentsWindows {
@@ -174,6 +178,7 @@ import Carbon
             }
         }
         pendingEscape.unregister()
+        return (Int((installed - started) * 1000), Int((ProcessInfo.processInfo.systemUptime - installed) * 1000))
     }
 
     func finish(restoreFocus: Bool = true) {
