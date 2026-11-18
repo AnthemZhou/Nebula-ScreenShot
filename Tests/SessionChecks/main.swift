@@ -57,6 +57,95 @@ func check(_ condition: Bool, _ message: String) throws {
     }
 }
 
+@MainActor final class KeyboardSink: NSView {
+    var received = 0
+    override var acceptsFirstResponder: Bool { true }
+    override func keyDown(with event: NSEvent) { received += 1 }
+}
+
+@MainActor func checkCaptureInput() async throws {
+    let context = CGContext(data: nil, width: 128, height: 128, bitsPerComponent: 8, bytesPerRow: 0,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+    context.setFillColor(CGColor(gray: 0.6, alpha: 1)); context.fill(CGRect(x: 0, y: 0, width: 128, height: 128))
+    let image = context.makeImage()!
+    let source = FakeSource(), encoder = FakeEncoder(), clipboard = NSPasteboard.withUniqueName()
+    let coordinator = CaptureCoordinator(source: source, presentsWindows: false, pasteboard: clipboard, encode: encoder.encode)
+    var ready = 0, completed = 0
+    coordinator.onCaptureReady = { ready += 1 }
+    coordinator.onComplete = { _ in completed += 1 }
+    defer { coordinator.finish(restoreFocus: false); clipboard.releaseGlobally() }
+
+    func key(_ panel: CapturePanel, code: UInt16, down: Bool, repeatKey: Bool = false,
+             command: Bool = false, equivalent: Bool = false, handled: Bool = true) throws {
+        let text = code == 8 ? "c" : "\r"
+        let event = NSEvent.keyEvent(with: down ? .keyDown : .keyUp, location: .zero,
+            modifierFlags: command ? [.command] : [], timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: panel.windowNumber, context: nil, characters: text,
+            charactersIgnoringModifiers: text, isARepeat: repeatKey, keyCode: code)!
+        if equivalent { try check(panel.performKeyEquivalent(with: event) == handled, "Only the active capture may handle key equivalents") }
+        else { panel.sendEvent(event) }
+    }
+
+    for (cycle, code) in [UInt16(36), UInt16(76), UInt16(8)].enumerated() {
+        coordinator.begin()
+        try await waitFor { source.pending[cycle + 1] != nil }
+        source.complete(cycle + 1, image: image)
+        try await waitFor { ready == cycle + 1 }
+        let panel = coordinator.panels[0], canvas = panel.contentView as! CaptureCanvas
+        try check(!panel.styleMask.contains(.nonactivatingPanel) && !panel.ignoresMouseEvents,
+                  "Capture must own input instead of leaving another application active")
+        for (type, point): (NSEvent.EventType, CGPoint) in [(.leftMouseDown, CGPoint(x: 40, y: 40)),
+                                                           (.leftMouseDragged, CGPoint(x: 340, y: 240)),
+                                                           (.leftMouseUp, CGPoint(x: 340, y: 240))] {
+            let event = NSEvent.mouseEvent(with: type, location: canvas.convert(point, to: nil), modifierFlags: [],
+                timestamp: 1, windowNumber: panel.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1)!
+            if type == .leftMouseDown { canvas.mouseDown(with: event) }
+            else if type == .leftMouseDragged { canvas.mouseDragged(with: event) }
+            else { canvas.mouseUp(with: event) }
+        }
+        for other in coordinator.panels {
+            let view = other.contentView as! CaptureCanvas
+            try check(view.hitTest(CGPoint(x: view.bounds.maxX - 5, y: view.bounds.maxY - 5)) === view,
+                      "Dark canvas must receive clicks instead of passing through to the desktop")
+        }
+        let sink = KeyboardSink(frame: CGRect(x: 400, y: 40, width: 10, height: 10))
+        canvas.addSubview(sink)
+        try check(panel.makeFirstResponder(sink), "Fixture must give first responder to another control")
+        try key(panel, code: code, down: true, command: code == 8, equivalent: code == 8)
+        try await waitFor { encoder.calls == cycle + 1 }
+        // Release, then press again while encoding is still in flight.
+        try key(panel, code: code, down: false)
+        try key(panel, code: code, down: true, command: code == 8, equivalent: code == 8)
+        clipboard.clearContents()
+        encoder.complete(cycle + 1)
+        try await waitFor { clipboard.data(forType: .png) != nil }
+        try check(coordinator.isActive && completed == cycle,
+                  "Successful copy must not hand a held confirmation key to the underlying app")
+        try key(panel, code: code, down: true, repeatKey: true, command: code == 8, equivalent: code == 8)
+        try check(encoder.calls == cycle + 1 && sink.received == 0,
+                  "Repeat/busy confirmations must be consumed, with one export and no responder leakage")
+        try key(panel, code: code, down: false)
+        try await waitFor { completed == cycle + 1 }
+        try check(!coordinator.isActive && coordinator.panels.isEmpty, "Releasing confirmation must close the capture")
+        try key(panel, code: 8, down: true, command: true, equivalent: true, handled: false)
+    }
+    coordinator.begin()
+    try await waitFor { source.pending[4] != nil }
+    source.complete(4, image: image)
+    try await waitFor { ready == 4 }
+    let bitmap = NSBitmapImageRep(cgImage: image)
+    (coordinator.panels[0].contentView as! CaptureCanvas).onCopy?(bitmap)
+    try await waitFor { encoder.calls == 4 }
+    clipboard.clearContents()
+    coordinator.applicationLostFocus()
+    try check(!coordinator.isActive && coordinator.panels.isEmpty, "Switching apps must not leave a stranded dark capture")
+    encoder.complete(4)
+    for _ in 0..<20 { await Task.yield() }
+    try check(clipboard.data(forType: .png) == nil && completed == 3, "Focus-loss cancellation must suppress late exports")
+    print("PASS: Return, keypad Enter and Command-C own panel input; held/busy repeats, dark-area hit testing and focus-loss cancellation")
+}
+
 @MainActor func checkHotKey() throws {
     let modifiers = UInt32(controlKey | shiftKey | cmdKey | optionKey)
     let identifier = EventHotKeyID(signature: 0x4E425354, id: 99)
@@ -251,6 +340,7 @@ MainActor.assumeIsolated {
     Task { @MainActor in
         do {
             try checkHotKey()
+            try await checkCaptureInput()
             try await checkSessions()
             try await checkEncodingResponsiveness()
             exit(0)

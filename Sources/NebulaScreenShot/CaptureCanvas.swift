@@ -57,6 +57,7 @@ import QuartzCore
         return items
     }
     private var interaction: Interaction?
+    var isInteracting: Bool { interaction != nil }
     private var spaceHeld = false
     private var exportBusy = false
     private static let dragThreshold: CGFloat = 4
@@ -145,6 +146,7 @@ import QuartzCore
     }
 
     func resetSelection() {
+        spaceHeld = false
         selection = nil
         interaction = nil
         draft = nil

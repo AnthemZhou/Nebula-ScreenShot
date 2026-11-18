@@ -4,6 +4,10 @@ Run `swift test`, `./scripts/check-interactions.sh`, `./scripts/check-sessions.s
 
 ## Capture and permissions
 
+- With a blank TextEdit document underneath, capture, drag a crop, click a toolbar color and then a shaded area. One Return must copy and close the capture; the document must receive no newline. Repeat with keypad Enter and Command-C, and verify the image is on the clipboard.
+- Hold Return through a large copy and release it. The clipboard may finish encoding while Return is held, but focus must stay in the editor until release; repeated key-downs must neither start another export nor reach the underlying document. Repeat with a second press during encoding.
+- Keep a crop on one display and click shaded regions on another. Both displays must stay covered and the existing crop remains the keyboard target until a new selection is completed. Command-Tab intentionally ends capture; a late encoding result must not copy after that cancellation or bring the old overlay back. Save PNG → Cancel must return to the editor and accept Return normally.
+
 - Repeat hotkey → immediate Esc → hotkey at least ten times, including canceling before pixels arrive. Older success/error callbacks must never dismiss the newer selection, show an old error or clear its metadata cache. Repeated hotkeys while one capture is active must not stack panels.
 - Copy a large annotated crop. Pointer/Esc must remain responsive during PNG/TIFF encoding; held Return/Command-C/Command-S must not queue repeated exports. Cancel before encoding finishes, then begin another capture: the canceled export must neither alter the clipboard nor close the new editor. Both PNG and TIFF remain available after successful clipboard completion.
 - Open Save PNG, cancel the dialog, and continue editing/copying. With a save dialog open, change display configuration: ending the capture must close the old dialog. Encoding or file-write failure must restore the editable capture. Release Space while a menu/dialog has focus; returning to the canvas must not leave crop-move mode stuck.

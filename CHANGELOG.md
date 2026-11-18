@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.5 — Unreleased
+
+- Give the screenshot editor application focus after presenting the frozen desktop. Route Return, keypad Enter and editing shortcuts at the panel level so toolbar responder changes cannot swallow confirmation.
+- Keep all displays covered during selection; shaded regions continue to receive clicks. Switching to another application dismisses the capture instead of leaving a dark overlay over an active underlying window.
+- Consume repeated confirmation keys while exporting and restore the previous application's focus only after held confirmation keys are released. Observe key-up locally so Command-C release cannot be lost through key-equivalent dispatch.
+- Log capture focus, Return receipt and clipboard completion timing without recording input text or image content. Add input-routing, dark-region hit-testing, held/repeated key and focus-loss cancellation regression checks.
+
 ## 1.1.4 — 2026-11-16
 
 - Composite the frozen desktop and rounded shade directly with Core Animation, drawing annotations in a separate crop-sized plane. Avoid full-screen bitmap redraws on entry and during selection; add separate panel setup, image-layer and presentation timings.

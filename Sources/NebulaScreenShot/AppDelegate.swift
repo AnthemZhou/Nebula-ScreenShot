@@ -378,7 +378,9 @@ import ScreenCaptureKit
     }
     func applicationDidBecomeActive(_ notification: Notification) {
         if !hotKey.isRegistered { hotKey.register() }
+        capture.restoreKeyboardFocusIfNeeded()
     }
+    func applicationDidResignActive(_ notification: Notification) { capture.applicationLostFocus() }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         showWelcome()
         return true

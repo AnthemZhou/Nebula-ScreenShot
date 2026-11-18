@@ -9,8 +9,24 @@ import Carbon
 
 @MainActor final class CapturePanel: NSPanel {
     var allowsKey = true
+    var onKeyEvent: ((NSEvent) -> Bool)?
     override var canBecomeKey: Bool { allowsKey }
     override var canBecomeMain: Bool { false }
+
+    override func sendEvent(_ event: NSEvent) {
+        if (event.type == .keyDown || event.type == .keyUp), onKeyEvent?(event) == true {
+            return
+        }
+        super.sendEvent(event)
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.modifierFlags.contains(.command),
+           ["c", "s", "z"].contains(event.charactersIgnoringModifiers?.lowercased() ?? ""), let onKeyEvent {
+            return onKeyEvent(event)
+        }
+        return super.performKeyEquivalent(with: event)
+    }
 }
 
 @MainActor final class CaptureCoordinator {
@@ -25,6 +41,11 @@ import Carbon
     private var savePanel: NSSavePanel?
     private var sessionID: UUID?
     private var previousApplication: NSRunningApplication?
+    private weak var selectedCanvas: CaptureCanvas?
+    private var isReadyForInput = false
+    private var heldCompletionKeys: Set<UInt16> = []
+    private var pendingCopyCompletion: String?
+    private var keyUpMonitor: Any?
     private let pendingEscape = HotKey(keyCode: UInt32(kVK_Escape), modifiers: 0,
         identifier: EventHotKeyID(signature: 0x4E425343, id: 2))
     private(set) var isActive = false
@@ -40,6 +61,10 @@ import Carbon
         self.presentsWindows = presentsWindows
         self.pasteboard = pasteboard ?? .general
         self.encode = encode
+    }
+
+    deinit {
+        if let keyUpMonitor { NSEvent.removeMonitor(keyUpMonitor) }
     }
 
     func begin(demo: Bool = false, afterMenuDismissal: Bool = false) {
@@ -121,7 +146,7 @@ import Carbon
         for screen in screens {
             // Build offscreen; keep the original window's focus and shadow until
             // the complete frozen desktop and its shade are ready to display.
-            let panel = CapturePanel(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel],
+            let panel = CapturePanel(contentRect: screen.frame, styleMask: [.borderless],
                                      backing: .buffered, defer: false)
             panel.animationBehavior = .none
             panel.allowsKey = false
@@ -132,6 +157,8 @@ import Carbon
             panel.backgroundColor = .clear
             panel.hasShadow = false
             panel.hidesOnDeactivate = false
+            panel.becomesKeyOnlyIfNeeded = false
+            panel.ignoresMouseEvents = false
             panel.acceptsMouseMovedEvents = true
             panel.isReleasedWhenClosed = false
             let canvas = CaptureCanvas(frame: CGRect(origin: .zero, size: screen.frame.size), pixelScale: screen.backingScaleFactor)
@@ -139,14 +166,25 @@ import Carbon
             canvas.onCopy = { [weak self] in self?.copy($0) }
             canvas.onSave = { [weak self] in self?.save($0) }
             canvas.onReselect = { [weak self] in
+                self?.selectedCanvas = nil
                 for panel in self?.panels ?? [] {
                     (panel.contentView as? CaptureCanvas)?.resetSelection()
                     if self?.presentsWindows == true { panel.orderFrontRegardless() }
                 }
             }
-            canvas.onBeginSelection = { [weak self, weak panel] in
-                for other in self?.panels ?? [] where other !== panel { other.orderOut(nil) }
-                if let panel, self?.presentsWindows == true, panel.allowsKey, !panel.isKeyWindow { panel.makeKey() }
+            canvas.onBeginSelection = { [weak self, weak panel, weak canvas] in
+                guard let self, let canvas else { return }
+                self.selectedCanvas = canvas
+                // Keep every display covered. Hiding the other panels allowed
+                // clicks to activate an underlying app while the crop stayed dark.
+                for other in self.panels where other !== panel {
+                    (other.contentView as? CaptureCanvas)?.resetSelection()
+                }
+                self.restoreKeyboardFocusIfNeeded()
+            }
+            panel.onKeyEvent = { [weak self, weak canvas] event in
+                guard let canvas else { return false }
+                return self?.handleKeyEvent(event, from: canvas) ?? false
             }
             panel.contentView = canvas
             panel.makeFirstResponder(canvas)
@@ -166,24 +204,98 @@ import Carbon
         let installed = ProcessInfo.processInfo.systemUptime
         // The very first visible frame already contains the frozen desktop and
         // final shade. There is no live-desktop → filtered-image shadow transition.
+        isReadyForInput = true
         if presentsWindows {
+            // Key equivalents can bypass normal window key-up dispatch. Observe
+            // releases inside Nebula only; no global monitor or input permission.
+            keyUpMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyUp) { [weak self] event in
+                MainActor.assumeIsolated { self?.releaseCompletionKey(event.keyCode) }
+                return event
+            }
             for panel in panels { panel.orderFrontRegardless(); panel.displayIfNeeded() }
             CATransaction.flush()
             panels.forEach { $0.allowsKey = true }
+            // Activate only after the original desktop has been frozen and
+            // covered, preserving its shadows while reliably owning keyboard input.
+            NSApp.activate(ignoringOtherApps: true)
             let mouse = NSEvent.mouseLocation
             let keyPanel = panels.first(where: { $0.frame.contains(mouse) }) ?? panels.first
             keyPanel?.makeKey()
             if let panel = keyPanel, let canvas = panel.contentView as? CaptureCanvas {
                 canvas.showInitialPointer(at: canvas.convert(panel.convertPoint(fromScreen: mouse), from: nil))
             }
+            logger.notice("Capture input ready; app active: \(NSApp.isActive, privacy: .public); key panel: \(keyPanel?.isKeyWindow == true, privacy: .public)")
         }
         pendingEscape.unregister()
         return (Int((installed - started) * 1000), Int((ProcessInfo.processInfo.systemUptime - installed) * 1000))
     }
 
+    func restoreKeyboardFocusIfNeeded() {
+        guard presentsWindows, isActive, isReadyForInput, savePanel == nil else { return }
+        let panel = selectedCanvas?.window ?? panels.first(where: { $0.frame.contains(NSEvent.mouseLocation) }) ?? panels.first
+        panel?.makeKey()
+        if let canvas = panel?.contentView as? CaptureCanvas { panel?.makeFirstResponder(canvas) }
+        logger.notice("Capture focus restored; app active: \(NSApp.isActive, privacy: .public); key panel: \(panel?.isKeyWindow == true, privacy: .public)")
+    }
+
+    func applicationLostFocus() {
+        guard isActive, isReadyForInput else { return }
+        logger.notice("Capture dismissed after application focus changed")
+        finish(restoreFocus: false)
+    }
+
+    private func handleKeyEvent(_ event: NSEvent, from canvas: CaptureCanvas) -> Bool {
+        guard isActive, isReadyForInput, savePanel == nil else { return false }
+        let code = event.keyCode
+        if event.type == .keyUp {
+            releaseCompletionKey(code)
+            if code == 49 {
+                // A click on another covered display can move the key window
+                // between Space down/up. Release move mode on every canvas.
+                panels.forEach { ($0.contentView as? CaptureCanvas)?.keyUp(with: event) }
+            } else { (selectedCanvas ?? canvas).keyUp(with: event) }
+            return true
+        }
+        if code == 36 || code == 76 || code == 53 ||
+           (code == 8 && event.modifierFlags.contains(.command)) {
+            heldCompletionKeys.insert(code)
+        }
+        // An empty panel on another display still blocks desktop input. Return
+        // and editing shortcuts target the existing crop, unless a new drag is underway.
+        let target = canvas.isInteracting ? canvas : (selectedCanvas ?? canvas)
+        if code == 36 || code == 76 {
+            logger.notice("Capture Return received; exporting: \(self.exportTask != nil || self.pendingCopyCompletion != nil, privacy: .public); repeat: \(event.isARepeat, privacy: .public); interacting: \(target.isInteracting, privacy: .public)")
+        }
+        target.keyDown(with: event)
+        return true
+    }
+
+    private func releaseCompletionKey(_ code: UInt16) {
+        heldCompletionKeys.remove(code)
+        completeCopyWhenKeysReleased()
+    }
+
+    private func completeCopyWhenKeysReleased() {
+        guard let session = sessionID, pendingCopyCompletion != nil, heldCompletionKeys.isEmpty else { return }
+        // Let the current key-up finish dispatching before restoring the previous
+        // app. A held/repeated Return must never continue in its text field.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.sessionID == session, self.heldCompletionKeys.isEmpty,
+                  let message = self.pendingCopyCompletion else { return }
+            self.pendingCopyCompletion = nil
+            self.finish()
+            self.onComplete?(message)
+        }
+    }
+
     func finish(restoreFocus: Bool = true) {
         pendingEscape.unregister()
+        if let keyUpMonitor { NSEvent.removeMonitor(keyUpMonitor); self.keyUpMonitor = nil }
         sessionID = nil
+        isReadyForInput = false
+        selectedCanvas = nil
+        heldCompletionKeys.removeAll()
+        pendingCopyCompletion = nil
         captureTask?.cancel()
         captureTask = nil
         exportTask?.cancel()
@@ -201,7 +313,7 @@ import Carbon
         panels.removeAll()
         if isActive && presentsWindows { NSCursor.arrow.set() }
         isActive = false
-        // Nonactivating capture panels normally leave the original application active.
+        // Restore the original app only after the capture has released input.
         if restoreFocus, let previousApplication,
            NSWorkspace.shared.frontmostApplication?.processIdentifier != previousApplication.processIdentifier {
             previousApplication.activate(options: [])
@@ -213,6 +325,8 @@ import Carbon
         guard let session = sessionID, exportTask == nil, savePanel == nil,
               let image = bitmap.cgImage else { return }
         setExportBusy(true)
+        let started = ProcessInfo.processInfo.systemUptime
+        logger.notice("Clipboard export started; size: \(image.width, privacy: .public)x\(image.height, privacy: .public)")
         exportTask = Task { @MainActor [weak self] in
             guard let self else { return }
             do {
@@ -224,13 +338,15 @@ import Carbon
                 if let tiff = data.tiff { item.setData(tiff, forType: .tiff) }
                 self.pasteboard.clearContents()
                 guard self.pasteboard.writeObjects([item]) else { throw CaptureError.clipboard }
-                self.finish()
-                self.onComplete?(L10n.text("截图已复制到剪贴板", "Screenshot copied to clipboard"))
+                self.logger.notice("Clipboard export completed; elapsed: \(Int((ProcessInfo.processInfo.systemUptime - started) * 1000), privacy: .public) ms; waiting for key release: \(!self.heldCompletionKeys.isEmpty, privacy: .public)")
+                self.pendingCopyCompletion = L10n.text("截图已复制到剪贴板", "Screenshot copied to clipboard")
+                self.completeCopyWhenKeysReleased()
             } catch {
                 guard self.sessionID == session else { return }
                 self.exportTask = nil
                 self.setExportBusy(false)
                 if !(error is CancellationError) {
+                    self.logger.error("Clipboard export failed: \(error.localizedDescription, privacy: .public)")
                     self.onError?(L10n.text("复制失败：\(error.localizedDescription)", "Unable to copy: \(error.localizedDescription)"))
                 }
             }
@@ -248,7 +364,7 @@ import Carbon
         // Keep the editable capture alive if the user cancels the save panel.
         let visible = panels.filter { $0.isVisible }
         visible.forEach { $0.orderOut(nil) }
-        // The capture itself never activates Nebula. An explicit file dialog needs normal app focus.
+        // Keep the file dialog in the same active application as the editor.
         NSApp.activate(ignoringOtherApps: true)
         let panel = NSSavePanel()
         savePanel = panel
