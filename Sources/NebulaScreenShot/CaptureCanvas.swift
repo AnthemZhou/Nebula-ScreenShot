@@ -664,10 +664,15 @@ import QuartzCore
         let size = AnnotationToolbar.preferredSize(for: bounds.width - 24)
         let width = size.width, height = size.height
         let x = min(max(selection.midX - width / 2, 12), bounds.width - width - 12)
-        let spacing = AnnotationToolbar.spacing
+        let scale = max(1, window?.backingScaleFactor ?? pixelScale)
+        // Match the snapped outline's outer half-point stroke to the visible
+        // glass edge, rather than comparing the two views' nominal bounds.
+        let top = (selection.minY * scale).rounded() / scale
+        let bottom = (selection.maxY * scale).rounded() / scale
+        let spacing = AnnotationToolbar.spacing + 0.5 - AnnotationToolbar.glassInset
         let y: CGFloat
-        if selection.maxY + height + spacing + 4 <= bounds.height { y = selection.maxY + spacing }
-        else if selection.minY - height - spacing - 4 >= 0 { y = selection.minY - height - spacing }
+        if bottom + height + spacing + 4 <= bounds.height { y = bottom + spacing }
+        else if top - height - spacing - 4 >= 0 { y = top - height - spacing }
         else { y = min(max(selection.maxY - height - 12, 12), bounds.height - height - 12) }
         toolbar.frame = CGRect(x: x, y: y, width: width, height: height)
         toolbar.layoutSubtreeIfNeeded()

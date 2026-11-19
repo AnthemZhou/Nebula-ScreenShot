@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 import AppKit
+import CoreText
 import NebulaCore
 
 @MainActor private final class ToolbarInkButton: NSButton {
@@ -127,20 +128,53 @@ import NebulaCore
     }
 }
 
+/// NSTextField centers its line box, whose CJK/Latin leading is asymmetric.
+/// Center the actual glyph outlines while retaining native static-text accessibility.
+@MainActor private final class ToolbarHintLabel: NSTextField {
+    override var isFlipped: Bool { false }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
+        let text = NSAttributedString(string: stringValue, attributes: [
+            .font: font ?? NSFont.systemFont(ofSize: 14, weight: .medium),
+            .foregroundColor: textColor ?? NSColor.white
+        ])
+        let line = CTLineCreateWithAttributedString(text)
+        let ink = CTLineGetBoundsWithOptions(line, [.useGlyphPathBounds])
+        guard !ink.isEmpty else { return }
+        context.saveGState()
+        context.textMatrix = .identity
+        context.textPosition = CGPoint(x: bounds.midX - ink.midX, y: bounds.midY - ink.midY)
+        CTLineDraw(line, context)
+        context.restoreGState()
+    }
+}
+
 /// WindowServer glass cannot be included in cacheDisplay bitmaps. Offline layout
 /// previews use a neutral surface and the exact production controls instead.
 @MainActor private final class ToolbarSnapshotSurface: NSView {
     override func draw(_ dirtyRect: NSRect) {
-        let shape = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 14, yRadius: 14)
+        let rect = bounds.insetBy(dx: AnnotationToolbar.glassInset, dy: AnnotationToolbar.glassInset)
+        let shape = NSBezierPath(roundedRect: rect, xRadius: 14, yRadius: 14)
         NSColor(white: 0.12, alpha: 0.75).setFill(); shape.fill()
-        NSColor.white.withAlphaComponent(0.18).setStroke(); shape.lineWidth = 0.5; shape.stroke()
+        let border = NSBezierPath(roundedRect: rect.insetBy(dx: 0.25, dy: 0.25), xRadius: 14, yRadius: 14)
+        NSColor.white.withAlphaComponent(0.18).setStroke(); border.lineWidth = 0.5; border.stroke()
     }
 }
 
 @MainActor final class AnnotationToolbar: NSView {
     static let preferredWidth: CGFloat = 440
+    // Desired visible gap. Native regular glass draws 0.5 pt inside its frame;
+    // two neighboring glass edges therefore need one point less frame spacing.
     static let spacing: CGFloat = 10
-    static let height: CGFloat = rowHeight + spacing + hintHeight
+    static var glassInset: CGFloat {
+        #if compiler(>=6.2)
+        if #available(macOS 26.0, *) { return 0.5 }
+        #endif
+        return 0
+    }
+    private static var rowSpacing: CGFloat { spacing - 2 * glassInset }
+    static var height: CGFloat { rowHeight + rowSpacing + hintHeight }
     private static let rowHeight: CGFloat = 40
     private static let hintHeight: CGFloat = 24
     private static let compactWidth: CGFloat = 372
@@ -172,7 +206,7 @@ import NebulaCore
     private let hintContent = NSView(frame: .zero)
     private var surface: NSView!
     private var hintSurface: NSView!
-    private let copyHint = NSTextField(labelWithString: L10n.text("回车以复制到剪贴板", "Press Return to copy to clipboard"))
+    private let copyHint = ToolbarHintLabel(labelWithString: L10n.text("回车以复制到剪贴板", "Press Return to copy to clipboard"))
 
     override var isFlipped: Bool { true }
 
@@ -260,10 +294,10 @@ import NebulaCore
             }
         }
         let hintWidth = min(bounds.width, ceil(copyHint.intrinsicContentSize.width) + 24)
-        hintSurface.frame = NSRect(x: (bounds.width - hintWidth) / 2, y: Self.rowHeight + Self.spacing,
+        hintSurface.frame = NSRect(x: (bounds.width - hintWidth) / 2, y: Self.rowHeight + Self.rowSpacing,
                                    width: hintWidth, height: Self.hintHeight)
         hintContent.frame = hintSurface.bounds
-        copyHint.frame = NSRect(x: 12, y: (Self.hintHeight - 21) / 2, width: max(0, hintWidth - 24), height: 21)
+        copyHint.frame = hintContent.bounds.insetBy(dx: 12, dy: 0)
         needsDisplay = true
     }
 

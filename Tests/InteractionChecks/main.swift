@@ -641,8 +641,10 @@ enum HarnessError: Error, CustomStringConvertible {
         let surfaces = toolbar.subviews.sorted { $0.frame.minY < $1.frame.minY }
         try check(surfaces.count == 2 && surfaces[1].frame.midX == toolbar.bounds.midX,
                   "Return hint needs a centered glass surface below the controls")
-        try check(surfaces[1].frame.minY - surfaces[0].frame.maxY == toolbar.frame.minY - canvas.selection!.maxY,
-                  "The gap between glass rows must match the gap below the crop")
+        let rowGap = surfaces[1].frame.minY - surfaces[0].frame.maxY + 2 * AnnotationToolbar.glassInset
+        let cropGap = toolbar.frame.minY + AnnotationToolbar.glassInset - canvas.selection!.maxY - 0.5
+        try check(rowGap == 10 && cropGap == rowGap,
+                  "Visible glass edges and the outer crop stroke must have matching 10pt gaps")
         #if compiler(>=6.2)
         if #available(macOS 26.0, *) {
             guard let glass = surfaces[0] as? NSGlassEffectView,
@@ -662,6 +664,47 @@ enum HarnessError: Error, CustomStringConvertible {
         try check(!menu.items.contains { $0.title == "重新选择区域" || $0.title == "清空标注" },
                   "Reselect and clear menu options must be removed")
         print("PASS: compact icon toolbar, Return hint, consolidated shapes and removed secondary actions")
+    }
+
+    func runHintRasterChecks() throws {
+        // Measure the rendered ink, not the NSTextField frame or font line box.
+        // Different CJK/Latin ascenders, descenders and status strings expose the
+        // baseline offset that frame-only centering missed.
+        let toolbar = AnnotationToolbar(frame: CGRect(origin: .zero, size: AnnotationToolbar.preferredSize(for: 440)))
+        guard let label = descendants(of: toolbar).compactMap({ $0 as? NSTextField }).first else {
+            throw HarnessError.failed("Missing hint for raster check")
+        }
+        var largestDifference: CGFloat = 0
+        for text in ["回车以复制到剪贴板", "正在导出…", "正在准备截图…",
+                     "Press Return to copy to clipboard", "Exporting…", "Preparing screenshot…"] {
+            label.stringValue = text
+            toolbar.needsLayout = true
+            toolbar.layoutSubtreeIfNeeded()
+            for scale: CGFloat in [1, 2] {
+                let width = Int(ceil(label.bounds.width * scale)), height = Int(ceil(label.bounds.height * scale))
+                let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: height,
+                                              bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                              colorSpaceName: .calibratedRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+                let context = NSGraphicsContext(bitmapImageRep: bitmap)!.cgContext
+                context.clear(CGRect(x: 0, y: 0, width: width, height: height))
+                context.scaleBy(x: scale, y: scale)
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+                label.draw(label.bounds)
+                NSGraphicsContext.restoreGraphicsState()
+                let inkRows = (0..<height).filter { y in
+                    (0..<width).contains { x in (bitmap.colorAt(x: x, y: y)?.alphaComponent ?? 0) >= 0.25 }
+                }
+                guard let first = inkRows.first, let last = inkRows.last else {
+                    throw HarnessError.failed("No rendered hint ink: \(text)")
+                }
+                let paddingDifference = CGFloat(abs(first - (height - 1 - last)))
+                largestDifference = max(largestDifference, paddingDifference)
+                try check(paddingDifference <= 1,
+                          "Hint ink must be vertically centered within one pixel at \(scale)x: \(text), padding \(first)/\(height - 1 - last)")
+            }
+        }
+        print("PASS: CJK/English hint and status ink centered at 1x/2x; maximum padding difference=\(largestDifference)px")
     }
 
     func runEnglishChecks() throws {
@@ -1043,6 +1086,7 @@ MainActor.assumeIsolated {
             try smallCrops.runSmallCropChecks()
         }
         let harness = try CanvasHarness()
+        try harness.runHintRasterChecks()
         if CommandLine.arguments.contains("--english") { try harness.runEnglishChecks(); exit(0) }
         try harness.run(outputURL: URL(fileURLWithPath: CommandLine.arguments[1]))
         let pending = try CanvasHarness(pending: true)
