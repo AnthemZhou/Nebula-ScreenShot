@@ -28,7 +28,7 @@ import QuartzCore
     private var draft: Annotation?
     private var history = AnnotationHistory()
     private var tool: AnnotationTool = .pin
-    private var ink: Ink = .coral
+    private var ink: Ink = .blue
     private var lineWidth: CGFloat = 3.5
     private var hasToolbar = false
     private lazy var toolbar = makeToolbar()
@@ -661,10 +661,10 @@ import QuartzCore
 
     private func positionToolbar() {
         guard let selection else { return }
-        let size = AnnotationToolbar.preferredSize(for: bounds.width - 24)
+        let scale = max(1, window?.backingScaleFactor ?? pixelScale)
+        let size = AnnotationToolbar.preferredSize(for: bounds.width - 24, backingScale: scale)
         let width = size.width, height = size.height
         let x = min(max(selection.midX - width / 2, 12), bounds.width - width - 12)
-        let scale = max(1, window?.backingScaleFactor ?? pixelScale)
         // Match the snapped outline's outer half-point stroke to the visible
         // glass edge, rather than comparing the two views' nominal bounds.
         let top = (selection.minY * scale).rounded() / scale

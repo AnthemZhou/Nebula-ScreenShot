@@ -575,7 +575,7 @@ enum HarnessError: Error, CustomStringConvertible {
         try expectNextPin(2)
         try copy()
         let pinPoint = try pinSample(at: CGPoint(x: 160, y: 160), number: 1)
-        try expectColor(pinPoint, referenceColor(.coral), "Pending annotations survive pixel arrival")
+        try expectColor(pinPoint, referenceColor(.blue), "Pending annotations survive pixel arrival")
         // Compare like-for-like export color spaces; a raw CGImage bitmap can be color-converted differently.
         let cleanReference = AnnotationRenderer.export(image: syntheticImage, canvasSize: canvas.bounds.size,
                                                        selection: initialCrop, annotations: [])!
@@ -643,8 +643,8 @@ enum HarnessError: Error, CustomStringConvertible {
                   "Return hint needs a centered glass surface below the controls")
         let rowGap = surfaces[1].frame.minY - surfaces[0].frame.maxY + 2 * AnnotationToolbar.glassInset
         let cropGap = toolbar.frame.minY + AnnotationToolbar.glassInset - canvas.selection!.maxY - 0.5
-        try check(rowGap == 10 && cropGap == rowGap,
-                  "Visible glass edges and the outer crop stroke must have matching 10pt gaps")
+        try check(cropGap == 10 && abs(cropGap - rowGap - 1 / window.backingScaleFactor) < 0.001,
+                  "The lower visible gap must be exactly one backing pixel smaller")
         #if compiler(>=6.2)
         if #available(macOS 26.0, *) {
             guard let glass = surfaces[0] as? NSGlassEffectView,
@@ -883,37 +883,37 @@ enum HarnessError: Error, CustomStringConvertible {
         }
         try copy()
         backgroundColor = try color(at: CGPoint(x: 60, y: 60))
-        let orange = try referenceColor(.coral)
+        let blue = try referenceColor(.blue)
         let pin1 = CGPoint(x: 120, y: 130), pin2 = CGPoint(x: 200, y: 130)
         try click(pin1)
         try click(pin2)
         try copy(commandC: true)
-        try expectColor(try pinSample(at: pin1, number: 1), orange, "Click must create first orange pin")
-        try expectColor(try pinSample(at: pin2, number: 2), orange, "Click must create second orange pin")
+        try expectColor(try pinSample(at: pin1, number: 1), blue, "Click must create first blue pin")
+        try expectColor(try pinSample(at: pin2, number: 2), blue, "Click must create second blue pin")
         try expectNextPin(3)
         print("PASS: click pins 1/2, Enter and Command-C copy callbacks, Retina dimensions")
 
         try drag(from: CGPoint(x: 280, y: 180), to: CGPoint(x: 430, y: 180), right: true)
         try copy()
-        try expectColor(CGPoint(x: 350, y: 180), orange, "Right drag in default mode must draw an arrow")
+        try expectColor(CGPoint(x: 350, y: 180), blue, "Right drag in default mode must draw an arrow")
         try expectColor(CGPoint(x: 280, y: 160), backgroundColor!, "Left drag must not leave a pin bubble at its start")
         let head = Geometry.arrowHead(start: CGPoint(x: 280, y: 180), end: CGPoint(x: 430, y: 180), lineWidth: 3.5)
-        try expectColor(CGPoint(x: (head[0].x + head[1].x) / 2, y: (head[0].y + head[1].y) / 2),
-                        orange, "Right drag must include an arrowhead")
+        try expectColor(CGPoint(x: (head[0].x + head[1].x) / 2, y: (head[0].y + head[1].y) / 2 - 2),
+                        blue, "Right drag must include a filled arrowhead interior")
         try expectNextPin(3)
         try key("z", flags: [.command])
         try copy()
         try expectColor(CGPoint(x: 350, y: 180), backgroundColor!, "Keyboard undo must remove the line")
         try key("z", flags: [.command, .shift])
         try copy()
-        try expectColor(CGPoint(x: 350, y: 180), orange, "Keyboard redo must restore the line")
+        try expectColor(CGPoint(x: 350, y: 180), blue, "Keyboard redo must restore the line")
         print("PASS: right drag draws arrow without stray pin; keyboard undo/redo")
 
         try key("n")
         try drag(from: CGPoint(x: 500, y: 170), to: CGPoint(x: 650, y: 280))
         try copy()
         let samples = try (520...630).map { try color(at: CGPoint(x: $0, y: 170)) }
-        try check(samples.contains { abs($0.redComponent - orange.redComponent) < 0.025 }, "Rectangle edge has colored dashes")
+        try check(samples.contains { abs($0.redComponent - blue.redComponent) < 0.025 }, "Rectangle edge has colored dashes")
         try check(samples.contains { abs($0.redComponent - backgroundColor!.redComponent) < 0.025 }, "Rectangle edge has gaps")
         try expectColor(CGPoint(x: 570, y: 220), backgroundColor!, "Left-drag rectangle must remain unfilled")
         try expectNextPin(3)
@@ -946,7 +946,7 @@ enum HarnessError: Error, CustomStringConvertible {
             try copy()
             try expectColor(try pinSample(at: target, number: index + 3), try referenceColor(ink),
                             "Selecting \(ink.title) must color the subsequent pin")
-            try expectColor(try pinSample(at: pin1, number: 1), orange,
+            try expectColor(try pinSample(at: pin1, number: 1), blue,
                             "Changing color must preserve existing annotations")
             try check(colorButton.state == .on, "Selected color must have visible selected state")
         }
@@ -974,8 +974,8 @@ enum HarnessError: Error, CustomStringConvertible {
         try copy()
         try check(exported?.pixelsWide == 1480 && exported?.pixelsHigh == 1040,
                   "Resized crop must change exported pixel dimensions")
-        try expectColor(CGPoint(x: 350, y: 180), orange, "Resize must retain line at original screen coordinates")
-        try expectColor(try pinSample(at: pin1, number: 1), orange, "Resize must retain pin target")
+        try expectColor(CGPoint(x: 350, y: 180), blue, "Resize must retain line at original screen coordinates")
+        try expectColor(try pinSample(at: pin1, number: 1), blue, "Resize must retain pin target")
         try expectNextPin(9)
         try key(" ", code: 49)
         try drag(from: CGPoint(x: 400, y: 300), to: CGPoint(x: 450, y: 330))
@@ -983,7 +983,7 @@ enum HarnessError: Error, CustomStringConvertible {
         try check(canvas.selection == CGRect(x: 90, y: 70, width: 740, height: 520),
                   "Space-drag must translate crop by the drag delta")
         try copy()
-        try expectColor(CGPoint(x: 350, y: 180), orange, "Space move must leave annotations at their original coordinates")
+        try expectColor(CGPoint(x: 350, y: 180), blue, "Space move must leave annotations at their original coordinates")
         try expectColor(CGPoint(x: 400, y: 210), backgroundColor!, "Space move must not translate the line with the crop")
         try expectNextPin(9)
         print("PASS: resize changes Retina export size; Space moves crop while annotations stay in screen coordinates")
@@ -999,7 +999,7 @@ enum HarnessError: Error, CustomStringConvertible {
                       "Repeated half-point moves must not enlarge Retina output")
         }
         try key(" ", code: 49, up: true)
-        try expectColor(CGPoint(x: 350, y: 180), orange,
+        try expectColor(CGPoint(x: 350, y: 180), blue,
                         "Repeated half-point Space moves must not move annotations")
         print("PASS: five repeated 0.5pt Space moves preserve crop and export dimensions")
 

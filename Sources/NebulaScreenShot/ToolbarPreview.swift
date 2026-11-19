@@ -11,7 +11,7 @@ import NebulaCore
         super.init(frame: CGRect(x: 0, y: 0, width: size.width + 48, height: size.height + 40))
         let toolbar = AnnotationToolbar(frame: CGRect(x: 24, y: 20, width: size.width, height: size.height))
         toolbar.useStaticPreviewMaterial()
-        toolbar.update(tool: .pin, ink: .coral, lineWidth: 3.5, history: AnnotationHistory())
+        toolbar.update(tool: .pin, ink: .blue, lineWidth: 3.5, history: AnnotationHistory())
         addSubview(toolbar)
     }
 

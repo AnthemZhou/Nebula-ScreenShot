@@ -37,16 +37,18 @@ extension Ink {
             let radius = AnnotationGeometry.cornerRadius(in: rect)
             path.appendRoundedRect(rect, xRadius: radius, yRadius: radius)
             path.setLineDash([annotation.lineWidth * 2.4, annotation.lineWidth * 1.8], count: 2, phase: 0)
-        case .line, .arrow:
+        case .line:
             path.move(to: start)
             path.line(to: end)
-            if annotation.tool == .arrow {
-                let head = Geometry.arrowHead(start: start, end: end, lineWidth: annotation.lineWidth)
-                if let first = head.first {
-                    path.move(to: first)
-                    for point in head.dropFirst() { path.line(to: point) }
-                }
-            }
+        case .arrow:
+            guard let arrow = ArrowGeometry(start: start, end: end, lineWidth: annotation.lineWidth),
+                  let first = arrow.outline.first else { return }
+            path.move(to: first)
+            for point in arrow.outline.dropFirst() { path.line(to: point) }
+            path.close()
+            annotation.ink.color.setFill()
+            path.fill()
+            return
         case .pen:
             drawPen(annotation)
             return

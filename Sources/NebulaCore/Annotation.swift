@@ -64,7 +64,7 @@ public struct Annotation: Equatable, Sendable {
     public var number: Int?
     public var erasures: [PenErasure] = []
 
-    public init(tool: AnnotationTool, points: [CGPoint], ink: Ink = .coral,
+    public init(tool: AnnotationTool, points: [CGPoint], ink: Ink = .blue,
                 lineWidth: CGFloat = 3, number: Int? = nil, id: UUID = UUID()) {
         self.id = id
         self.tool = tool
@@ -166,14 +166,6 @@ public enum Geometry {
     }
 
     public static func arrowHead(start: CGPoint, end: CGPoint, lineWidth: CGFloat) -> [CGPoint] {
-        let distance = hypot(end.x - start.x, end.y - start.y)
-        guard distance > 0 else { return [] }
-        let length = min(max(12, lineWidth * 4), distance * 0.55)
-        let angle = atan2(end.y - start.y, end.x - start.x)
-        return [
-            CGPoint(x: end.x - length * cos(angle - .pi / 6), y: end.y - length * sin(angle - .pi / 6)),
-            end,
-            CGPoint(x: end.x - length * cos(angle + .pi / 6), y: end.y - length * sin(angle + .pi / 6))
-        ]
+        ArrowGeometry(start: start, end: end, lineWidth: lineWidth)?.head ?? []
     }
 }

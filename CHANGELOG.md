@@ -2,6 +2,9 @@
 
 ## 1.1.5 — Unreleased
 
+- Default new captures and annotations to blue, including the toolbar pin icon. Keep the full six-color palette.
+- Replace the open arrowhead with a filled triangular head and a tapered shaft. Share its silhouette across preview, export, selection and object erasing; preserve endpoint editing and undo/redo.
+- Tighten the toolbar-to-hint gap by one physical screen pixel, accounting for the display's backing scale.
 - Keep the exact crop geometry when releasing a selection, edge resize or Space move; round only exported source pixels. Avoid an immediate corner highlight on selection release.
 - Preserve the crop, annotations and toolbar on shaded-area clicks and small pointer jitter. Replace the crop only when a new drag begins; restore it if that drag ends too small.
 - Use brighter Return-to-copy text on the same glass material as the toolbar, without an additional black scrim. Center the hint below the toolbar with the same 10 pt gap used between the toolbar and crop.

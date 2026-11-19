@@ -76,8 +76,8 @@ public enum AnnotationGeometry {
             return rect.insetBy(dx: -padding, dy: -padding).contains(point)
         case .line: return distance(point, to: first, last) <= hitWidth
         case .arrow:
-            let head = Geometry.arrowHead(start: first, end: last, lineWidth: item.lineWidth)
-            return distance(point, to: first, last) <= hitWidth || zip(head, head.dropFirst()).contains { distance(point, to: $0.0, $0.1) <= hitWidth }
+            return ArrowGeometry(start: first, end: last, lineWidth: item.lineWidth)?
+                .contains(point, tolerance: tolerance) ?? false
         case .pen:
             guard !item.erasures.contains(where: { $0.contains(point) }) else { return false }
             return hypot(first.x - point.x, first.y - point.y) <= hitWidth ||

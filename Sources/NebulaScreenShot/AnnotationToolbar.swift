@@ -174,15 +174,17 @@ import NebulaCore
         #endif
         return 0
     }
-    private static var rowSpacing: CGFloat { spacing - 2 * glassInset }
-    static var height: CGFloat { rowHeight + rowSpacing + hintHeight }
+    private static func rowSpacing(for scale: CGFloat) -> CGFloat {
+        spacing - 2 * glassInset - 1 / max(1, scale)
+    }
     private static let rowHeight: CGFloat = 40
     private static let hintHeight: CGFloat = 24
     private static let compactWidth: CGFloat = 372
 
-    static func preferredSize(for availableWidth: CGFloat) -> CGSize {
+    static func preferredSize(for availableWidth: CGFloat, backingScale: CGFloat? = nil) -> CGSize {
         let width = availableWidth >= preferredWidth ? preferredWidth : min(compactWidth, max(1, availableWidth))
-        return CGSize(width: width, height: height)
+        let scale = backingScale ?? NSScreen.main?.backingScaleFactor ?? 1
+        return CGSize(width: width, height: rowHeight + rowSpacing(for: scale) + hintHeight)
     }
 
     var onTool: ((AnnotationTool) -> Void)?
@@ -193,7 +195,7 @@ import NebulaCore
     var onSave: (() -> Void)?
 
     private var selectedTool: AnnotationTool = .pin
-    private var selectedInk: Ink = .coral
+    private var selectedInk: Ink = .blue
     private var selectedWidth: CGFloat = 3.5
     private var inkButtons: [ToolbarInkButton] = []
     private var pinButton: ToolbarButton!
@@ -295,7 +297,8 @@ import NebulaCore
             }
         }
         let hintWidth = min(bounds.width, ceil(copyHint.intrinsicContentSize.width) + 24)
-        hintSurface.frame = NSRect(x: (bounds.width - hintWidth) / 2, y: Self.rowHeight + Self.rowSpacing,
+        let backingScale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1
+        hintSurface.frame = NSRect(x: (bounds.width - hintWidth) / 2, y: Self.rowHeight + Self.rowSpacing(for: backingScale),
                                    width: hintWidth, height: Self.hintHeight)
         hintContent.frame = hintSurface.bounds
         copyHint.frame = hintContent.bounds.insetBy(dx: 12, dy: 0)
