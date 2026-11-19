@@ -115,8 +115,10 @@ enum HarnessError: Error, CustomStringConvertible {
         guard let exported, let selection = canvas.selection else {
             throw HarnessError.failed("Copy did not receive a selected bitmap")
         }
-        try check(exported.pixelsWide == Int(selection.width * 2) &&
-                  exported.pixelsHigh == Int(selection.height * 2), "Export dimensions must follow current Retina crop")
+        let pixelBounds = CGRect(x: selection.minX * 2, y: selection.minY * 2,
+                                 width: selection.width * 2, height: selection.height * 2).integral
+        try check(exported.pixelsWide == Int(pixelBounds.width) &&
+                  exported.pixelsHigh == Int(pixelBounds.height), "Export dimensions must cover current Retina crop")
         return exported
     }
 
@@ -307,6 +309,84 @@ enum HarnessError: Error, CustomStringConvertible {
         }
         canvas.resetSelection()
         print("PASS: continuous solid border pixels remain stable in all four drag directions")
+    }
+
+    func runSelectionReleaseChecks() throws {
+        for anchor in [CGPoint(x: 80.25, y: 80.25), CGPoint(x: 600.75, y: 80.25),
+                       CGPoint(x: 80.25, y: 500.75), CGPoint(x: 600.75, y: 500.75)] {
+            canvas.resetSelection()
+            let end = CGPoint(x: anchor.x < 100 ? 400.75 : 280.25,
+                              y: anchor.y < 100 ? 320.75 : 260.25)
+            canvas.mouseDown(with: try mouse(.leftMouseDown, anchor))
+            canvas.mouseDragged(with: try mouse(.leftMouseDragged, end))
+            let crop = canvas.selection
+            let before = bytes(try renderedCanvasBitmap())
+            canvas.mouseUp(with: try mouse(.leftMouseUp, end))
+            try check(canvas.selection == crop, "Fractional crop must not expand on release")
+            try check(bytes(try renderedCanvasBitmap()) == before,
+                      "Releasing a new crop must not grow the mask or immediately thicken its corner")
+            let image = try copy()
+            try check(image.pixelsWide == 642 && image.pixelsHigh == 482,
+                      "Fractional crop must round only to source pixels during export")
+        }
+        let original = canvas.selection!
+        let grab = CGPoint(x: original.maxX, y: original.midY)
+        let end = CGPoint(x: grab.x + 19.5, y: grab.y)
+        canvas.mouseDown(with: try mouse(.leftMouseDown, grab))
+        canvas.mouseDragged(with: try mouse(.leftMouseDragged, end))
+        let resized = canvas.selection
+        canvas.mouseUp(with: try mouse(.leftMouseUp, end))
+        try check(canvas.selection == resized && canvas.selection?.minX == original.minX,
+                  "Fractional edge release must preserve both the preview and its opposite edge")
+        try key(" ", code: 49)
+        let center = CGPoint(x: resized!.midX, y: resized!.midY)
+        let movedEnd = CGPoint(x: center.x + 0.5, y: center.y + 0.5)
+        canvas.mouseDown(with: try mouse(.leftMouseDown, center))
+        canvas.mouseDragged(with: try mouse(.leftMouseDragged, movedEnd))
+        let moved = canvas.selection
+        canvas.mouseUp(with: try mouse(.leftMouseUp, movedEnd))
+        try key(" ", code: 49, up: true)
+        try check(canvas.selection == moved, "Fractional Space move must not snap on release")
+        canvas.resetSelection()
+        print("PASS: fractional selection, resize and move stay exact on release; mask pixels do not jump")
+    }
+
+    func runShadedClickChecks() throws {
+        canvas.resetSelection()
+        var selections = 0
+        canvas.onBeginSelection = { selections += 1 }
+        defer { canvas.onBeginSelection = nil }
+        try drag(from: CGPoint(x: 100, y: 100), to: CGPoint(x: 400, y: 300))
+        try click(CGPoint(x: 200, y: 200))
+        let original = canvas.selection
+        let annotated = bytes(try copy())
+        let toolbar = descendants(of: canvas).compactMap { $0 as? AnnotationToolbar }.first!
+        let toolbarFrame = toolbar.frame
+        let shade = CGPoint(x: 30, y: 30)
+        canvas.mouseDown(with: try mouse(.leftMouseDown, shade))
+        try check(canvas.selection == original && !toolbar.isHidden && toolbar.frame == toolbarFrame,
+                  "Shaded mouse-down must preserve the visible crop and toolbar")
+        canvas.mouseDragged(with: try mouse(.leftMouseDragged, CGPoint(x: 32, y: 31)))
+        try check(canvas.selection == original && !toolbar.isHidden, "Click jitter must not begin replacement")
+        canvas.mouseUp(with: try mouse(.leftMouseUp, CGPoint(x: 32, y: 31)))
+        try check(selections == 1 && bytes(try copy()) == annotated,
+                  "Shaded click must keep annotations, copy target and selection ownership")
+
+        canvas.mouseDown(with: try mouse(.leftMouseDown, shade))
+        canvas.mouseDragged(with: try mouse(.leftMouseDragged, CGPoint(x: 80, y: 80)))
+        try check(canvas.selection == CGRect(x: 30, y: 30, width: 50, height: 50) && toolbar.isHidden,
+                  "An actual new drag must replace the mask immediately")
+        canvas.mouseUp(with: try mouse(.leftMouseUp, shade))
+        try check(canvas.selection == original && !toolbar.isHidden && bytes(try copy()) == annotated,
+                  "An invalid replacement must restore the old crop and annotations")
+        canvas.mouseDown(with: try mouse(.leftMouseDown, shade))
+        canvas.mouseUp(with: try mouse(.leftMouseUp, CGPoint(x: 500, y: 400)))
+        try check(canvas.selection == CGRect(x: 30, y: 30, width: 470, height: 370) && selections == 2,
+                  "A mouse-up-only drag must still commit exactly one replacement")
+        try check(!toolbar.isHidden && canvas.hitTest(canvas.convert(shade, to: nil)) === canvas,
+                  "Replacement must retain the toolbar and capture input barrier")
+        canvas.resetSelection()
+        print("PASS: shaded clicks/jitter preserve crop and annotations; only a new drag replaces it")
     }
 
     func runBorderContrastChecks() throws {
@@ -552,12 +632,13 @@ enum HarnessError: Error, CustomStringConvertible {
         try check((try button(labelPrefix: "形状与设置")).state == .off, "Returning to pin clears the settings highlight")
         try check(copyHint!.font!.pointSize == 14 && copyHint!.textColor!.alphaComponent < 1,
                   "Copy hint must be larger and translucent")
-        toolbar.setCopyHintBackground(isBright: true)
-        let brightText = copyHint!.textColor!.usingColorSpace(.sRGB)!
-        toolbar.setCopyHintBackground(isBright: false)
         let darkText = copyHint!.textColor!.usingColorSpace(.sRGB)!
-        try check(brightText.redComponent < 0.3 && darkText.redComponent > 0.7,
-                  "Text must use subdued dark ink on bright pixels and light ink on dark pixels")
+        try check(darkText.redComponent > 0.9 && darkText.alphaComponent >= 0.9,
+                  "Copy hint must retain readable light ink over its local dark blur")
+        let hintBackdrop = toolbar.subviews.compactMap { $0 as? NSVisualEffectView }
+            .first { $0.frame.minY > 40 }
+        try check(hintBackdrop != nil && hintBackdrop!.frame.midX == toolbar.bounds.midX,
+                  "Return hint needs a centered local blur below the controls")
         #if compiler(>=6.2)
         if #available(macOS 26.0, *) {
             guard let glass = toolbar.subviews.compactMap({ $0 as? NSGlassEffectView }).first,
@@ -944,6 +1025,9 @@ MainActor.assumeIsolated {
         try pointer.runPointerChecks()
         let contrast = try CanvasHarness()
         try contrast.runBorderContrastChecks()
+        let selection = try CanvasHarness()
+        try selection.runSelectionReleaseChecks()
+        try selection.runShadedClickChecks()
         if !CommandLine.arguments.contains("--english") {
             let exportState = try CanvasHarness()
             try exportState.runExportStateChecks()

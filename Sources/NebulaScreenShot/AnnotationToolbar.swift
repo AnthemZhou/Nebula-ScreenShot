@@ -168,6 +168,7 @@ import NebulaCore
     private var saveButton: ToolbarButton!
     private let rowContent = ToolbarRowContent(frame: .zero)
     private var surface: NSView!
+    private var hintSurface: NSView!
     private let copyHint = NSTextField(labelWithString: L10n.text("回车以复制到剪贴板", "Press Return to copy to clipboard"))
 
     override var isFlipped: Bool { true }
@@ -196,8 +197,24 @@ import NebulaCore
         redoButton = ToolbarButton(title: "", symbol: "arrow.uturn.forward", help: L10n.text("重做（⇧⌘Z）", "Redo (⇧⌘Z)")) { [weak self] in self?.onRedo?() }
         redoButton.isEnabled = false
         saveButton = ToolbarButton(title: L10n.text("保存", "Save"), symbol: "square.and.arrow.down", help: L10n.text("保存 PNG（⌘S）", "Save PNG (⌘S)")) { [weak self] in self?.onSave?() }
+        let hintBlur = NSVisualEffectView(frame: .zero)
+        hintBlur.material = .hudWindow
+        hintBlur.blendingMode = .withinWindow
+        hintBlur.state = .active
+        hintBlur.wantsLayer = true
+        hintBlur.layer?.cornerRadius = 12
+        hintBlur.layer?.masksToBounds = true
+        // A local scrim keeps the label readable even over a bright crop or a
+        // mixed background; do not flip text ink based on averaged pixels.
+        let scrim = NSView(frame: .zero)
+        scrim.wantsLayer = true
+        scrim.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.62).cgColor
+        scrim.autoresizingMask = [.width, .height]
+        hintBlur.addSubview(scrim)
+        hintSurface = hintBlur
+        addSubview(hintSurface)
         copyHint.font = .systemFont(ofSize: 14, weight: .medium)
-        copyHint.textColor = NSColor(white: 0.86, alpha: 0.60)
+        copyHint.textColor = NSColor(white: 1, alpha: 0.95)
         copyHint.alignment = .center
         copyHint.isSelectable = false
         addSubview(copyHint)
@@ -253,7 +270,10 @@ import NebulaCore
                 x += gap
             }
         }
-        copyHint.frame = NSRect(x: 0, y: Self.rowHeight + 7, width: bounds.width, height: 21)
+        let hintWidth = min(bounds.width, ceil(copyHint.intrinsicContentSize.width) + 24)
+        hintSurface.frame = NSRect(x: (bounds.width - hintWidth) / 2, y: Self.rowHeight + 4,
+                                   width: hintWidth, height: 24)
+        copyHint.frame = NSRect(x: 0, y: Self.rowHeight + 5.5, width: bounds.width, height: 21)
         needsDisplay = true
     }
 
@@ -281,13 +301,6 @@ import NebulaCore
         return blur
     }
 
-    /// Choose a restrained translucent text color against the actual pixels below.
-    func setCopyHintBackground(isBright: Bool) {
-        copyHint.textColor = isBright ? NSColor(white: 0.12, alpha: 0.68) : NSColor(white: 0.86, alpha: 0.60)
-    }
-
-    var copyHintFrame: CGRect { copyHint.frame }
-
     func useStaticPreviewMaterial() {
         #if compiler(>=6.2)
         if #available(macOS 26.0, *), let glass = surface as? NSGlassEffectView { glass.contentView = nil }
@@ -297,6 +310,9 @@ import NebulaCore
         surface = ToolbarSnapshotSurface(frame: .zero)
         surface.addSubview(rowContent)
         addSubview(surface, positioned: .below, relativeTo: copyHint)
+        hintSurface.removeFromSuperview()
+        hintSurface = ToolbarSnapshotSurface(frame: .zero)
+        addSubview(hintSurface, positioned: .below, relativeTo: copyHint)
         needsLayout = true
     }
 
@@ -316,6 +332,7 @@ import NebulaCore
         selectedWidth = lineWidth
         copyHint.stringValue = isExporting ? L10n.text("正在导出…", "Exporting…") :
             (canExport ? L10n.text("回车以复制到剪贴板", "Press Return to copy to clipboard") : L10n.text("正在准备截图…", "Preparing screenshot…"))
+        needsLayout = true
         for button in rowButtons { button.isEnabled = !isExporting; button.needsDisplay = true }
         for button in inkButtons { button.isEnabled = !isExporting; button.needsDisplay = true }
         saveButton.isEnabled = canExport && !isExporting

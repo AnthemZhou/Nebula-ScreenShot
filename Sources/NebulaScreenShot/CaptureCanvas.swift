@@ -41,6 +41,7 @@ import QuartzCore
     private var erasurePaths: [PenErasure] = []
     private var eraseNeedsNewPath = true
     private var pointer: CGPoint?
+    private var suppressSelectionHover = false
     private var hoverTracking: NSTrackingArea?
     private var displayAnnotations: [Annotation] {
         if draft == nil && erasedIDs.isEmpty && erasedPenIDs.isEmpty { return history.annotations }
@@ -63,7 +64,7 @@ import QuartzCore
     private static let dragThreshold: CGFloat = 4
 
     private enum Interaction {
-        case select(start: CGPoint, previous: CGRect?)
+        case select(start: CGPoint, previous: CGRect?, dragged: Bool)
         case resize(original: CGRect, handle: SelectionHandle, start: CGPoint, dragged: Bool)
         case move(original: CGRect, start: CGPoint)
         case draw(start: CGPoint, tool: AnnotationTool, ink: Ink, width: CGFloat, right: Bool, dragged: Bool)
@@ -147,6 +148,7 @@ import QuartzCore
 
     func resetSelection() {
         spaceHeld = false
+        suppressSelectionHover = false
         selection = nil
         interaction = nil
         draft = nil
@@ -254,7 +256,7 @@ import QuartzCore
     private var highlightedSelectionHandle: SelectionHandle? {
         guard !exportBusy, let selection, selection.width >= 8, selection.height >= 8 else { return nil }
         if case .resize(_, let handle, _, _) = interaction { return handle }
-        guard interaction == nil, let pointer else { return nil }
+        guard interaction == nil, !suppressSelectionHover, let pointer else { return nil }
         if hasToolbar && !toolbar.isHidden && toolbar.frame.contains(pointer) { return nil }
         return cropResizeHandle(at: pointer)
     }
@@ -309,8 +311,10 @@ import QuartzCore
         guard let selection else { hint.isHidden = true; return }
         let sx = screenshot.map { CGFloat($0.width) / bounds.width } ?? pixelScale
         let sy = screenshot.map { CGFloat($0.height) / bounds.height } ?? pixelScale
+        let pixels = Geometry.pixelRect(selection: selection, canvasSize: bounds.size,
+                                        imageSize: CGSize(width: bounds.width * sx, height: bounds.height * sy))
         let origin = CGPoint(x: max(selection.minX, 8), y: selection.minY >= 22 ? selection.minY - 18 : selection.minY + 8)
-        hint.update("\(Int((selection.width * sx).rounded())) × \(Int((selection.height * sy).rounded())) px",
+        hint.update("\(Int(pixels?.width ?? 0)) × \(Int(pixels?.height ?? 0)) px",
                     origin: origin, within: bounds)
         hint.isHidden = hasToolbar && !toolbar.isHidden && toolbar.frame.intersects(hint.frame)
     }
@@ -352,6 +356,7 @@ import QuartzCore
             // latest position for hover only; drawing keeps event geometry.
             point = Geometry.clamp(convert(window.convertPoint(fromScreen: latestMouse), from: nil), to: bounds)
         }
+        if point != previousPointer { suppressSelectionHover = false }
         pointer = point
         if let selection, let pin = item(id: newlyPlacedPinID),
            AnnotationGeometry.pinHoverRegion(for: pin, selection: selection, within: bounds)?.contains(point) != true {
@@ -488,8 +493,8 @@ import QuartzCore
                 selectedID = annotation.id
                 interaction = .edit(original: annotation, handle: handle, start: point)
             } else if let handle = cropResizeHandle(at: point) {
+                suppressSelectionHover = false
                 interaction = .resize(original: selection, handle: handle, start: point, dragged: false)
-                if hasToolbar { toolbar.isHidden = true }
             } else if selection.contains(point) {
                 if tool == .eraser {
                     erasedIDs.removeAll()
@@ -507,13 +512,12 @@ import QuartzCore
                     if tool == .pen { draft = Annotation(tool: .pen, points: [point], ink: ink, lineWidth: lineWidth) }
                 }
             } else {
-                interaction = .select(start: point, previous: selection)
-                self.selection = CGRect(origin: point, size: .zero)
-                if hasToolbar { toolbar.isHidden = true }
+                // A click on the shade must not flash away the crop or toolbar.
+                // Commit to replacement only after the pointer actually drags.
+                interaction = .select(start: point, previous: selection, dragged: false)
             }
         } else {
-            interaction = .select(start: point, previous: nil)
-            selection = CGRect(origin: point, size: .zero)
+            interaction = .select(start: point, previous: nil, dragged: false)
         }
         refresh()
     }
@@ -543,12 +547,17 @@ import QuartzCore
         let point = point(for: event)
         pointer = point
         switch interaction {
-        case .select(let start, _):
+        case .select(let start, let previous, let wasDragged):
+            let dragged = wasDragged || hypot(point.x - start.x, point.y - start.y) >= Self.dragThreshold
+            guard dragged else { return }
+            self.interaction = .select(start: start, previous: previous, dragged: true)
+            if hasToolbar { toolbar.isHidden = true }
             selection = Geometry.rect(from: start, to: point).intersection(bounds)
         case .resize(let original, let handle, let start, let wasDragged):
             let dragged = wasDragged || hypot(point.x - start.x, point.y - start.y) >= Self.dragThreshold
             self.interaction = .resize(original: original, handle: handle, start: start, dragged: dragged)
             guard dragged else { return }
+            if hasToolbar { toolbar.isHidden = true }
             guard let anchor = SelectionGeometry.handles(in: original).first(where: { $0.handle == handle })?.point else { return }
             let target = CGPoint(x: anchor.x + point.x - start.x, y: anchor.y + point.y - start.y)
             selection = SelectionGeometry.resize(original, handle: handle, to: target, within: bounds)
@@ -607,23 +616,18 @@ import QuartzCore
         guard let interaction else { return }
         self.interaction = nil
         switch interaction {
-        case .select(_, let previous):
-            if let rect = selection, rect.width >= 8, rect.height >= 8 {
-                selection = rect.integral.intersection(bounds)
+        case .select(_, let previous, let dragged):
+            if dragged, let rect = selection, rect.width >= 8, rect.height >= 8 {
+                // Keep the exact geometry shown while dragging. Pixel rounding
+                // belongs to export, not to a mouse-up-only expansion of the mask.
+                suppressSelectionHover = true
                 onBeginSelection?()
             } else {
                 selection = previous
             }
         case .resize(let original, _, _, let dragged):
-            if dragged, let selection { self.selection = selection.integral.intersection(bounds) }
-            else { selection = original }
-        case .move(let original, _):
-            if let selection {
-                // Round only the position: rounding the entire rect outward grows the crop on every fractional move.
-                self.selection = SelectionGeometry.move(original,
-                    by: CGSize(width: selection.minX.rounded() - original.minX,
-                               height: selection.minY.rounded() - original.minY), within: bounds)
-            }
+            if !dragged { selection = original }
+        case .move: break
         case .draw(let start, let drawingTool, let ink, let width, let right, let dragged):
             if drawingTool == .pen, let draft { history.append(draft) }
             else if dragged {
@@ -675,11 +679,6 @@ import QuartzCore
         if hasToolbar {
             toolbar.update(tool: tool, ink: ink, lineWidth: lineWidth, history: history,
                            canExport: screenshot != nil, isExporting: exportBusy)
-            if let screenshot {
-                let hintRegion = toolbar.convert(toolbar.copyHintFrame, to: self)
-                toolbar.setCopyHintBackground(isBright: BackdropBrightness.isBright(image: screenshot, canvasSize: bounds.size,
-                                                                                   region: hintRegion, selection: selection))
-            }
         }
         needsDisplay = true
         window?.invalidateCursorRects(for: self)

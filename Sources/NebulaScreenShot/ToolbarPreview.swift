@@ -12,7 +12,6 @@ import NebulaCore
         let toolbar = AnnotationToolbar(frame: CGRect(x: 24, y: 20, width: size.width, height: size.height))
         toolbar.useStaticPreviewMaterial()
         toolbar.update(tool: .pin, ink: .coral, lineWidth: 3.5, history: AnnotationHistory())
-        toolbar.setCopyHintBackground(isBright: bright)
         addSubview(toolbar)
     }
 
