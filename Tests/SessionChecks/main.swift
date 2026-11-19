@@ -146,7 +146,7 @@ func check(_ condition: Bool, _ message: String) throws {
     print("PASS: Return, keypad Enter and Command-C own panel input; held/busy repeats, dark-area hit testing and focus-loss cancellation")
 }
 
-@MainActor func checkHotKey() throws {
+@MainActor func checkHotKey() async throws {
     let modifiers = UInt32(controlKey | shiftKey | cmdKey | optionKey)
     let identifier = EventHotKeyID(signature: 0x4E425354, id: 99)
     var key: HotKey?
@@ -160,7 +160,7 @@ func check(_ condition: Bool, _ message: String) throws {
     var received = 0
     selected.onPress = { received += 1 }
     defer { selected.unregister() }
-    func send(_ id: EventHotKeyID) throws {
+    func send(_ id: EventHotKeyID, queued: Bool = false) throws {
         var event: EventRef?
         try check(CreateEvent(nil, OSType(kEventClassKeyboard), UInt32(kEventHotKeyPressed),
                               GetCurrentEventTime(), EventAttributes(kEventAttributeUserEvent), &event) == noErr,
@@ -170,8 +170,21 @@ func check(_ condition: Bool, _ message: String) throws {
         var id = id
         try check(SetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID),
                                     MemoryLayout<EventHotKeyID>.size, &id) == noErr, "Set event identifier")
-        _ = SendEventToEventTarget(event, GetApplicationEventTarget())
+        if queued {
+            var target = GetEventDispatcherTarget()
+            try check(SetEventParameter(event, EventParamName(kEventParamPostTarget), EventParamType(typeEventTargetRef),
+                MemoryLayout<EventTargetRef?>.size, &target) == noErr, "Set own process event target")
+            try check(PostEventToQueue(GetMainEventQueue(), event, EventPriority(kEventPriorityStandard)) == noErr,
+                      "Queue fixture hotkey without desktop input")
+        } else {
+            _ = SendEventToEventTarget(event, GetEventDispatcherTarget())
+        }
     }
+    try check(!NSApp.isActive && NSApp.keyWindow == nil, "Shortcut fixture must start inactive without a key window")
+    try send(identifier, queued: true)
+    try await waitFor { received == 1 }
+    try check(!NSApp.isActive && NSApp.keyWindow == nil, "First shortcut must not require activation or a mouse click")
+    received = 0
     for _ in 0..<100 { selected.register(); try send(identifier) }
     try check(received == 100, "Repeated register must not duplicate delivery")
     try send(EventHotKeyID(signature: identifier.signature, id: 100))
@@ -195,7 +208,7 @@ func check(_ condition: Bool, _ message: String) throws {
     competitor.register()
     try check(competitor.isRegistered, "Deinitialization must release the Carbon binding and handler")
     competitor.unregister()
-    print("PASS: 100 shortcut deliveries; idempotent registration, conflict recovery and unregister")
+    print("PASS: first queued hotkey while inactive/windowless; 100 deliveries, idempotent registration, conflict recovery and unregister")
 }
 
 @MainActor func checkEncodingResponsiveness() async throws {
@@ -339,7 +352,7 @@ MainActor.assumeIsolated {
     app.setActivationPolicy(.prohibited)
     Task { @MainActor in
         do {
-            try checkHotKey()
+            try await checkHotKey()
             try await checkCaptureInput()
             try await checkSessions()
             try await checkEncodingResponsiveness()

@@ -26,6 +26,12 @@ public struct PermissionRelaunchPolicy {
         isWaiting && !explicitQuit && !sessionEnding && settingsQuit
     }
 
+    /// Settings' consent quit can also emit willPowerOff on macOS. Ignore only
+    /// that known sender during consent, never a real shutdown or unknown sender.
+    public func shouldIgnorePowerOff(quitOrigin: String?, systemQuit: Bool) -> Bool {
+        isWaiting && Self.isSystemSettings(quitOrigin) && !systemQuit
+    }
+
     public mutating func cancel() { isWaiting = false; observedDenial = false }
 
     /// kqueue NOTE_EXITSTATUS supplies a wait(2) status. Force quit/signals must stay quit.

@@ -58,6 +58,10 @@ extension AppRelauncher.Session: ConsentRelaunchSession {}
         policy.preserveForQuit(explicitQuit: explicitQuit, sessionEnding: sessionEnding, settingsQuit: settingsQuit)
     }
 
+    func shouldIgnorePowerOff(quitOrigin: String?, systemQuit: Bool) -> Bool {
+        policy.shouldIgnorePowerOff(quitOrigin: quitOrigin, systemQuit: systemQuit)
+    }
+
     func cancel(file: StaticString = #fileID, line: UInt = #line) {
         if policy.isWaiting {
             logger.notice("Consent handoff cancelled at \(String(describing: file), privacy: .public):\(line, privacy: .public)")

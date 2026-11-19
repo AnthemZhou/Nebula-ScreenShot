@@ -17,12 +17,19 @@ import ScreenCaptureKit
     private var permissionRestartPlanned = false
     private var explicitQuit = false
     private var sessionEnding = false
+    private var launchFinished = false
+    private var captureRequestedDuringLaunch = false
     private var permissionUpgrade: ScreenPermissionUpgrade!
     private var permissionRepairItem: NSMenuItem!
     private let permissionLogger = Logger(subsystem: "io.github.anthemzhou.NebulaScreenShot", category: "Permission")
 
-    func applicationDidFinishLaunching(_ notification: Notification) {
+    func applicationWillFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        hotKey.onPress = { [weak self] in self?.captureFromShortcut() }
+        hotKey.register()
+    }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
         configureMenu()
         let firstLaunch = !UserDefaults.standard.bool(forKey: "hasLaunched")
         permissionUpgrade = ScreenPermissionUpgrade()
@@ -42,8 +49,6 @@ import ScreenCaptureKit
             self?.statusItem.button?.image = NSImage(systemSymbolName: "checkmark.circle", accessibilityDescription: message)
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) { [weak self] in self?.restoreStatusIcon() }
         }
-        hotKey.onPress = { [weak self] in self?.captureFromShortcut() }
-        hotKey.register()
         if !CommandLine.arguments.contains("--repair-screen-permission") &&
            !CommandLine.arguments.contains("--request-screen-permission") { prepareCaptureIfAllowed() }
         NotificationCenter.default.addObserver(self, selector: #selector(displaysChanged),
@@ -52,6 +57,8 @@ import ScreenCaptureKit
             name: NSWorkspace.didDeactivateApplicationNotification, object: nil)
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(sessionWillEnd),
             name: NSWorkspace.willPowerOffNotification, object: nil)
+        launchFinished = true
+        permissionLogger.notice("Application ready; shortcut registered: \(self.hotKey.isRegistered, privacy: .public); active: \(NSApp.isActive, privacy: .public)")
         if CommandLine.arguments.contains("--repair-screen-permission") {
             permissionFlowActive = true
             recoverScreenPermission()
@@ -63,8 +70,12 @@ import ScreenCaptureKit
             capture.begin(demo: true)
         } else if CommandLine.arguments.contains("--capture") {
             beginAuthorizedCapture()
-        } else if firstLaunch {
+        } else if firstLaunch && !captureRequestedDuringLaunch {
             showWelcome()
+        }
+        if captureRequestedDuringLaunch {
+            captureRequestedDuringLaunch = false
+            captureFromShortcut()
         }
     }
 
@@ -123,14 +134,21 @@ import ScreenCaptureKit
     }
 
     private func captureFromShortcut() {
-        guard !permissionFlowActive else { return }
+        guard launchFinished else {
+            captureRequestedDuringLaunch = true
+            permissionLogger.notice("Capture shortcut queued until launch completes")
+            return
+        }
         statusItem.menu?.cancelTracking()
         welcome?.window?.orderOut(nil)
         beginAuthorizedCapture()
     }
 
     private func beginAuthorizedCapture(afterMenuDismissal: Bool = false) {
-        guard !permissionFlowActive, !permissionRestartPlanned, !capture.isActive else { return }
+        guard !permissionFlowActive, !permissionRestartPlanned, !capture.isActive else {
+            permissionLogger.notice("Capture request ignored; permission work: \(self.permissionFlowActive, privacy: .public); restarting: \(self.permissionRestartPlanned, privacy: .public); capturing: \(self.capture.isActive, privacy: .public)")
+            return
+        }
         if permissionPrompt.isWaiting {
             permissionLifecycle.checkForGrant()
             if !permissionRestartPlanned { openScreenPermissionSettings() }
@@ -325,6 +343,15 @@ import ScreenCaptureKit
     }
 
     @objc private func sessionWillEnd() {
+        // macOS also posts willPowerOff while handling Settings' consent quit.
+        // Keep that narrowly identified handoff alive; a real logout/shutdown
+        // or an unrelated notification must still cancel the helper.
+        let context = currentQuitContext()
+        if permissionLifecycle.shouldIgnorePowerOff(quitOrigin: context.origin,
+                                                    systemQuit: context.systemQuit) {
+            permissionLogger.notice("Settings consent quit is not a session shutdown; preserving automatic relaunch")
+            return
+        }
         sessionEnding = true
         permissionLifecycle.cancel()
         plannedRelaunch?.cancel()
@@ -355,14 +382,19 @@ import ScreenCaptureKit
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
-    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+    private func currentQuitContext() -> (event: NSAppleEventDescriptor?, reason: UInt32?, origin: String?, systemQuit: Bool) {
         let event = NSAppleEventManager.shared().currentAppleEvent
         let reason = event?.paramDescriptor(forKeyword: AEKeyword(kAEQuitReason))?.enumCodeValue
         let endReasons = [kAEQuitAll, kAEShutDown, kAERestart, kAEReallyLogOut].map { UInt32($0) }
         let senderPID = event?.attributeDescriptor(forKeyword: AEKeyword(keySenderPIDAttr))?.int32Value
         let origin = senderPID.flatMap { NSRunningApplication(processIdentifier: $0)?.bundleIdentifier }
+        return (event, reason, origin, reason.map { endReasons.contains($0) } == true || origin == "com.apple.loginwindow")
+    }
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        let context = currentQuitContext()
+        let (event, reason, origin) = (context.event, context.reason, context.origin)
         let frontmost = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-        let ending = sessionEnding || reason.map { endReasons.contains($0) } == true || origin == "com.apple.loginwindow"
+        let ending = sessionEnding || context.systemQuit
         func isSettings(_ id: String?) -> Bool {
             PermissionRelaunchPolicy.isSystemSettings(id)
         }

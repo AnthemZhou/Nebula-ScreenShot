@@ -35,7 +35,10 @@ import OSLog
         if handler == nil {
             var event = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
             let pointer = Unmanaged.passUnretained(self).toOpaque()
-            registrationStatus = InstallEventHandler(GetApplicationEventTarget(), { _, event, userData in
+            // Receive our registered hotkeys before window/application routing.
+            // A windowless permission relaunch must not need a click to establish
+            // a key window, and modal application routing must not consume them.
+            registrationStatus = InstallEventHandler(GetEventDispatcherTarget(), { _, event, userData in
                 guard let event, let userData else { return OSStatus(eventNotHandledErr) }
                 var identifier = EventHotKeyID()
                 let status = GetEventParameter(event, EventParamName(kEventParamDirectObject),
@@ -47,7 +50,7 @@ import OSLog
                     guard identifier.signature == owner.bindingIdentifier.signature,
                           identifier.id == owner.bindingIdentifier.id else { return OSStatus(eventNotHandledErr) }
                     guard owner.isRegistered else { return OSStatus(eventNotHandledErr) }
-                    owner.logger.notice("Capture shortcut received")
+                    owner.logger.notice("Shortcut received; binding: \(owner.bindingIdentifier.id, privacy: .public); app active: \(NSApp.isActive, privacy: .public)")
                     owner.onPress?()
                     return noErr
                 }
@@ -61,10 +64,10 @@ import OSLog
         // Exclusive delivery prevents other Carbon registrants from responding too.
         // It does not guarantee that macOS's symbolic shortcut has been disabled.
         registrationStatus = RegisterEventHotKey(bindingCode, bindingModifiers,
-                                                 bindingIdentifier, GetApplicationEventTarget(),
+                                                 bindingIdentifier, GetEventDispatcherTarget(),
                                                  OptionBits(kEventHotKeyExclusive), &hotKey)
         if registrationStatus == noErr && hotKey == nil { registrationStatus = OSStatus(eventInternalErr) }
-        logger.notice("Shortcut registration result: \(self.registrationStatus, privacy: .public)")
+        logger.notice("Shortcut registration result: \(self.registrationStatus, privacy: .public); binding: \(self.bindingIdentifier.id, privacy: .public)")
     }
 
     func unregister() {

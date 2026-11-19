@@ -2,6 +2,8 @@
 
 ## 1.1.5 — Unreleased
 
+- Preserve the permission relaunch helper when Settings' consent quit emits a spurious power-off notification. Continue cancelling it for real logout/shutdown, unknown senders and explicit quit.
+- Register the global shortcut before launch setup and receive it at the Carbon dispatcher, independently of a key window. Retain a capture request received during launch and log ignored requests with their state.
 - Default new captures and annotations to blue, including the toolbar pin icon. Keep the full six-color palette.
 - Replace the open arrowhead with a filled triangular head and a tapered shaft. Share its silhouette across preview, export, selection and object erasing; preserve endpoint editing and undo/redo.
 - Tighten the toolbar-to-hint gap by one physical screen pixel, accounting for the display's backing scale.

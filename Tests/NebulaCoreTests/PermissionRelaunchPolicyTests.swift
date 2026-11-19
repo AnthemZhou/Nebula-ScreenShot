@@ -66,3 +66,20 @@ import Testing
     #expect(!PermissionRelaunchPolicy.isSystemSettings("com.apple.settings.Unrelated.extension"))
     #expect(!PermissionRelaunchPolicy.isSystemSettings(nil))
 }
+
+@Test func settingsPowerOffNotificationDoesNotCancelConsentRestart() {
+    var policy = PermissionRelaunchPolicy()
+    let settings = "com.apple.settings.PrivacySecurity.extension"
+    #expect(!policy.shouldIgnorePowerOff(quitOrigin: settings, systemQuit: false))
+    policy.begin(granted: false)
+    // Reproduce the observed sequence: Settings sends quit, AppKit emits
+    // willPowerOff, then asks the delegate whether termination is allowed.
+    if !policy.shouldIgnorePowerOff(quitOrigin: settings, systemQuit: false) { policy.cancel() }
+    #expect(policy.preserveForQuit(explicitQuit: false, sessionEnding: false, settingsQuit: true))
+    #expect(!policy.shouldIgnorePowerOff(quitOrigin: settings, systemQuit: true))
+    #expect(!policy.shouldIgnorePowerOff(quitOrigin: "com.apple.loginwindow", systemQuit: true))
+    #expect(!policy.shouldIgnorePowerOff(quitOrigin: "com.apple.Terminal", systemQuit: false))
+    #expect(!policy.shouldIgnorePowerOff(quitOrigin: nil, systemQuit: false))
+    policy.cancel()
+    #expect(!policy.shouldIgnorePowerOff(quitOrigin: settings, systemQuit: false))
+}
