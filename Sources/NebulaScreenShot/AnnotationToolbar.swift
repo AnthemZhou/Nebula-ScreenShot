@@ -119,10 +119,34 @@ import NebulaCore
     }
 }
 
-@MainActor private final class ToolbarRowContent: NSView {
-    var separators: [NSRect] = [] { didSet { needsDisplay = true } }
+/// Clear glass supplies refraction without the regular material's adaptive
+/// lightening. A constant scrim keeps both rows dark from their first frame.
+@MainActor private class ToolbarGlassContent: NSView {
+    var cornerRadius: CGFloat = 14
     override var isFlipped: Bool { true }
     override func draw(_ dirtyRect: NSRect) {
+        let rect = bounds.insetBy(dx: AnnotationToolbar.glassInset, dy: AnnotationToolbar.glassInset)
+        let shape = NSBezierPath(roundedRect: rect, xRadius: cornerRadius, yRadius: cornerRadius)
+        NSColor.black.withAlphaComponent(0.68).setFill()
+        shape.fill()
+        // Keep the center transparent; a faint top reflection and hairline rim
+        // reveal the glass without replacing it with an opaque gray surface.
+        NSGradient(starting: NSColor.white.withAlphaComponent(0.025),
+                   ending: NSColor.white.withAlphaComponent(0.005))?.draw(in: shape, angle: 90)
+        NSGraphicsContext.saveGraphicsState()
+        let rim = NSBezierPath(roundedRect: rect.insetBy(dx: 0.25, dy: 0.25),
+                               xRadius: cornerRadius - 0.25, yRadius: cornerRadius - 0.25)
+        rim.lineWidth = 0.5
+        NSColor.white.withAlphaComponent(0.08).setStroke()
+        rim.stroke()
+        NSGraphicsContext.restoreGraphicsState()
+    }
+}
+
+@MainActor private final class ToolbarRowContent: ToolbarGlassContent {
+    var separators: [NSRect] = [] { didSet { needsDisplay = true } }
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
         NSColor.white.withAlphaComponent(0.20).setFill()
         for rect in separators { rect.fill() }
     }
@@ -155,17 +179,16 @@ import NebulaCore
 @MainActor private final class ToolbarSnapshotSurface: NSView {
     override func draw(_ dirtyRect: NSRect) {
         let rect = bounds.insetBy(dx: AnnotationToolbar.glassInset, dy: AnnotationToolbar.glassInset)
-        let shape = NSBezierPath(roundedRect: rect, xRadius: 14, yRadius: 14)
-        NSColor(white: 0.12, alpha: 0.75).setFill(); shape.fill()
-        let border = NSBezierPath(roundedRect: rect.insetBy(dx: 0.25, dy: 0.25), xRadius: 14, yRadius: 14)
-        NSColor.white.withAlphaComponent(0.18).setStroke(); border.lineWidth = 0.5; border.stroke()
+        let radius = min(14, rect.height / 2)
+        let shape = NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
+        NSColor(white: 0.18, alpha: 0.30).setFill(); shape.fill()
     }
 }
 
 @MainActor final class AnnotationToolbar: NSView {
     static let preferredWidth: CGFloat = 440
     // Desired gap between solid silhouettes. Live WindowServer captures show
-    // regular glass's body 1 pt inside its frame; the faint outer glint is not
+    // the glass body 1 pt inside its frame; the faint outer glint is not
     // its visual boundary. Account for both facing glass edges between rows.
     static let spacing: CGFloat = 10
     static var glassInset: CGFloat {
@@ -206,7 +229,7 @@ import NebulaCore
     private var undoButton: ToolbarButton!
     private var saveButton: ToolbarButton!
     private let rowContent = ToolbarRowContent(frame: .zero)
-    private let hintContent = NSView(frame: .zero)
+    private let hintContent = ToolbarGlassContent(frame: .zero)
     private var surface: NSView!
     private var hintSurface: NSView!
     private let copyHint = ToolbarHintLabel(labelWithString: L10n.text("回车以复制到剪贴板", "Press Return to copy to clipboard"))
@@ -306,13 +329,13 @@ import NebulaCore
     }
 
     /// Both rows share the same native glass and the same older-system fallback.
-    private func makeSurface(content: NSView, cornerRadius: CGFloat = 14) -> NSView {
+    private func makeSurface(content: ToolbarGlassContent, cornerRadius: CGFloat = 14) -> NSView {
+        content.cornerRadius = cornerRadius
         #if compiler(>=6.2)
         if #available(macOS 26.0, *) {
             let glass = NSGlassEffectView(frame: .zero)
-            glass.style = .regular
+            glass.style = .clear
             glass.cornerRadius = cornerRadius
-            glass.tintColor = NSColor.black.withAlphaComponent(0.10)
             glass.contentView = content
             return glass
         }

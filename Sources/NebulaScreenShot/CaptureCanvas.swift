@@ -294,7 +294,7 @@ import QuartzCore
 
     private func drawSelectionHighlight(in rect: CGRect) {
         guard let handle = highlightedSelectionHandle else { return }
-        let softness = min(4.5, max(1.5, min(rect.width, rect.height) / 6))
+        let softness = 2 * min(4.5, max(1.5, min(rect.width, rect.height) / 6))
         let path = selectionCornerPath(in: alignedSelectionRect(rect), handle: handle)
         NSGraphicsContext.saveGraphicsState()
         defer { NSGraphicsContext.restoreGraphicsState() }
@@ -304,7 +304,7 @@ import QuartzCore
         // Translucent strokes approximate a Gaussian falloff, with no opaque
         // center line or per-drag bitmap/filter allocation.
         var previousOpacity: CGFloat = 0
-        let steps = 18
+        let steps = 36
         for step in stride(from: steps, through: 1, by: -1) {
             let radius = softness * 3 * CGFloat(step) / CGFloat(steps)
             let opacity = 0.62 * exp(-radius * radius / (2 * softness * softness))

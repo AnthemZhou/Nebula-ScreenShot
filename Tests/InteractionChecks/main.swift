@@ -432,9 +432,9 @@ enum HarnessError: Error, CustomStringConvertible {
         let toolbar = canvas.subviews.compactMap { $0 as? AnnotationToolbar }.first!
         let cleanExport = bytes(try copy())
         let corner = CGPoint(x: crop.maxX - 3, y: crop.minY + 3)
-        let sample = CGPoint(x: crop.maxX - 14, y: crop.minY + 3)
+        let sample = CGPoint(x: crop.maxX - 14, y: crop.minY + 6)
         let borderSample = CGPoint(x: sample.x, y: crop.minY + 1)
-        let fadedSample = CGPoint(x: sample.x, y: crop.minY + 11)
+        let fadedSample = CGPoint(x: sample.x - 14, y: crop.minY + 24)
         let outside = [CGPoint(x: crop.maxX + 1, y: crop.minY + 14),
                        CGPoint(x: crop.maxX - 14, y: crop.minY - 1),
                        CGPoint(x: crop.maxX - 1, y: crop.minY + 1)]

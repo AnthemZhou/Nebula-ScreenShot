@@ -2,6 +2,8 @@
 
 ## 1.1.5 — Unreleased
 
+- Double the corner glow's blur radius while keeping it centered on the crop boundary and clipped away from the shaded desktop.
+- Use clear Liquid Glass with a constant dark scrim and subtle rim reflections for both toolbar rows, avoiding the regular material's adaptive gray brightening while retaining native refraction.
 - Keep the toolbar and Return-to-copy hint visible and following the crop during edge/corner resizing, Space moves and replacement drags. Disable implicit position animation to avoid trailing or a release-only jump.
 - Show resize feedback only at the four corners, using a soft glow in the selected annotation color (blue by default). Center a wider blur on the border and clip its outside half to the rounded crop, with no solid stroke or glow on the shaded desktop. Keep edge dragging, idle borders, hit targets and exported pixels unchanged.
 - Preserve the permission relaunch helper when Settings' consent quit emits a spurious power-off notification. Continue cancelling it for real logout/shutdown, unknown senders and explicit quit.
@@ -11,7 +13,7 @@
 - Tighten the toolbar-to-hint gap by one physical screen pixel, accounting for the display's backing scale.
 - Keep the exact crop geometry when releasing a selection, edge resize or Space move; round only exported source pixels. Avoid an immediate corner highlight on selection release.
 - Preserve the crop, annotations and toolbar on shaded-area clicks and small pointer jitter. Replace the crop only when a new drag begins; restore it if that drag ends too small.
-- Use brighter Return-to-copy text on the same glass material as the toolbar, without an additional black scrim. Center the hint below the toolbar with the same 10 pt gap used between the toolbar and crop.
+- Use brighter Return-to-copy text on the same glass material as the toolbar. Center the hint below the toolbar with the same 10 pt gap used between the toolbar and crop.
 - Center the hint's rendered glyph outlines rather than its font line box. Account for native glass's inset and the crop outline's outer stroke when matching visible gaps; align toolbar placement to the same pixel grid as the crop border.
 - Reduce the hint to 13 pt. Calibrate the gap against the solid glass body in live WindowServer captures, excluding its faint outer highlight.
 - Give the screenshot editor application focus after presenting the frozen desktop. Route Return, keypad Enter and editing shortcuts at the panel level so toolbar responder changes cannot swallow confirmation.
