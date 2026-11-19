@@ -374,8 +374,8 @@ enum HarnessError: Error, CustomStringConvertible {
 
         canvas.mouseDown(with: try mouse(.leftMouseDown, shade))
         canvas.mouseDragged(with: try mouse(.leftMouseDragged, CGPoint(x: 80, y: 80)))
-        try check(canvas.selection == CGRect(x: 30, y: 30, width: 50, height: 50) && toolbar.isHidden,
-                  "An actual new drag must replace the mask immediately")
+        try check(canvas.selection == CGRect(x: 30, y: 30, width: 50, height: 50) && !toolbar.isHidden,
+                  "An actual replacement drag must update the mask while retaining the controls")
         canvas.mouseUp(with: try mouse(.leftMouseUp, shade))
         try check(canvas.selection == original && !toolbar.isHidden && bytes(try copy()) == annotated,
                   "An invalid replacement must restore the old crop and annotations")
@@ -387,6 +387,80 @@ enum HarnessError: Error, CustomStringConvertible {
                   "Replacement must retain the toolbar and capture input barrier")
         canvas.resetSelection()
         print("PASS: shaded clicks/jitter preserve crop and annotations; only a new drag replaces it")
+    }
+
+    func runSelectionAdjustmentChecks() throws {
+        let crop = CGRect(x: 180, y: 120, width: 420, height: 280)
+        for handle in SelectionGeometry.handles(in: crop) {
+            canvas.resetSelection()
+            try drag(from: crop.origin, to: CGPoint(x: crop.maxX, y: crop.maxY))
+            let toolbar = canvas.subviews.compactMap { $0 as? AnnotationToolbar }.first!
+            let label = descendants(of: toolbar).compactMap { $0 as? NSTextField }.first!
+            let start = handle.point, end = CGPoint(x: start.x + 16, y: start.y + 12)
+            canvas.mouseDown(with: try mouse(.leftMouseDown, start))
+            canvas.mouseDragged(with: try mouse(.leftMouseDragged, end))
+            try check(!toolbar.isHidden && !label.isHiddenOrHasHiddenAncestor,
+                      "Every edge/corner drag must retain the toolbar and copy hint")
+            try check(canvas.selection != crop && canvas.bounds.contains(toolbar.frame),
+                      "Resize must change the crop and keep controls on screen")
+            let frame = toolbar.frame
+            canvas.mouseUp(with: try mouse(.leftMouseUp, end))
+            try check(toolbar.frame == frame, "Controls must follow during drag, without a release-only jump")
+        }
+        let toolbar = canvas.subviews.compactMap { $0 as? AnnotationToolbar }.first!
+        let before = toolbar.frame
+        let cropBeforeMove = canvas.selection!
+        let center = CGPoint(x: cropBeforeMove.midX, y: cropBeforeMove.midY)
+        let end = CGPoint(x: center.x + 20, y: center.y + 15)
+        try key(" ", code: 49)
+        canvas.mouseDown(with: try mouse(.leftMouseDown, center))
+        try check(!toolbar.isHidden, "Space-move mouse-down must keep controls visible")
+        canvas.mouseDragged(with: try mouse(.leftMouseDragged, end))
+        try check(!toolbar.isHidden && toolbar.frame.origin == CGPoint(x: before.minX + 20, y: before.minY + 15),
+                  "Toolbar and hint must follow a moving crop before mouse-up")
+        canvas.mouseUp(with: try mouse(.leftMouseUp, end))
+        try key(" ", code: 49, up: true)
+        canvas.resetSelection()
+        print("PASS: eight resize directions and Space move retain/follow toolbar and hint without release jumps")
+    }
+
+    func runSelectionGlowChecks(outputURL: URL) throws {
+        let crop = CGRect(x: 180, y: 120, width: 420, height: 280)
+        let center = CGPoint(x: crop.midX, y: crop.midY)
+        canvas.resetSelection()
+        try drag(from: crop.origin, to: CGPoint(x: crop.maxX, y: crop.maxY))
+        let toolbar = canvas.subviews.compactMap { $0 as? AnnotationToolbar }.first!
+        let cleanExport = bytes(try copy())
+        let sample = CGPoint(x: crop.midX, y: crop.minY - 4)
+        func components(_ color: NSColor) -> [CGFloat] {
+            let rgb = color.usingColorSpace(.sRGB)!
+            return [rgb.redComponent, rgb.greenComponent, rgb.blueComponent]
+        }
+        try hover(center)
+        let base = components(try renderedCanvasColor(at: sample))
+        for ink in Ink.allCases {
+            toolbar.onInk?(ink)
+            try hover(CGPoint(x: crop.midX, y: crop.minY - 3))
+            let active = components(try renderedCanvasColor(at: sample))
+            let color = components(try referenceColor(ink))
+            let channel = (0..<3).max { abs(color[$0] - base[$0]) < abs(color[$1] - base[$1]) }!
+            try check((active[channel] - base[channel]) * (color[channel] - base[channel]) > 0.015,
+                      "Hover halo must extend outside the hairline in the selected color: \(ink)")
+            try check(bytes(try copy()) == cleanExport, "Selection glow must never appear in clipboard pixels")
+            try hover(center)
+            let restored = components(try renderedCanvasColor(at: sample))
+            try check(zip(base, restored).allSatisfy { abs($0 - $1) < 0.01 }, "Glow must disappear when pointer leaves")
+        }
+        toolbar.onInk?(.blue)
+        try hover(CGPoint(x: crop.maxX - 3, y: crop.maxY - 3))
+        toolbar.useStaticPreviewMaterial()
+        canvas.layoutSubtreeIfNeeded()
+        if let bitmap = canvas.bitmapImageRepForCachingDisplay(in: canvas.bounds) {
+            canvas.cacheDisplay(in: canvas.bounds, to: bitmap)
+            try bitmap.representation(using: .png, properties: [:])!.write(to: outputURL)
+        }
+        canvas.resetSelection()
+        print("PASS: six selected-color halos, hover cleanup and unchanged export pixels")
     }
 
     func runBorderContrastChecks() throws {
@@ -1079,6 +1153,14 @@ MainActor.assumeIsolated {
         let selection = try CanvasHarness()
         try selection.runSelectionReleaseChecks()
         try selection.runShadedClickChecks()
+        try selection.runSelectionAdjustmentChecks()
+        let glow = try CanvasHarness()
+        try glow.runSelectionGlowChecks(outputURL: URL(fileURLWithPath: CommandLine.arguments[1])
+            .deletingPathExtension().appendingPathExtension("resize.png"))
+        let brightGlow = try CanvasHarness(pending: true)
+        brightGlow.canvas.installScreenshot(brightGlow.syntheticImage)
+        try brightGlow.runSelectionGlowChecks(outputURL: URL(fileURLWithPath: CommandLine.arguments[1])
+            .deletingPathExtension().appendingPathExtension("resize-bright.png"))
         if !CommandLine.arguments.contains("--english") {
             let exportState = try CanvasHarness()
             try exportState.runExportStateChecks()

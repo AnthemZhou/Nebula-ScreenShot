@@ -240,12 +240,16 @@ import QuartzCore
         selectionBorderPath(in: rect).stroke()
     }
 
-    private func selectionBorderPath(in rect: CGRect) -> NSBezierPath {
+    private func alignedSelectionRect(_ rect: CGRect) -> CGRect {
         // Align only the visual outline; capture bounds and drag coordinates stay exact.
         let scale = max(1, window?.backingScaleFactor ?? pixelScale)
         func snap(_ value: CGFloat) -> CGFloat { (value * scale).rounded() / scale }
-        let aligned = CGRect(x: snap(rect.minX), y: snap(rect.minY),
-                             width: snap(rect.maxX) - snap(rect.minX), height: snap(rect.maxY) - snap(rect.minY))
+        return CGRect(x: snap(rect.minX), y: snap(rect.minY),
+                      width: snap(rect.maxX) - snap(rect.minX), height: snap(rect.maxY) - snap(rect.minY))
+    }
+
+    private func selectionBorderPath(in rect: CGRect) -> NSBezierPath {
+        let aligned = alignedSelectionRect(rect)
         let radius = SelectionGeometry.cornerRadius(in: aligned)
         let path = NSBezierPath(roundedRect: aligned, xRadius: radius, yRadius: radius)
         path.lineWidth = 1
@@ -282,29 +286,53 @@ import QuartzCore
 
     private func drawSelectionHighlight(in rect: CGRect) {
         guard let handle = highlightedSelectionHandle else { return }
-        let radius = SelectionGeometry.cornerRadius(in: rect)
-        let length = min(18, min(rect.width, rect.height) / 2)
-        let region: CGRect
-        switch handle {
-        case .left: region = CGRect(x: rect.minX - 3, y: rect.minY + radius, width: 6, height: rect.height - 2 * radius)
-        case .right: region = CGRect(x: rect.maxX - 3, y: rect.minY + radius, width: 6, height: rect.height - 2 * radius)
-        case .top: region = CGRect(x: rect.minX + radius, y: rect.minY - 3, width: rect.width - 2 * radius, height: 6)
-        case .bottom: region = CGRect(x: rect.minX + radius, y: rect.maxY - 3, width: rect.width - 2 * radius, height: 6)
-        case .topLeft: region = CGRect(x: rect.minX - 3, y: rect.minY - 3, width: length + 3, height: length + 3)
-        case .topRight: region = CGRect(x: rect.maxX - length, y: rect.minY - 3, width: length + 3, height: length + 3)
-        case .bottomLeft: region = CGRect(x: rect.minX - 3, y: rect.maxY - length, width: length + 3, height: length + 3)
-        case .bottomRight: region = CGRect(x: rect.maxX - length, y: rect.maxY - length, width: length + 3, height: length + 3)
-        }
+        let path = selectionHighlightPath(in: alignedSelectionRect(rect), handle: handle)
+        // Draw only the active segment so its colored halo can fade naturally,
+        // rather than clipping a whole-border shadow into a rectangular block.
         NSGraphicsContext.saveGraphicsState()
-        defer { NSGraphicsContext.restoreGraphicsState() }
-        NSBezierPath(rect: region).addClip()
-        let path = selectionBorderPath(in: rect)
-        NSColor.white.withAlphaComponent(0.12).setStroke()
-        path.lineWidth = 3
+        let glow = NSShadow()
+        glow.shadowColor = ink.color.withAlphaComponent(0.9)
+        glow.shadowBlurRadius = 6
+        glow.shadowOffset = .zero
+        glow.set()
+        ink.color.withAlphaComponent(0.95).setStroke()
+        path.lineWidth = 3.5
         path.stroke()
+        NSGraphicsContext.restoreGraphicsState()
         NSColor.white.setStroke()
         path.lineWidth = 1.5
         path.stroke()
+    }
+
+    private func selectionHighlightPath(in rect: CGRect, handle: SelectionHandle) -> NSBezierPath {
+        let radius = SelectionGeometry.cornerRadius(in: rect)
+        let length = min(18, min(rect.width, rect.height) / 2)
+        let path = NSBezierPath()
+        path.lineCapStyle = .round
+        path.lineJoinStyle = .round
+        switch handle {
+        case .left, .right:
+            let x = handle == .left ? rect.minX : rect.maxX
+            path.move(to: CGPoint(x: x, y: rect.minY + radius))
+            path.line(to: CGPoint(x: x, y: rect.maxY - radius))
+        case .top, .bottom:
+            let y = handle == .top ? rect.minY : rect.maxY
+            path.move(to: CGPoint(x: rect.minX + radius, y: y))
+            path.line(to: CGPoint(x: rect.maxX - radius, y: y))
+        case .topLeft, .topRight, .bottomLeft, .bottomRight:
+            let left = handle == .topLeft || handle == .bottomLeft
+            let top = handle == .topLeft || handle == .topRight
+            let tangent = radius * (1 - 0.5522847498)
+            path.move(to: CGPoint(x: 0, y: length))
+            path.line(to: CGPoint(x: 0, y: radius))
+            path.curve(to: CGPoint(x: radius, y: 0), controlPoint1: CGPoint(x: 0, y: tangent),
+                       controlPoint2: CGPoint(x: tangent, y: 0))
+            path.line(to: CGPoint(x: length, y: 0))
+            let transform = AffineTransform(m11: left ? 1 : -1, m12: 0, m21: 0, m22: top ? 1 : -1,
+                                            tX: left ? rect.minX : rect.maxX, tY: top ? rect.minY : rect.maxY)
+            path.transform(using: transform)
+        }
+        return path
     }
 
     private func updateHint() {
@@ -483,7 +511,6 @@ import QuartzCore
         if let selection {
             if spaceHeld, selection.contains(point) {
                 interaction = .move(original: selection, start: point)
-                if hasToolbar { toolbar.isHidden = true }
             } else if let pin = pinToDelete(at: point) {
                 history.remove(ids: [pin.id])
                 hoverID = nil; selectedID = nil
@@ -551,18 +578,20 @@ import QuartzCore
             let dragged = wasDragged || hypot(point.x - start.x, point.y - start.y) >= Self.dragThreshold
             guard dragged else { return }
             self.interaction = .select(start: start, previous: previous, dragged: true)
-            if hasToolbar { toolbar.isHidden = true }
+            if previous == nil, hasToolbar { toolbar.isHidden = true }
             selection = Geometry.rect(from: start, to: point).intersection(bounds)
+            if previous != nil { positionToolbar() }
         case .resize(let original, let handle, let start, let wasDragged):
             let dragged = wasDragged || hypot(point.x - start.x, point.y - start.y) >= Self.dragThreshold
             self.interaction = .resize(original: original, handle: handle, start: start, dragged: dragged)
             guard dragged else { return }
-            if hasToolbar { toolbar.isHidden = true }
             guard let anchor = SelectionGeometry.handles(in: original).first(where: { $0.handle == handle })?.point else { return }
             let target = CGPoint(x: anchor.x + point.x - start.x, y: anchor.y + point.y - start.y)
             selection = SelectionGeometry.resize(original, handle: handle, to: target, within: bounds)
+            positionToolbar()
         case .move(let original, let start):
             selection = SelectionGeometry.move(original, by: CGSize(width: point.x - start.x, height: point.y - start.y), within: bounds)
+            positionToolbar()
         case .draw(let start, let tool, let ink, let width, let right, let wasDragged):
             guard let selection else { return }
             let dragged = wasDragged || hypot(point.x - start.x, point.y - start.y) >= Self.dragThreshold
@@ -660,7 +689,7 @@ import QuartzCore
     }
 
     private func positionToolbar() {
-        guard let selection else { return }
+        guard hasToolbar, let selection else { return }
         let scale = max(1, window?.backingScaleFactor ?? pixelScale)
         let size = AnnotationToolbar.preferredSize(for: bounds.width - 24, backingScale: scale)
         let width = size.width, height = size.height
@@ -674,8 +703,13 @@ import QuartzCore
         if bottom + height + spacing + 4 <= bounds.height { y = bottom + spacing }
         else if top - height - spacing - 4 >= 0 { y = top - height - spacing }
         else { y = min(max(selection.maxY - height - 12, 12), bounds.height - height - 12) }
-        toolbar.frame = CGRect(x: x, y: y, width: width, height: height)
+        let frame = CGRect(x: x, y: y, width: width, height: height)
+        guard toolbar.frame != frame else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        toolbar.frame = frame
         toolbar.layoutSubtreeIfNeeded()
+        CATransaction.commit()
     }
 
     private func refresh() {
