@@ -317,15 +317,23 @@ import QuartzCore
         context.clip(to: region)
         selectionMask(in: rect).addClip()
         context.beginTransparencyLayer(auxiliaryInfo: nil)
-        let path = selectionBorderPath(in: rect)
+        let cornerRadius = SelectionGeometry.cornerRadius(in: rect)
         var previousOpacity: CGFloat = 0
         let steps = 32
         for step in stride(from: steps, through: 1, by: -1) {
             let distance = depth * 3 * CGFloat(step) / CGFloat(steps)
             let opacity = 0.98 * exp(-distance * distance / (2 * depth * depth))
-            NSColor.white.withAlphaComponent((opacity - previousOpacity) / (1 - previousOpacity)).setStroke()
-            path.lineWidth = 2 * distance
-            path.stroke()
+            let band = NSBezierPath(rect: region)
+            let inner = rect.insetBy(dx: distance, dy: distance)
+            if inner.width > 0 && inner.height > 0 {
+                // A thick stroke collapses the inner arc to a sharp elbow.
+                // Keep each inward contour rounded as the glow fades out.
+                let radius = min(cornerRadius + distance * 0.25, min(inner.width, inner.height) / 2)
+                band.append(NSBezierPath(roundedRect: inner, xRadius: radius, yRadius: radius))
+            }
+            band.windingRule = .evenOdd
+            NSColor.white.withAlphaComponent((opacity - previousOpacity) / (1 - previousOpacity)).setFill()
+            band.fill()
             previousOpacity = opacity
         }
         context.setBlendMode(.sourceIn)

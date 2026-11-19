@@ -241,7 +241,7 @@ import NebulaCore
         appearance = NSAppearance(named: .darkAqua)
         surface = makeSurface(content: rowContent)
         addSubview(surface)
-        for ink in Ink.allCases {
+        for ink in [Ink.blue, .purple, .white, .coral, .amber, .mint] {
             let button = ToolbarInkButton(ink: ink)
             button.onChoose = { [weak self] ink in self?.chooseInk(ink) }
             inkButtons.append(button)

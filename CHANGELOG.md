@@ -2,6 +2,7 @@
 
 ## 1.1.5 — Unreleased
 
+- Rotate the toolbar palette to blue, purple, white, coral, amber and mint. Keep the corner glow's inner contours rounded throughout their fade, avoiding a sharp inner elbow.
 - Retain annotation controls across a shape's interior and a forgiving stroke margin. Enlarge handle targets without letting their invisible margins steal nearby annotations; preserve empty interiors for drawing.
 - Show resize feedback only at the four corners, using the selected annotation color (blue by default). Follow the rounded border with a soft narrow glow that fades farther along the two edges than into the crop, without a circular spot or segment-end blobs. Clip it to the rounded selection, keeping the shaded desktop, edge dragging, idle borders, hit targets and exported pixels unchanged.
 - Use clear Liquid Glass with a constant dark scrim and subtle rim reflections for both toolbar rows, avoiding the regular material's adaptive gray brightening while retaining native refraction.
