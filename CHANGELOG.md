@@ -3,7 +3,7 @@
 ## 1.1.5 — Unreleased
 
 - Keep the toolbar and Return-to-copy hint visible and following the crop during edge/corner resizing, Space moves and replacement drags. Disable implicit position animation to avoid trailing or a release-only jump.
-- Add a soft halo in the currently selected annotation color to the hovered/dragged crop edge or corner, retaining a fine white center. Keep hit targets and exported pixels unchanged.
+- Color both the resize highlight itself and its soft halo with the currently selected annotation color (blue by default). Keep idle borders, hit targets and exported pixels unchanged.
 - Preserve the permission relaunch helper when Settings' consent quit emits a spurious power-off notification. Continue cancelling it for real logout/shutdown, unknown senders and explicit quit.
 - Register the global shortcut before launch setup and receive it at the Carbon dispatcher, independently of a key window. Retain a capture request received during launch and log ignored requests with their state.
 - Default new captures and annotations to blue, including the toolbar pin icon. Keep the full six-color palette.

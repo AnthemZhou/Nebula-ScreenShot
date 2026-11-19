@@ -299,7 +299,7 @@ import QuartzCore
         path.lineWidth = 3.5
         path.stroke()
         NSGraphicsContext.restoreGraphicsState()
-        NSColor.white.setStroke()
+        ink.color.setStroke()
         path.lineWidth = 1.5
         path.stroke()
     }

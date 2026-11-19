@@ -443,6 +443,9 @@ enum HarnessError: Error, CustomStringConvertible {
             try hover(CGPoint(x: crop.midX, y: crop.minY - 3))
             let active = components(try renderedCanvasColor(at: sample))
             let color = components(try referenceColor(ink))
+            let core = components(try renderedCanvasColor(at: CGPoint(x: crop.midX, y: crop.minY)))
+            try check(zip(core, color).allSatisfy { abs($0 - $1) < 0.025 },
+                      "The resize highlight itself must use the selected color: \(ink)")
             let channel = (0..<3).max { abs(color[$0] - base[$0]) < abs(color[$1] - base[$1]) }!
             try check((active[channel] - base[channel]) * (color[channel] - base[channel]) > 0.015,
                       "Hover halo must extend outside the hairline in the selected color: \(ink)")
@@ -452,7 +455,7 @@ enum HarnessError: Error, CustomStringConvertible {
             try check(zip(base, restored).allSatisfy { abs($0 - $1) < 0.01 }, "Glow must disappear when pointer leaves")
         }
         toolbar.onInk?(.blue)
-        try hover(CGPoint(x: crop.maxX - 3, y: crop.maxY - 3))
+        try hover(CGPoint(x: crop.maxX + 3, y: crop.midY))
         toolbar.useStaticPreviewMaterial()
         canvas.layoutSubtreeIfNeeded()
         if let bitmap = canvas.bitmapImageRepForCachingDisplay(in: canvas.bounds) {
@@ -460,7 +463,7 @@ enum HarnessError: Error, CustomStringConvertible {
             try bitmap.representation(using: .png, properties: [:])!.write(to: outputURL)
         }
         canvas.resetSelection()
-        print("PASS: six selected-color halos, hover cleanup and unchanged export pixels")
+        print("PASS: six selected-color resize highlights and halos, hover cleanup and unchanged export pixels")
     }
 
     func runBorderContrastChecks() throws {
@@ -522,7 +525,8 @@ enum HarnessError: Error, CustomStringConvertible {
         try check(corner.redComponent < 0.1, "An idle corner must not contain a square handle")
         try hover(CGPoint(x: initialCrop.midX, y: initialCrop.minY - 3))
         let active = try renderedCanvasColor(at: topSample)
-        try check(active.redComponent > idle.redComponent + 0.15, "Hover must visibly brighten the corresponding crop edge")
+        try check(active.blueComponent > active.redComponent + 0.3,
+                  "Default edge hover must have a blue body, rather than a white center")
         try hover(CGPoint(x: 300, y: 300))
         let restored = try renderedCanvasColor(at: topSample)
         try check(abs(restored.redComponent - idle.redComponent) < 0.01, "Leaving the edge must restore its hairline")
