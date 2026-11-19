@@ -136,7 +136,7 @@ import NebulaCore
     override func draw(_ dirtyRect: NSRect) {
         guard let context = NSGraphicsContext.current?.cgContext else { return }
         let text = NSAttributedString(string: stringValue, attributes: [
-            .font: font ?? NSFont.systemFont(ofSize: 14, weight: .medium),
+            .font: font ?? NSFont.systemFont(ofSize: 13, weight: .medium),
             .foregroundColor: textColor ?? NSColor.white
         ])
         let line = CTLineCreateWithAttributedString(text)
@@ -164,12 +164,13 @@ import NebulaCore
 
 @MainActor final class AnnotationToolbar: NSView {
     static let preferredWidth: CGFloat = 440
-    // Desired visible gap. Native regular glass draws 0.5 pt inside its frame;
-    // two neighboring glass edges therefore need one point less frame spacing.
+    // Desired gap between solid silhouettes. Live WindowServer captures show
+    // regular glass's body 1 pt inside its frame; the faint outer glint is not
+    // its visual boundary. Account for both facing glass edges between rows.
     static let spacing: CGFloat = 10
     static var glassInset: CGFloat {
         #if compiler(>=6.2)
-        if #available(macOS 26.0, *) { return 0.5 }
+        if #available(macOS 26.0, *) { return 1 }
         #endif
         return 0
     }
@@ -236,7 +237,7 @@ import NebulaCore
         saveButton = ToolbarButton(title: L10n.text("保存", "Save"), symbol: "square.and.arrow.down", help: L10n.text("保存 PNG（⌘S）", "Save PNG (⌘S)")) { [weak self] in self?.onSave?() }
         hintSurface = makeSurface(content: hintContent, cornerRadius: Self.hintHeight / 2)
         addSubview(hintSurface)
-        copyHint.font = .systemFont(ofSize: 14, weight: .medium)
+        copyHint.font = .systemFont(ofSize: 13, weight: .medium)
         copyHint.textColor = NSColor(white: 1, alpha: 0.95)
         copyHint.alignment = .center
         copyHint.isSelectable = false

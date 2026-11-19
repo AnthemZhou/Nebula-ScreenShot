@@ -633,8 +633,8 @@ enum HarnessError: Error, CustomStringConvertible {
         }
         try key("n")
         try check((try button(labelPrefix: "形状与设置")).state == .off, "Returning to pin clears the settings highlight")
-        try check(copyHint.font!.pointSize == 14 && copyHint.textColor!.alphaComponent < 1,
-                  "Copy hint must be larger and translucent")
+        try check(copyHint.font!.pointSize == 13 && copyHint.textColor!.alphaComponent < 1,
+                  "Copy hint must use the requested 13pt translucent text")
         let darkText = copyHint.textColor!.usingColorSpace(.sRGB)!
         try check(darkText.redComponent > 0.9 && darkText.alphaComponent >= 0.9,
                   "Copy hint must retain readable light ink over its glass")

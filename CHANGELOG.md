@@ -6,6 +6,7 @@
 - Preserve the crop, annotations and toolbar on shaded-area clicks and small pointer jitter. Replace the crop only when a new drag begins; restore it if that drag ends too small.
 - Use brighter Return-to-copy text on the same glass material as the toolbar, without an additional black scrim. Center the hint below the toolbar with the same 10 pt gap used between the toolbar and crop.
 - Center the hint's rendered glyph outlines rather than its font line box. Account for native glass's inset and the crop outline's outer stroke when matching visible gaps; align toolbar placement to the same pixel grid as the crop border.
+- Reduce the hint to 13 pt. Calibrate the gap against the solid glass body in live WindowServer captures, excluding its faint outer highlight.
 - Give the screenshot editor application focus after presenting the frozen desktop. Route Return, keypad Enter and editing shortcuts at the panel level so toolbar responder changes cannot swallow confirmation.
 - Keep all displays covered during selection; shaded regions continue to receive clicks. Switching to another application dismisses the capture instead of leaving a dark overlay over an active underlying window.
 - Consume repeated confirmation keys while exporting and restore the previous application's focus only after held confirmation keys are released. Observe key-up locally so Command-C release cannot be lost through key-equivalent dispatch.
