@@ -259,10 +259,18 @@ import QuartzCore
 
     private var highlightedSelectionHandle: SelectionHandle? {
         guard !exportBusy, let selection, selection.width >= 8, selection.height >= 8 else { return nil }
-        if case .resize(_, let handle, _, _) = interaction { return handle }
-        guard interaction == nil, !suppressSelectionHover, let pointer else { return nil }
-        if hasToolbar && !toolbar.isHidden && toolbar.frame.contains(pointer) { return nil }
-        return cropResizeHandle(at: pointer)
+        let handle: SelectionHandle?
+        if case .resize(_, let activeHandle, _, _) = interaction {
+            handle = activeHandle
+        } else {
+            guard interaction == nil, !suppressSelectionHover, let pointer else { return nil }
+            if hasToolbar && !toolbar.isHidden && toolbar.frame.contains(pointer) { return nil }
+            handle = cropResizeHandle(at: pointer)
+        }
+        switch handle {
+        case .topLeft, .topRight, .bottomLeft, .bottomRight: return handle
+        default: return nil
+        }
     }
 
     private func cropResizeHandle(at point: CGPoint) -> SelectionHandle? {
@@ -286,52 +294,44 @@ import QuartzCore
 
     private func drawSelectionHighlight(in rect: CGRect) {
         guard let handle = highlightedSelectionHandle else { return }
-        let path = selectionHighlightPath(in: alignedSelectionRect(rect), handle: handle)
-        // Draw only the active segment so its colored halo can fade naturally,
-        // rather than clipping a whole-border shadow into a rectangular block.
+        let softness = min(3, max(1, min(rect.width, rect.height) / 8))
+        let path = selectionCornerPath(in: alignedSelectionRect(rect), handle: handle, inset: softness)
         NSGraphicsContext.saveGraphicsState()
-        let glow = NSShadow()
-        glow.shadowColor = ink.color.withAlphaComponent(0.9)
-        glow.shadowBlurRadius = 6
-        glow.shadowOffset = .zero
-        glow.set()
-        ink.color.withAlphaComponent(0.95).setStroke()
-        path.lineWidth = 3.5
-        path.stroke()
-        NSGraphicsContext.restoreGraphicsState()
-        ink.color.setStroke()
-        path.lineWidth = 1.5
-        path.stroke()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        // Keep the glow inside the exact rounded crop, including fractional
+        // bounds. Its outer edge must never tint the shaded desktop.
+        selectionMask(in: rect).addClip()
+        // Translucent strokes approximate a Gaussian falloff, with no opaque
+        // center line or per-drag bitmap/filter allocation.
+        var previousOpacity: CGFloat = 0
+        for step in stride(from: 12, through: 1, by: -1) {
+            let radius = softness * 3 * CGFloat(step) / 12
+            let opacity = 0.62 * exp(-radius * radius / (2 * softness * softness))
+            ink.color.withAlphaComponent((opacity - previousOpacity) / (1 - previousOpacity)).setStroke()
+            path.lineWidth = 2 * radius
+            path.stroke()
+            previousOpacity = opacity
+        }
     }
 
-    private func selectionHighlightPath(in rect: CGRect, handle: SelectionHandle) -> NSBezierPath {
-        let radius = SelectionGeometry.cornerRadius(in: rect)
-        let length = min(18, min(rect.width, rect.height) / 2)
+    private func selectionCornerPath(in rect: CGRect, handle: SelectionHandle, inset: CGFloat) -> NSBezierPath {
+        let radius = max(0, SelectionGeometry.cornerRadius(in: rect) - inset)
+        let length = max(radius, min(18, min(rect.width, rect.height) / 2) - inset)
+        let inner = rect.insetBy(dx: inset, dy: inset)
         let path = NSBezierPath()
         path.lineCapStyle = .round
         path.lineJoinStyle = .round
-        switch handle {
-        case .left, .right:
-            let x = handle == .left ? rect.minX : rect.maxX
-            path.move(to: CGPoint(x: x, y: rect.minY + radius))
-            path.line(to: CGPoint(x: x, y: rect.maxY - radius))
-        case .top, .bottom:
-            let y = handle == .top ? rect.minY : rect.maxY
-            path.move(to: CGPoint(x: rect.minX + radius, y: y))
-            path.line(to: CGPoint(x: rect.maxX - radius, y: y))
-        case .topLeft, .topRight, .bottomLeft, .bottomRight:
-            let left = handle == .topLeft || handle == .bottomLeft
-            let top = handle == .topLeft || handle == .topRight
-            let tangent = radius * (1 - 0.5522847498)
-            path.move(to: CGPoint(x: 0, y: length))
-            path.line(to: CGPoint(x: 0, y: radius))
-            path.curve(to: CGPoint(x: radius, y: 0), controlPoint1: CGPoint(x: 0, y: tangent),
-                       controlPoint2: CGPoint(x: tangent, y: 0))
-            path.line(to: CGPoint(x: length, y: 0))
-            let transform = AffineTransform(m11: left ? 1 : -1, m12: 0, m21: 0, m22: top ? 1 : -1,
-                                            tX: left ? rect.minX : rect.maxX, tY: top ? rect.minY : rect.maxY)
-            path.transform(using: transform)
-        }
+        let left = handle == .topLeft || handle == .bottomLeft
+        let top = handle == .topLeft || handle == .topRight
+        let tangent = radius * (1 - 0.5522847498)
+        path.move(to: CGPoint(x: 0, y: length))
+        path.line(to: CGPoint(x: 0, y: radius))
+        path.curve(to: CGPoint(x: radius, y: 0), controlPoint1: CGPoint(x: 0, y: tangent),
+                   controlPoint2: CGPoint(x: tangent, y: 0))
+        path.line(to: CGPoint(x: length, y: 0))
+        let transform = AffineTransform(m11: left ? 1 : -1, m12: 0, m21: 0, m22: top ? 1 : -1,
+                                        tX: left ? inner.minX : inner.maxX, tY: top ? inner.minY : inner.maxY)
+        path.transform(using: transform)
         return path
     }
 

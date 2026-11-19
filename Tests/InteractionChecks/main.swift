@@ -431,31 +431,62 @@ enum HarnessError: Error, CustomStringConvertible {
         try drag(from: crop.origin, to: CGPoint(x: crop.maxX, y: crop.maxY))
         let toolbar = canvas.subviews.compactMap { $0 as? AnnotationToolbar }.first!
         let cleanExport = bytes(try copy())
-        let sample = CGPoint(x: crop.midX, y: crop.minY - 4)
+        let corner = CGPoint(x: crop.maxX - 3, y: crop.minY + 3)
+        let sample = CGPoint(x: crop.maxX - 14, y: crop.minY + 3)
+        let fadedSample = CGPoint(x: sample.x, y: crop.minY + 11)
+        let outside = [CGPoint(x: crop.maxX + 1, y: crop.minY + 14),
+                       CGPoint(x: crop.maxX - 14, y: crop.minY - 1),
+                       CGPoint(x: crop.maxX - 1, y: crop.minY + 1)]
         func components(_ color: NSColor) -> [CGFloat] {
             let rgb = color.usingColorSpace(.sRGB)!
             return [rgb.redComponent, rgb.greenComponent, rgb.blueComponent]
         }
         try hover(center)
-        let base = components(try renderedCanvasColor(at: sample))
+        let idle = try renderedCanvasBitmap()
+        func sampleColor(_ bitmap: NSBitmapImageRep, _ point: CGPoint) -> [CGFloat] {
+            components(bitmap.colorAt(x: Int(point.x * 2), y: Int(point.y * 2))!)
+        }
+        let base = sampleColor(idle, sample)
+        let fadedBase = sampleColor(idle, fadedSample)
+        for edge in [CGPoint(x: crop.midX, y: crop.minY - 3), CGPoint(x: crop.midX, y: crop.maxY + 3),
+                     CGPoint(x: crop.minX - 3, y: crop.midY), CGPoint(x: crop.maxX + 3, y: crop.midY)] {
+            try hover(edge)
+            try check(bytes(try renderedCanvasBitmap()) == bytes(idle), "Straight edges must have no colored hover feedback")
+        }
         for ink in Ink.allCases {
             toolbar.onInk?(ink)
-            try hover(CGPoint(x: crop.midX, y: crop.minY - 3))
-            let active = components(try renderedCanvasColor(at: sample))
+            try hover(corner)
+            let bitmap = try renderedCanvasBitmap()
+            let active = sampleColor(bitmap, sample)
             let color = components(try referenceColor(ink))
-            let core = components(try renderedCanvasColor(at: CGPoint(x: crop.midX, y: crop.minY)))
-            try check(zip(core, color).allSatisfy { abs($0 - $1) < 0.025 },
-                      "The resize highlight itself must use the selected color: \(ink)")
             let channel = (0..<3).max { abs(color[$0] - base[$0]) < abs(color[$1] - base[$1]) }!
-            try check((active[channel] - base[channel]) * (color[channel] - base[channel]) > 0.015,
-                      "Hover halo must extend outside the hairline in the selected color: \(ink)")
+            let opacity = (active[channel] - base[channel]) / (color[channel] - base[channel])
+            let faded = sampleColor(bitmap, fadedSample)
+            try check(opacity > 0.15 && opacity < 0.85,
+                      "Corner must have a translucent selected-color glow without an opaque core: \(ink)")
+            try check(abs(faded[channel] - fadedBase[channel]) < abs(active[channel] - base[channel]) * 0.5,
+                      "Corner glow must fade softly into the crop")
+            for point in outside {
+                try check(zip(sampleColor(bitmap, point), sampleColor(idle, point)).allSatisfy { abs($0 - $1) < 0.01 },
+                          "Corner glow must not tint pixels outside the rounded crop")
+            }
             try check(bytes(try copy()) == cleanExport, "Selection glow must never appear in clipboard pixels")
             try hover(center)
             let restored = components(try renderedCanvasColor(at: sample))
             try check(zip(base, restored).allSatisfy { abs($0 - $1) < 0.01 }, "Glow must disappear when pointer leaves")
         }
         toolbar.onInk?(.blue)
-        try hover(CGPoint(x: crop.maxX + 3, y: crop.midY))
+        for (hoverPoint, insidePoint) in [
+            (CGPoint(x: crop.minX + 3, y: crop.minY + 3), CGPoint(x: crop.minX + 14, y: crop.minY + 3)),
+            (corner, sample),
+            (CGPoint(x: crop.minX + 3, y: crop.maxY - 3), CGPoint(x: crop.minX + 14, y: crop.maxY - 3)),
+            (CGPoint(x: crop.maxX - 3, y: crop.maxY - 3), CGPoint(x: crop.maxX - 14, y: crop.maxY - 3))
+        ] {
+            try hover(hoverPoint)
+            let active = components(try renderedCanvasColor(at: insidePoint))
+            try check(active[2] > active[0] + 0.04, "All four corners must show the default blue inner glow")
+        }
+        try hover(corner)
         toolbar.useStaticPreviewMaterial()
         canvas.layoutSubtreeIfNeeded()
         if let bitmap = canvas.bitmapImageRepForCachingDisplay(in: canvas.bounds) {
@@ -463,7 +494,7 @@ enum HarnessError: Error, CustomStringConvertible {
             try bitmap.representation(using: .png, properties: [:])!.write(to: outputURL)
         }
         canvas.resetSelection()
-        print("PASS: six selected-color resize highlights and halos, hover cleanup and unchanged export pixels")
+        print("PASS: four soft inner corner glows in six colors; no edge feedback, outer spill or exported glow")
     }
 
     func runBorderContrastChecks() throws {
@@ -525,8 +556,9 @@ enum HarnessError: Error, CustomStringConvertible {
         try check(corner.redComponent < 0.1, "An idle corner must not contain a square handle")
         try hover(CGPoint(x: initialCrop.midX, y: initialCrop.minY - 3))
         let active = try renderedCanvasColor(at: topSample)
-        try check(active.blueComponent > active.redComponent + 0.3,
-                  "Default edge hover must have a blue body, rather than a white center")
+        try check(abs(active.redComponent - idle.redComponent) < 0.01 &&
+                  abs(active.blueComponent - idle.blueComponent) < 0.01,
+                  "Straight-edge hover must keep the neutral hairline")
         try hover(CGPoint(x: 300, y: 300))
         let restored = try renderedCanvasColor(at: topSample)
         try check(abs(restored.redComponent - idle.redComponent) < 0.01, "Leaving the edge must restore its hairline")
