@@ -3,7 +3,7 @@
 ## 1.1.5 — Unreleased
 
 - Keep the toolbar and Return-to-copy hint visible and following the crop during edge/corner resizing, Space moves and replacement drags. Disable implicit position animation to avoid trailing or a release-only jump.
-- Show resize feedback only at the four corners, using a soft inner glow in the selected annotation color (blue by default). Inset and clip it to the rounded crop, with no solid stroke or glow outside the selection. Keep edge dragging, idle borders, hit targets and exported pixels unchanged.
+- Show resize feedback only at the four corners, using a soft glow in the selected annotation color (blue by default). Center a wider blur on the border and clip its outside half to the rounded crop, with no solid stroke or glow on the shaded desktop. Keep edge dragging, idle borders, hit targets and exported pixels unchanged.
 - Preserve the permission relaunch helper when Settings' consent quit emits a spurious power-off notification. Continue cancelling it for real logout/shutdown, unknown senders and explicit quit.
 - Register the global shortcut before launch setup and receive it at the Carbon dispatcher, independently of a key window. Retain a capture request received during launch and log ignored requests with their state.
 - Default new captures and annotations to blue, including the toolbar pin icon. Keep the full six-color palette.

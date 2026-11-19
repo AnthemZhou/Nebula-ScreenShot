@@ -294,18 +294,19 @@ import QuartzCore
 
     private func drawSelectionHighlight(in rect: CGRect) {
         guard let handle = highlightedSelectionHandle else { return }
-        let softness = min(3, max(1, min(rect.width, rect.height) / 8))
-        let path = selectionCornerPath(in: alignedSelectionRect(rect), handle: handle, inset: softness)
+        let softness = min(4.5, max(1.5, min(rect.width, rect.height) / 6))
+        let path = selectionCornerPath(in: alignedSelectionRect(rect), handle: handle)
         NSGraphicsContext.saveGraphicsState()
         defer { NSGraphicsContext.restoreGraphicsState() }
-        // Keep the glow inside the exact rounded crop, including fractional
-        // bounds. Its outer edge must never tint the shaded desktop.
+        // Center the blur on the border, then show only its inside half. Clip
+        // to the exact crop so fractional bounds cannot tint the shaded desktop.
         selectionMask(in: rect).addClip()
         // Translucent strokes approximate a Gaussian falloff, with no opaque
         // center line or per-drag bitmap/filter allocation.
         var previousOpacity: CGFloat = 0
-        for step in stride(from: 12, through: 1, by: -1) {
-            let radius = softness * 3 * CGFloat(step) / 12
+        let steps = 18
+        for step in stride(from: steps, through: 1, by: -1) {
+            let radius = softness * 3 * CGFloat(step) / CGFloat(steps)
             let opacity = 0.62 * exp(-radius * radius / (2 * softness * softness))
             ink.color.withAlphaComponent((opacity - previousOpacity) / (1 - previousOpacity)).setStroke()
             path.lineWidth = 2 * radius
@@ -314,10 +315,9 @@ import QuartzCore
         }
     }
 
-    private func selectionCornerPath(in rect: CGRect, handle: SelectionHandle, inset: CGFloat) -> NSBezierPath {
-        let radius = max(0, SelectionGeometry.cornerRadius(in: rect) - inset)
-        let length = max(radius, min(18, min(rect.width, rect.height) / 2) - inset)
-        let inner = rect.insetBy(dx: inset, dy: inset)
+    private func selectionCornerPath(in rect: CGRect, handle: SelectionHandle) -> NSBezierPath {
+        let radius = SelectionGeometry.cornerRadius(in: rect)
+        let length = max(radius, min(18, min(rect.width, rect.height) / 2))
         let path = NSBezierPath()
         path.lineCapStyle = .round
         path.lineJoinStyle = .round
@@ -330,7 +330,7 @@ import QuartzCore
                    controlPoint2: CGPoint(x: tangent, y: 0))
         path.line(to: CGPoint(x: length, y: 0))
         let transform = AffineTransform(m11: left ? 1 : -1, m12: 0, m21: 0, m22: top ? 1 : -1,
-                                        tX: left ? inner.minX : inner.maxX, tY: top ? inner.minY : inner.maxY)
+                                        tX: left ? rect.minX : rect.maxX, tY: top ? rect.minY : rect.maxY)
         path.transform(using: transform)
         return path
     }

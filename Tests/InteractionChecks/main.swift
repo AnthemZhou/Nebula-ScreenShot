@@ -433,6 +433,7 @@ enum HarnessError: Error, CustomStringConvertible {
         let cleanExport = bytes(try copy())
         let corner = CGPoint(x: crop.maxX - 3, y: crop.minY + 3)
         let sample = CGPoint(x: crop.maxX - 14, y: crop.minY + 3)
+        let borderSample = CGPoint(x: sample.x, y: crop.minY + 1)
         let fadedSample = CGPoint(x: sample.x, y: crop.minY + 11)
         let outside = [CGPoint(x: crop.maxX + 1, y: crop.minY + 14),
                        CGPoint(x: crop.maxX - 14, y: crop.minY - 1),
@@ -447,6 +448,7 @@ enum HarnessError: Error, CustomStringConvertible {
             components(bitmap.colorAt(x: Int(point.x * 2), y: Int(point.y * 2))!)
         }
         let base = sampleColor(idle, sample)
+        let borderBase = sampleColor(idle, borderSample)
         let fadedBase = sampleColor(idle, fadedSample)
         for edge in [CGPoint(x: crop.midX, y: crop.minY - 3), CGPoint(x: crop.midX, y: crop.maxY + 3),
                      CGPoint(x: crop.minX - 3, y: crop.midY), CGPoint(x: crop.maxX + 3, y: crop.midY)] {
@@ -461,6 +463,10 @@ enum HarnessError: Error, CustomStringConvertible {
             let color = components(try referenceColor(ink))
             let channel = (0..<3).max { abs(color[$0] - base[$0]) < abs(color[$1] - base[$1]) }!
             let opacity = (active[channel] - base[channel]) / (color[channel] - base[channel])
+            let border = sampleColor(bitmap, borderSample)
+            let borderOpacity = (border[channel] - borderBase[channel]) / (color[channel] - borderBase[channel])
+            try check(borderOpacity > opacity + 0.025,
+                      "Glow must peak at the border and fade inward, without an inset bright band")
             let faded = sampleColor(bitmap, fadedSample)
             try check(opacity > 0.15 && opacity < 0.85,
                       "Corner must have a translucent selected-color glow without an opaque core: \(ink)")
