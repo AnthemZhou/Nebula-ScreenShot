@@ -62,6 +62,13 @@ import QuartzCore
     private var spaceHeld = false
     private var exportBusy = false
     private static let dragThreshold: CGFloat = 4
+    private static let cornerGlows: [Ink: NSGradient] = Dictionary(uniqueKeysWithValues: Ink.allCases.map { ink in
+        (ink, NSGradient(colorsAndLocations: (ink.color.withAlphaComponent(0.62), 0),
+                                            (ink.color.withAlphaComponent(0.48), 0.22),
+                                            (ink.color.withAlphaComponent(0.20), 0.50),
+                                            (ink.color.withAlphaComponent(0.045), 0.75),
+                                            (ink.color.withAlphaComponent(0), 1))!)
+    })
 
     private enum Interaction {
         case select(start: CGPoint, previous: CGRect?, dragged: Bool)
@@ -224,8 +231,8 @@ import QuartzCore
             for annotation in displayAnnotations { AnnotationRenderer.draw(annotation, selection: selection) }
             drawEditingControls(selection: selection)
             NSGraphicsContext.restoreGraphicsState()
-            drawSelectionBorder(in: selection)
             drawSelectionHighlight(in: selection)
+            drawSelectionBorder(in: selection)
             drawPinDeleteBadge()
         }
     }
@@ -294,45 +301,16 @@ import QuartzCore
 
     private func drawSelectionHighlight(in rect: CGRect) {
         guard let handle = highlightedSelectionHandle else { return }
-        let softness = 2 * min(4.5, max(1.5, min(rect.width, rect.height) / 6))
-        let path = selectionCornerPath(in: alignedSelectionRect(rect), handle: handle)
-        NSGraphicsContext.saveGraphicsState()
-        defer { NSGraphicsContext.restoreGraphicsState() }
-        // Center the blur on the border, then show only its inside half. Clip
-        // to the exact crop so fractional bounds cannot tint the shaded desktop.
-        selectionMask(in: rect).addClip()
-        // Translucent strokes approximate a Gaussian falloff, with no opaque
-        // center line or per-drag bitmap/filter allocation.
-        var previousOpacity: CGFloat = 0
-        let steps = 36
-        for step in stride(from: steps, through: 1, by: -1) {
-            let radius = softness * 3 * CGFloat(step) / CGFloat(steps)
-            let opacity = 0.62 * exp(-radius * radius / (2 * softness * softness))
-            ink.color.withAlphaComponent((opacity - previousOpacity) / (1 - previousOpacity)).setStroke()
-            path.lineWidth = 2 * radius
-            path.stroke()
-            previousOpacity = opacity
-        }
-    }
-
-    private func selectionCornerPath(in rect: CGRect, handle: SelectionHandle) -> NSBezierPath {
-        let radius = SelectionGeometry.cornerRadius(in: rect)
-        let length = max(radius, min(18, min(rect.width, rect.height) / 2))
-        let path = NSBezierPath()
-        path.lineCapStyle = .round
-        path.lineJoinStyle = .round
         let left = handle == .topLeft || handle == .bottomLeft
         let top = handle == .topLeft || handle == .topRight
-        let tangent = radius * (1 - 0.5522847498)
-        path.move(to: CGPoint(x: 0, y: length))
-        path.line(to: CGPoint(x: 0, y: radius))
-        path.curve(to: CGPoint(x: radius, y: 0), controlPoint1: CGPoint(x: 0, y: tangent),
-                   controlPoint2: CGPoint(x: tangent, y: 0))
-        path.line(to: CGPoint(x: length, y: 0))
-        let transform = AffineTransform(m11: left ? 1 : -1, m12: 0, m21: 0, m22: top ? 1 : -1,
-                                        tX: left ? rect.minX : rect.maxX, tY: top ? rect.minY : rect.maxY)
-        path.transform(using: transform)
-        return path
+        let center = CGPoint(x: left ? rect.minX : rect.maxX, y: top ? rect.minY : rect.maxY)
+        let radius = min(72, max(12, min(rect.width, rect.height) * 0.65))
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        // A single corner-centered field fades smoothly inward and along both
+        // edges. Unlike a blurred L stroke it has no lobes at the segment ends.
+        selectionMask(in: rect).addClip()
+        Self.cornerGlows[ink]?.draw(fromCenter: center, radius: 0, toCenter: center, radius: radius, options: [])
     }
 
     private func updateHint() {
@@ -367,7 +345,13 @@ import QuartzCore
     }
     private func editHandle(at point: CGPoint) -> (Annotation, AnnotationHandle)? {
         for id in [hoverID, selectedID] {
-            if let item = item(id: id), let handle = AnnotationGeometry.hitHandle(at: point, item: item) { return (item, handle) }
+            if let item = item(id: id), let handle = AnnotationGeometry.hitHandle(at: point, item: item) {
+                // The expanded invisible margin must not steal a neighboring
+                // annotation's actual stroke or pin body.
+                if AnnotationGeometry.hitHandle(at: point, item: item, tolerance: 5) == nil,
+                   let other = hitItem(at: point, tolerance: 1), other.id != item.id { continue }
+                return (item, handle)
+            }
         }
         return nil
     }
@@ -397,7 +381,11 @@ import QuartzCore
         } else if let (item, _) = editHandle(at: point) { hoverID = item.id }
         else {
             let candidate = hitItem(at: point)?.id
-            hoverID = candidate == newlyPlacedPinID ? nil : candidate
+            if let candidate { hoverID = candidate == newlyPlacedPinID ? nil : candidate }
+            else if let selection, let current = item(id: hoverID),
+                    AnnotationGeometry.retainsEditingHover(for: current, at: point, selection: selection) {
+                // Keep the controls visible on the way from an edge to a handle.
+            } else { hoverID = nil }
         }
         updatePointerCursor(at: point)
         if previousHover != hoverID || previousSelectionHandle != highlightedSelectionHandle {

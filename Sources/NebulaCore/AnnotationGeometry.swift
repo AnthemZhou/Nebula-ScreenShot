@@ -19,9 +19,22 @@ public enum AnnotationGeometry {
         }
     }
 
-    public static func hitHandle(at point: CGPoint, item: Annotation, tolerance: CGFloat = 7) -> AnnotationHandle? {
+    public static func hitHandle(at point: CGPoint, item: Annotation, tolerance: CGFloat = 11) -> AnnotationHandle? {
         handles(for: item).filter { hypot($0.point.x - point.x, $0.point.y - point.y) <= tolerance }
             .min { hypot($0.point.x - point.x, $0.point.y - point.y) < hypot($1.point.x - point.x, $1.point.y - point.y) }?.handle
+    }
+
+    /// Retain existing controls while crossing a shape's interior or moving
+    /// just off its stroke. Empty interiors remain available for new drawings.
+    public static func retainsEditingHover(for item: Annotation, at point: CGPoint, selection: CGRect) -> Bool {
+        guard selection.contains(point), let first = item.points.first, let last = item.points.last else { return false }
+        switch item.tool {
+        case .rectangle, .ellipse:
+            return Geometry.rect(from: first, to: last).insetBy(dx: -14, dy: -14).contains(point)
+        case .line, .arrow:
+            return hit(item, at: point, selection: selection, tolerance: 12) || hitHandle(at: point, item: item, tolerance: 14) != nil
+        default: return false
+        }
     }
 
     public static func badge(for item: Annotation, selection: CGRect, within bounds: CGRect? = nil) -> CGRect? {

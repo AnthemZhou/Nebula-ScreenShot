@@ -73,3 +73,22 @@ import Testing
     history.redo()
     #expect(history.annotations.count == 1)
 }
+
+@Test func editingHoverHasForgivingMarginsWithoutMakingInteriorsClickable() {
+    let selection = CGRect(x: 0, y: 0, width: 500, height: 400)
+    for tool in [AnnotationTool.rectangle, .ellipse] {
+        let shape = Annotation(tool: tool, points: [CGPoint(x: 50, y: 60), CGPoint(x: 150, y: 160)])
+        for point in [CGPoint(x: 100, y: 100), CGPoint(x: 100, y: 49), CGPoint(x: 159, y: 160)] {
+            #expect(AnnotationGeometry.retainsEditingHover(for: shape, at: point, selection: selection))
+        }
+        #expect(!AnnotationGeometry.hit(shape, at: CGPoint(x: 100, y: 100), selection: selection))
+        #expect(!AnnotationGeometry.retainsEditingHover(for: shape, at: CGPoint(x: 100, y: 40), selection: selection))
+        #expect(AnnotationGeometry.hitHandle(at: CGPoint(x: 157, y: 167), item: shape) == .box(.bottomRight))
+        #expect(AnnotationGeometry.hitHandle(at: CGPoint(x: 170, y: 160), item: shape) == nil)
+    }
+    let arrow = Annotation(tool: .arrow, points: [CGPoint(x: 50, y: 60), CGPoint(x: 150, y: 60)])
+    #expect(AnnotationGeometry.retainsEditingHover(for: arrow, at: CGPoint(x: 100, y: 70), selection: selection))
+    #expect(!AnnotationGeometry.retainsEditingHover(for: arrow, at: CGPoint(x: 100, y: 90), selection: selection))
+    let clippedBox = Annotation(tool: .rectangle, points: [.zero, CGPoint(x: 20, y: 20)])
+    #expect(!AnnotationGeometry.retainsEditingHover(for: clippedBox, at: CGPoint(x: -2, y: 10), selection: selection))
+}

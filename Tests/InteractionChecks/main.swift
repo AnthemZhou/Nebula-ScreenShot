@@ -432,9 +432,9 @@ enum HarnessError: Error, CustomStringConvertible {
         let toolbar = canvas.subviews.compactMap { $0 as? AnnotationToolbar }.first!
         let cleanExport = bytes(try copy())
         let corner = CGPoint(x: crop.maxX - 3, y: crop.minY + 3)
-        let sample = CGPoint(x: crop.maxX - 14, y: crop.minY + 6)
+        let sample = CGPoint(x: crop.maxX - 14, y: crop.minY + 14)
         let borderSample = CGPoint(x: sample.x, y: crop.minY + 1)
-        let fadedSample = CGPoint(x: sample.x - 14, y: crop.minY + 24)
+        let fadedSample = CGPoint(x: crop.maxX - 54, y: crop.minY + 50)
         let outside = [CGPoint(x: crop.maxX + 1, y: crop.minY + 14),
                        CGPoint(x: crop.maxX - 14, y: crop.minY - 1),
                        CGPoint(x: crop.maxX - 1, y: crop.minY + 1)]
@@ -466,7 +466,7 @@ enum HarnessError: Error, CustomStringConvertible {
             let border = sampleColor(bitmap, borderSample)
             let borderOpacity = (border[channel] - borderBase[channel]) / (color[channel] - borderBase[channel])
             try check(borderOpacity > opacity + 0.025,
-                      "Glow must peak at the border and fade inward, without an inset bright band")
+                      "Corner gradient must fade inward without an inset bright band")
             let faded = sampleColor(bitmap, fadedSample)
             try check(opacity > 0.15 && opacity < 0.85,
                       "Corner must have a translucent selected-color glow without an opaque core: \(ink)")
@@ -500,7 +500,59 @@ enum HarnessError: Error, CustomStringConvertible {
             try bitmap.representation(using: .png, properties: [:])!.write(to: outputURL)
         }
         canvas.resetSelection()
-        print("PASS: four soft inner corner glows in six colors; no edge feedback, outer spill or exported glow")
+        print("PASS: four smooth corner gradients in six colors; no edge feedback, outer spill or exported glow")
+    }
+
+    func runAnnotationHoverChecks() throws {
+        let box = CGRect(x: 220, y: 170, width: 380, height: 170)
+        let controls = SelectionGeometry.handles(in: box).map(\.point)
+        func isWhiteControl(_ point: CGPoint) throws -> Bool {
+            let color = try renderedCanvasColor(at: point).usingColorSpace(.sRGB)!
+            return min(color.redComponent, color.greenComponent, color.blueComponent) > 0.9
+        }
+        func drawBox() throws {
+            canvas.resetSelection()
+            try key("n")
+            try drag(from: initialCrop.origin, to: CGPoint(x: initialCrop.maxX, y: initialCrop.maxY))
+            try drag(from: box.origin, to: CGPoint(x: box.maxX, y: box.maxY))
+        }
+        try drawBox()
+        let original = bytes(try copy())
+        try hover(CGPoint(x: box.midX, y: box.midY))
+        try check(!(try isWhiteControl(box.origin)), "An empty interior must not acquire a new hover target")
+        try hover(CGPoint(x: 300, y: box.minY))
+        for point in [CGPoint(x: 300, y: box.minY - 11), CGPoint(x: box.midX, y: box.midY),
+                      CGPoint(x: box.maxX + 7, y: box.minY - 7)] {
+            try hover(point)
+            for control in controls {
+                try check(try isWhiteControl(control), "All eight controls must survive jitter and travel through the box")
+            }
+        }
+        try check(bytes(try copy()) == original, "Retained hover controls must not enter the exported image")
+        try hover(CGPoint(x: box.maxX + 30, y: box.minY - 30))
+        try check(!(try isWhiteControl(box.origin)), "Leaving the retention region must dismiss hover controls")
+        try hover(CGPoint(x: 300, y: box.minY))
+        let start = CGPoint(x: box.maxX + 7, y: box.minY - 7)
+        try hover(start)
+        try drag(from: start, to: CGPoint(x: start.x + 30, y: start.y - 20))
+        try check(try isWhiteControl(CGPoint(x: box.maxX + 30, y: box.minY - 20)),
+                  "Dragging the invisible handle margin must resize without snapping to the pointer")
+        try key("z", flags: [.command])
+        try check(bytes(try copy()) == original, "A margin drag must be a single reversible edit")
+
+        try drawBox()
+        try key("l")
+        let neighbor = CGPoint(x: box.midX, y: box.minY + 9)
+        try drag(from: neighbor, to: CGPoint(x: neighbor.x + 90, y: neighbor.y))
+        try key("n")
+        try hover(CGPoint(x: 300, y: box.minY))
+        try hover(neighbor)
+        try check(try isWhiteControl(neighbor), "An actual neighboring stroke must take priority over the expanded handle margin")
+        try check(!(try isWhiteControl(box.origin)), "Retention must not trap hover on the previous shape")
+        try drag(from: neighbor, to: CGPoint(x: neighbor.x, y: neighbor.y + 30))
+        try check(try isWhiteControl(CGPoint(x: neighbor.x, y: neighbor.y + 30)), "The neighboring line must remain editable")
+        canvas.resetSelection()
+        print("PASS: stable eight-point hover, forgiving handle drags, clean exports and neighboring-object priority")
     }
 
     func runBorderContrastChecks() throws {
@@ -1204,6 +1256,8 @@ MainActor.assumeIsolated {
         try brightGlow.runSelectionGlowChecks(outputURL: URL(fileURLWithPath: CommandLine.arguments[1])
             .deletingPathExtension().appendingPathExtension("resize-bright.png"))
         if !CommandLine.arguments.contains("--english") {
+            let annotationHover = try CanvasHarness()
+            try annotationHover.runAnnotationHoverChecks()
             let exportState = try CanvasHarness()
             try exportState.runExportStateChecks()
             let smallCrops = try CanvasHarness()

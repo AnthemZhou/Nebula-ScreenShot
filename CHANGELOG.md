@@ -2,10 +2,10 @@
 
 ## 1.1.5 — Unreleased
 
-- Double the corner glow's blur radius while keeping it centered on the crop boundary and clipped away from the shaded desktop.
+- Retain annotation controls across a shape's interior and a forgiving stroke margin. Enlarge handle targets without letting their invisible margins steal nearby annotations; preserve empty interiors for drawing.
+- Show resize feedback only at the four corners, using a continuous gradient in the selected annotation color (blue by default). Fade smoothly inward and along both edges, clipped to the rounded selection, with no glow on the shaded desktop. Keep edge dragging, idle borders, hit targets and exported pixels unchanged.
 - Use clear Liquid Glass with a constant dark scrim and subtle rim reflections for both toolbar rows, avoiding the regular material's adaptive gray brightening while retaining native refraction.
 - Keep the toolbar and Return-to-copy hint visible and following the crop during edge/corner resizing, Space moves and replacement drags. Disable implicit position animation to avoid trailing or a release-only jump.
-- Show resize feedback only at the four corners, using a soft glow in the selected annotation color (blue by default). Center a wider blur on the border and clip its outside half to the rounded crop, with no solid stroke or glow on the shaded desktop. Keep edge dragging, idle borders, hit targets and exported pixels unchanged.
 - Preserve the permission relaunch helper when Settings' consent quit emits a spurious power-off notification. Continue cancelling it for real logout/shutdown, unknown senders and explicit quit.
 - Register the global shortcut before launch setup and receive it at the Carbon dispatcher, independently of a key window. Retain a capture request received during launch and log ignored requests with their state.
 - Default new captures and annotations to blue, including the toolbar pin icon. Keep the full six-color palette.
