@@ -139,8 +139,10 @@ import NebulaCore
 
 @MainActor final class AnnotationToolbar: NSView {
     static let preferredWidth: CGFloat = 440
-    static let height: CGFloat = 68
+    static let spacing: CGFloat = 10
+    static let height: CGFloat = rowHeight + spacing + hintHeight
     private static let rowHeight: CGFloat = 40
+    private static let hintHeight: CGFloat = 24
     private static let compactWidth: CGFloat = 372
 
     static func preferredSize(for availableWidth: CGFloat) -> CGSize {
@@ -167,6 +169,7 @@ import NebulaCore
     private var undoButton: ToolbarButton!
     private var saveButton: ToolbarButton!
     private let rowContent = ToolbarRowContent(frame: .zero)
+    private let hintContent = NSView(frame: .zero)
     private var surface: NSView!
     private var hintSurface: NSView!
     private let copyHint = NSTextField(labelWithString: L10n.text("回车以复制到剪贴板", "Press Return to copy to clipboard"))
@@ -176,7 +179,7 @@ import NebulaCore
     override init(frame: NSRect) {
         super.init(frame: frame)
         appearance = NSAppearance(named: .darkAqua)
-        surface = makeSurface()
+        surface = makeSurface(content: rowContent)
         addSubview(surface)
         for ink in Ink.allCases {
             let button = ToolbarInkButton(ink: ink)
@@ -197,27 +200,13 @@ import NebulaCore
         redoButton = ToolbarButton(title: "", symbol: "arrow.uturn.forward", help: L10n.text("重做（⇧⌘Z）", "Redo (⇧⌘Z)")) { [weak self] in self?.onRedo?() }
         redoButton.isEnabled = false
         saveButton = ToolbarButton(title: L10n.text("保存", "Save"), symbol: "square.and.arrow.down", help: L10n.text("保存 PNG（⌘S）", "Save PNG (⌘S)")) { [weak self] in self?.onSave?() }
-        let hintBlur = NSVisualEffectView(frame: .zero)
-        hintBlur.material = .hudWindow
-        hintBlur.blendingMode = .withinWindow
-        hintBlur.state = .active
-        hintBlur.wantsLayer = true
-        hintBlur.layer?.cornerRadius = 12
-        hintBlur.layer?.masksToBounds = true
-        // A local scrim keeps the label readable even over a bright crop or a
-        // mixed background; do not flip text ink based on averaged pixels.
-        let scrim = NSView(frame: .zero)
-        scrim.wantsLayer = true
-        scrim.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.62).cgColor
-        scrim.autoresizingMask = [.width, .height]
-        hintBlur.addSubview(scrim)
-        hintSurface = hintBlur
+        hintSurface = makeSurface(content: hintContent, cornerRadius: Self.hintHeight / 2)
         addSubview(hintSurface)
         copyHint.font = .systemFont(ofSize: 14, weight: .medium)
         copyHint.textColor = NSColor(white: 1, alpha: 0.95)
         copyHint.alignment = .center
         copyHint.isSelectable = false
-        addSubview(copyHint)
+        hintContent.addSubview(copyHint)
         for button in rowButtons { rowContent.addSubview(button) }
         updateInkSelection()
         updateToolSelection()
@@ -271,20 +260,22 @@ import NebulaCore
             }
         }
         let hintWidth = min(bounds.width, ceil(copyHint.intrinsicContentSize.width) + 24)
-        hintSurface.frame = NSRect(x: (bounds.width - hintWidth) / 2, y: Self.rowHeight + 4,
-                                   width: hintWidth, height: 24)
-        copyHint.frame = NSRect(x: 0, y: Self.rowHeight + 5.5, width: bounds.width, height: 21)
+        hintSurface.frame = NSRect(x: (bounds.width - hintWidth) / 2, y: Self.rowHeight + Self.spacing,
+                                   width: hintWidth, height: Self.hintHeight)
+        hintContent.frame = hintSurface.bounds
+        copyHint.frame = NSRect(x: 12, y: (Self.hintHeight - 21) / 2, width: max(0, hintWidth - 24), height: 21)
         needsDisplay = true
     }
 
-    private func makeSurface() -> NSView {
+    /// Both rows share the same native glass and the same older-system fallback.
+    private func makeSurface(content: NSView, cornerRadius: CGFloat = 14) -> NSView {
         #if compiler(>=6.2)
         if #available(macOS 26.0, *) {
             let glass = NSGlassEffectView(frame: .zero)
             glass.style = .regular
-            glass.cornerRadius = 14
+            glass.cornerRadius = cornerRadius
             glass.tintColor = NSColor.black.withAlphaComponent(0.10)
-            glass.contentView = rowContent
+            glass.contentView = content
             return glass
         }
         #endif
@@ -293,26 +284,28 @@ import NebulaCore
         blur.blendingMode = .withinWindow
         blur.state = .active
         blur.wantsLayer = true
-        blur.layer?.cornerRadius = 14
+        blur.layer?.cornerRadius = cornerRadius
         blur.layer?.masksToBounds = true
         blur.layer?.borderColor = NSColor.white.withAlphaComponent(0.18).cgColor
         blur.layer?.borderWidth = 0.5
-        blur.addSubview(rowContent)
+        blur.addSubview(content)
         return blur
     }
 
     func useStaticPreviewMaterial() {
-        #if compiler(>=6.2)
-        if #available(macOS 26.0, *), let glass = surface as? NSGlassEffectView { glass.contentView = nil }
-        #endif
-        rowContent.removeFromSuperview()
-        surface.removeFromSuperview()
+        for (oldSurface, content) in [(surface!, rowContent as NSView), (hintSurface!, hintContent)] {
+            #if compiler(>=6.2)
+            if #available(macOS 26.0, *), let glass = oldSurface as? NSGlassEffectView { glass.contentView = nil }
+            #endif
+            content.removeFromSuperview()
+            oldSurface.removeFromSuperview()
+        }
         surface = ToolbarSnapshotSurface(frame: .zero)
         surface.addSubview(rowContent)
-        addSubview(surface, positioned: .below, relativeTo: copyHint)
-        hintSurface.removeFromSuperview()
+        addSubview(surface)
         hintSurface = ToolbarSnapshotSurface(frame: .zero)
-        addSubview(hintSurface, positioned: .below, relativeTo: copyHint)
+        hintSurface.addSubview(hintContent)
+        addSubview(hintSurface)
         needsLayout = true
     }
 

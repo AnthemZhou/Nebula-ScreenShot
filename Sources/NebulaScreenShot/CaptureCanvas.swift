@@ -664,9 +664,10 @@ import QuartzCore
         let size = AnnotationToolbar.preferredSize(for: bounds.width - 24)
         let width = size.width, height = size.height
         let x = min(max(selection.midX - width / 2, 12), bounds.width - width - 12)
+        let spacing = AnnotationToolbar.spacing
         let y: CGFloat
-        if selection.maxY + height + 14 <= bounds.height { y = selection.maxY + 10 }
-        else if selection.minY - height - 14 >= 0 { y = selection.minY - height - 10 }
+        if selection.maxY + height + spacing + 4 <= bounds.height { y = selection.maxY + spacing }
+        else if selection.minY - height - spacing - 4 >= 0 { y = selection.minY - height - spacing }
         else { y = min(max(selection.maxY - height - 12, 12), bounds.height - height - 12) }
         toolbar.frame = CGRect(x: x, y: y, width: width, height: height)
         toolbar.layoutSubtreeIfNeeded()

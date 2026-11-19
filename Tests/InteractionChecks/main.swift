@@ -613,10 +613,13 @@ enum HarnessError: Error, CustomStringConvertible {
             try check(canvas.hitTest(center) === button, "Glass must not intercept the button's hit area")
         }
         let hints = descendants(of: toolbar).compactMap { $0 as? NSTextField }
-        let copyHint = hints.first { $0.stringValue == "回车以复制到剪贴板" }
-        try check(copyHint != nil && copyHint!.frame.minY > buttons.map { $0.convert($0.bounds, to: toolbar).maxY }.max()!,
+        guard let copyHint = hints.first(where: { $0.stringValue == "回车以复制到剪贴板" }) else {
+            throw HarnessError.failed("Missing Return hint")
+        }
+        let hintFrame = copyHint.convert(copyHint.bounds, to: toolbar)
+        try check(hintFrame.minY > buttons.map { $0.convert($0.bounds, to: toolbar).maxY }.max()!,
                   "A text-only Return hint belongs below the icon row")
-        try check(abs(copyHint!.frame.midX - toolbar.bounds.midX) < 0.01, "Return hint must be centered")
+        try check(abs(hintFrame.midX - toolbar.bounds.midX) < 0.01, "Return hint must be centered")
         for tool in [AnnotationTool.ellipse, .rectangle, .line, .arrow] {
             let menu = toolbar.optionsMenu()
             guard let item = menu.items.first(where: { $0.representedObject as? String == tool.rawValue }), let action = item.action else {
@@ -630,25 +633,30 @@ enum HarnessError: Error, CustomStringConvertible {
         }
         try key("n")
         try check((try button(labelPrefix: "形状与设置")).state == .off, "Returning to pin clears the settings highlight")
-        try check(copyHint!.font!.pointSize == 14 && copyHint!.textColor!.alphaComponent < 1,
+        try check(copyHint.font!.pointSize == 14 && copyHint.textColor!.alphaComponent < 1,
                   "Copy hint must be larger and translucent")
-        let darkText = copyHint!.textColor!.usingColorSpace(.sRGB)!
+        let darkText = copyHint.textColor!.usingColorSpace(.sRGB)!
         try check(darkText.redComponent > 0.9 && darkText.alphaComponent >= 0.9,
-                  "Copy hint must retain readable light ink over its local dark blur")
-        let hintBackdrop = toolbar.subviews.compactMap { $0 as? NSVisualEffectView }
-            .first { $0.frame.minY > 40 }
-        try check(hintBackdrop != nil && hintBackdrop!.frame.midX == toolbar.bounds.midX,
-                  "Return hint needs a centered local blur below the controls")
+                  "Copy hint must retain readable light ink over its glass")
+        let surfaces = toolbar.subviews.sorted { $0.frame.minY < $1.frame.minY }
+        try check(surfaces.count == 2 && surfaces[1].frame.midX == toolbar.bounds.midX,
+                  "Return hint needs a centered glass surface below the controls")
+        try check(surfaces[1].frame.minY - surfaces[0].frame.maxY == toolbar.frame.minY - canvas.selection!.maxY,
+                  "The gap between glass rows must match the gap below the crop")
         #if compiler(>=6.2)
         if #available(macOS 26.0, *) {
-            guard let glass = toolbar.subviews.compactMap({ $0 as? NSGlassEffectView }).first,
+            guard let glass = surfaces[0] as? NSGlassEffectView,
                   let content = glass.contentView else { throw HarnessError.failed("Native Liquid Glass is missing") }
             try check(buttons.allSatisfy { $0.isDescendant(of: content) }, "All buttons belong inside the glass content view")
+            guard let hintGlass = surfaces[1] as? NSGlassEffectView, let hintContent = hintGlass.contentView else {
+                throw HarnessError.failed("Return hint must use the same native glass")
+            }
+            try check(copyHint.isDescendant(of: hintContent), "Return text belongs inside its glass content view")
         } else {
-            try check(toolbar.subviews.contains { $0 is NSVisualEffectView }, "Older macOS needs a blur fallback")
+            try check(surfaces.allSatisfy { $0 is NSVisualEffectView }, "Both rows need the same older macOS blur fallback")
         }
         #else
-        try check(toolbar.subviews.contains { $0 is NSVisualEffectView }, "Older SDK builds need a blur fallback")
+        try check(surfaces.allSatisfy { $0 is NSVisualEffectView }, "Both rows need the same older SDK blur fallback")
         #endif
         let menu = toolbar.optionsMenu()
         try check(!menu.items.contains { $0.title == "重新选择区域" || $0.title == "清空标注" },
