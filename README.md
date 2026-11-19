@@ -4,19 +4,19 @@
 
 轻量的 macOS 菜单栏截图与标注工具。按 **⌃⇧⌘5** 拖选区域，添加编号图钉、图形或手绘标记，再按 **回车** 复制到剪贴板。
 
-**当前版本：v1.1.4** · macOS 14+ · Apple Silicon / Intel · GPL-3.0-only
+**当前版本：v1.1.5** · macOS 14+ · Apple Silicon / Intel · GPL-3.0-only
 
-[**下载 v1.1.4（Universal ZIP）**](https://github.com/AnthemZhou/Nebula-ScreenShot/releases/download/v1.1.4/Nebula-ScreenShot-1.1.4-universal.zip) · [发行说明](https://github.com/AnthemZhou/Nebula-ScreenShot/releases/tag/v1.1.4) · [安装](#安装) · [首次授权](#首次授权) · [使用](#使用) · [快捷键](#快捷键) · [常见问题](#常见问题)
+[**下载 v1.1.5（Universal ZIP）**](https://github.com/AnthemZhou/Nebula-ScreenShot/releases/download/v1.1.5/Nebula-ScreenShot-1.1.5-universal.zip) · [发行说明](https://github.com/AnthemZhou/Nebula-ScreenShot/releases/tag/v1.1.5) · [安装](#安装) · [首次授权](#首次授权) · [使用](#使用) · [快捷键](#快捷键) · [常见问题](#常见问题)
 
 ## 安装
 
-1. 下载上方的 **`Nebula-ScreenShot-1.1.4-universal.zip`**。同一个安装包适用于 Apple Silicon 和 Intel，无需选择架构；GitHub 的 `Source code` 是源码，不是应用安装包。
+1. 下载上方的 **`Nebula-ScreenShot-1.1.5-universal.zip`**。同一个安装包适用于 Apple Silicon 和 Intel，无需选择架构；GitHub 的 `Source code` 是源码，不是应用安装包。
 2. 双击 ZIP 解压，将 **Nebula ScreenShot.app** 拖入「应用程序」文件夹，再从那里打开。也可以安装到用户自己的 `~/Applications`，后续更新请沿用同一位置。
 3. 在屏幕顶部菜单栏找到 Nebula 的取景框图标。应用常驻菜单栏；关闭「关于」窗口不会退出应用。
 
 **首次打开被 macOS 阻止？** 当前下载包尚未经过 Apple Developer ID 签名与公证。确认文件来自本仓库的 Release 后，先尝试打开一次，再到 **系统设置 → 隐私与安全性 → 仍要打开**，按系统提示确认。详见 [Apple 的打开说明](https://support.apple.com/zh-cn/102445)。
 
-需要核对下载文件时，可使用发行页附带的 [SHA-256 校验文件](https://github.com/AnthemZhou/Nebula-ScreenShot/releases/download/v1.1.4/Nebula-ScreenShot-1.1.4-universal.zip.sha256)。
+需要核对下载文件时，可使用发行页附带的 [SHA-256 校验文件](https://github.com/AnthemZhou/Nebula-ScreenShot/releases/download/v1.1.5/Nebula-ScreenShot-1.1.5-universal.zip.sha256)。
 
 ## 首次授权
 
@@ -53,11 +53,11 @@ Nebula 只捕获屏幕画面，不录制音频。想先熟悉标注，可选择�
 | 擦除 | 选择橡皮擦（E），按住左键涂抹；手绘笔触只擦去经过的部分，图钉和几何图形按整个对象擦除 |
 | 删除图钉 | 移开后重新悬停图钉，点击出现的「−」；后面的图钉会自动重新编号 |
 | 调整已有标注 | 使用图钉或形状工具，悬停后拖动端点或控制点；拖动标注本体可平移 |
-| 调整截图范围 | 鼠标靠近选区边缘或四角，出现高亮后拖动 |
+| 调整截图范围 | 鼠标靠近选区边缘或四角后拖动；四角会显示当前标注颜色的柔光 |
 | 平移截图范围 | 在选区内按住空格，再按住左键拖动 |
 | 退出截图 | 按 Esc，或在画布空白处右键单击；右键拖动选区内会画箭头 |
 
-选区采用圆角细白实线，鼠标靠近边缘时高亮。圆角仅用于编辑界面，导出的图片仍为完整矩形。调整截图范围时，已有标注保留在原画面位置，最终导出按新的选区裁剪。每个选区位于一块显示器内，支持在不同显示器上分别截图。
+选区采用圆角细白实线，四角悬停时显示贴合边界的柔光；直边也能拖动，但不显示彩色调整块。圆角仅用于编辑界面，导出的图片仍为完整矩形。调整截图范围时，工具栏和复制提示会跟随选区，已有标注保留在原画面位置，最终导出按新的选区裁剪。左键单击暗部不会清除选区，开始新的拖拽后才会替换。每个选区位于一块显示器内，支持在不同显示器上分别截图。
 
 ### 工具栏
 
@@ -65,7 +65,7 @@ Nebula 只捕获屏幕画面，不录制音频。想先熟悉标注，可选择�
 
 从左到右是 **六种颜色 → 图钉 → 画笔 → 橡皮擦 → 形状与设置 → 撤销 → 重做 → 保存 PNG**。按钮仅显示图标，鼠标停留可查看提示。复制入口是工具栏下方的 **「回车以复制到剪贴板」**。
 
-- 默认使用蓝色；切换颜色只影响后续标注。
+- 色板顺序为 **蓝、紫、白、橙、黄、绿**，默认使用蓝色；切换颜色只影响后续标注，并同步改变四角柔光。
 - 滑杆图标菜单包含圆圈、方框、直线、箭头，以及线条 / 画笔粗细。圆角虚线方框固定使用细线。
 - 导出期间显示「正在导出…」并暂时锁定编辑，Esc 仍可取消，避免重复复制或丢失新画的标记。
 - 界面跟随系统或应用语言设置，支持中文和英文。macOS 26 使用原生 Liquid Glass，较早系统使用毛玻璃；上图为静态布局预览。
@@ -132,17 +132,17 @@ Nebula 只捕获屏幕画面，不录制音频。想先熟悉标注，可选择�
 
 不会。截图和标注在本机处理，没有账号、云端上传或埋点；只有主动保存时才生成图片文件。复制后的图片由你自行粘贴到目标应用。
 
-## v1.1.4 更新
+## v1.1.5 更新
 
-- 更快进入截图：截图、暗色遮罩和标注分层绘制，减少全屏重绘；同时修复入场时顶层窗口阴影跳变。
-- 修复点击「打开系统设置」后重复出现同一授权提示的问题，等待授权时不再持续轮询权限。
-- 选区改为细白色圆角实线，保留边缘悬停高亮和拖动调整，导出仍为完整矩形。
-- 改善小截图中的图钉删除按钮：更靠近图钉、保持数字清晰，删除更容易点中；降低选区边缘拖动与标注编辑之间的误触。
-- 换用黑白圆角应用图标。
+- 修复回车偶尔未被截图窗口接收、连续按键可能落到底层应用的问题；复制处理中会隔离重复确认键，松开后再恢复桌面焦点。
+- 改善授权后自动重启和首次快捷键响应，避免必须先点击桌面才能截图。
+- 拖选松手时保持选区原尺寸；暗部单击保留已有选区，调整范围时工具栏和复制提示持续显示并跟随。
+- 四角使用当前标注颜色的柔光，贴合圆角边界自然渐隐；普通边缘仍可拖动，导出不含光晕或控制点。
+- 扩大标注控制点的操作容错，经过方框内部或轻微偏离边线时仍保持显示，同时避免误选附近标注。
+- 使用偏黑的 Liquid Glass 工具栏和匹配的复制提示，优化文字居中与间距；色板循环调整为蓝、紫、白、橙、黄、绿。
+- 默认蓝色标注，箭头采用实心三角尖端和渐细箭杆，保留二次编辑与撤销重做。
 
-本机双屏实测中，从快捷键回调到选区就绪，首次约 **201 ms**，随后三次约 **70–94 ms**；速度受设备、显示器和系统状态影响。用户已确认进入明显更快，拖选和标注正常。
-
-55 项核心测试、中英文编辑交互、100 次快捷键投递、100 次快速取消、50 次截图复制及窗口释放检查已通过。完整记录见 [CHANGELOG.md](CHANGELOG.md)，性能与桌面验收见 [选区改进记录](docs/ROUNDED_SELECTION_EXPERIMENT.md)。
+发布包为 **v1.1.5 / build 43**，支持 Apple Silicon 和 Intel。核心测试、中英文编辑交互、快捷键与连续截图、授权重启检查及构建结果见 [GitHub Actions](https://github.com/AnthemZhou/Nebula-ScreenShot/actions)。完整变更见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 开发
 
@@ -153,9 +153,9 @@ Nebula 只捕获屏幕画面，不录制音频。想先熟悉标注，可选择�
 <details>
 <summary>English quick start</summary>
 
-Requires macOS 14 or later. [Download v1.1.4](https://github.com/AnthemZhou/Nebula-ScreenShot/releases/download/v1.1.4/Nebula-ScreenShot-1.1.4-universal.zip), unzip, move **Nebula ScreenShot.app** to Applications, and open it. The Universal app supports Apple Silicon and Intel. This release is ad-hoc signed and not notarized; if macOS blocks it, follow [Apple’s opening instructions](https://support.apple.com/102445) after verifying its source.
+Requires macOS 14 or later. [Download v1.1.5](https://github.com/AnthemZhou/Nebula-ScreenShot/releases/download/v1.1.5/Nebula-ScreenShot-1.1.5-universal.zip), unzip, move **Nebula ScreenShot.app** to Applications, and open it. The Universal app supports Apple Silicon and Intel. This release is ad-hoc signed and not notarized; if macOS blocks it, follow [Apple’s opening instructions](https://support.apple.com/102445) after verifying its source.
 
-Press **Control–Shift–Command–5** and allow screen recording when macOS asks. Follow any quit/reopen prompt; Nebula restores its menu-bar app and shortcut automatically. Press the shortcut again and drag a region. In the default pin mode, click to number points, left-drag a rounded rectangle, and right-drag an arrow. The slider menu contains shapes and stroke widths; pen, eraser, undo/redo and PNG save are on the toolbar.
+Press **Control–Shift–Command–5** and allow screen recording when macOS asks. Follow any quit/reopen prompt; Nebula restores its menu-bar app and shortcut automatically. Press the shortcut again and drag a region. In the default pin mode, click to number points, left-drag a rounded rectangle, and right-drag an arrow. The slider menu contains shapes and stroke widths; pen, eraser, undo/redo and PNG save are on the toolbar. The palette is blue, purple, white, orange, yellow and green, with blue selected by default. Resize the crop from any edge or corner; the toolbar stays visible, and only the corners show a soft colored glow.
 
 Press **Return / Command–C** to copy, **Command–S** to save PNG, or **Esc** to cancel. Canceling Save returns to the editor. Screenshots stay on your Mac. An upgrade may require screen-recording consent again with the current ad-hoc releases.
 

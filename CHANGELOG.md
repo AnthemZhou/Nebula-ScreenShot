@@ -1,26 +1,17 @@
 # Changelog
 
-## 1.1.5 — Unreleased
+## 1.1.5 — 2026-11-20
 
-- Rotate the toolbar palette to blue, purple, white, coral, amber and mint. Keep the corner glow's inner contours rounded throughout their fade, avoiding a sharp inner elbow.
-- Retain annotation controls across a shape's interior and a forgiving stroke margin. Enlarge handle targets without letting their invisible margins steal nearby annotations; preserve empty interiors for drawing.
-- Show resize feedback only at the four corners, using the selected annotation color (blue by default). Follow the rounded border with a soft narrow glow that fades farther along the two edges than into the crop, without a circular spot or segment-end blobs. Clip it to the rounded selection, keeping the shaded desktop, edge dragging, idle borders, hit targets and exported pixels unchanged.
-- Use clear Liquid Glass with a constant dark scrim and subtle rim reflections for both toolbar rows, avoiding the regular material's adaptive gray brightening while retaining native refraction.
-- Keep the toolbar and Return-to-copy hint visible and following the crop during edge/corner resizing, Space moves and replacement drags. Disable implicit position animation to avoid trailing or a release-only jump.
-- Preserve the permission relaunch helper when Settings' consent quit emits a spurious power-off notification. Continue cancelling it for real logout/shutdown, unknown senders and explicit quit.
-- Register the global shortcut before launch setup and receive it at the Carbon dispatcher, independently of a key window. Retain a capture request received during launch and log ignored requests with their state.
-- Default new captures and annotations to blue, including the toolbar pin icon. Keep the full six-color palette.
-- Replace the open arrowhead with a filled triangular head and a tapered shaft. Share its silhouette across preview, export, selection and object erasing; preserve endpoint editing and undo/redo.
-- Tighten the toolbar-to-hint gap by one physical screen pixel, accounting for the display's backing scale.
-- Keep the exact crop geometry when releasing a selection, edge resize or Space move; round only exported source pixels. Avoid an immediate corner highlight on selection release.
-- Preserve the crop, annotations and toolbar on shaded-area clicks and small pointer jitter. Replace the crop only when a new drag begins; restore it if that drag ends too small.
-- Use brighter Return-to-copy text on the same glass material as the toolbar. Center the hint below the toolbar with the same 10 pt gap used between the toolbar and crop.
-- Center the hint's rendered glyph outlines rather than its font line box. Account for native glass's inset and the crop outline's outer stroke when matching visible gaps; align toolbar placement to the same pixel grid as the crop border.
-- Reduce the hint to 13 pt. Calibrate the gap against the solid glass body in live WindowServer captures, excluding its faint outer highlight.
-- Give the screenshot editor application focus after presenting the frozen desktop. Route Return, keypad Enter and editing shortcuts at the panel level so toolbar responder changes cannot swallow confirmation.
-- Keep all displays covered during selection; shaded regions continue to receive clicks. Switching to another application dismisses the capture instead of leaving a dark overlay over an active underlying window.
-- Consume repeated confirmation keys while exporting and restore the previous application's focus only after held confirmation keys are released. Observe key-up locally so Command-C release cannot be lost through key-equivalent dispatch.
-- Log capture focus, Return receipt and clipboard completion timing without recording input text or image content. Add input-routing, dark-region hit-testing, held/repeated key and focus-loss cancellation regression checks.
+- Give the screenshot editor keyboard focus and route Return, keypad Enter and editing shortcuts at the panel level. Consume repeated confirmation keys during export and restore the previous app only after held keys are released, preventing input from reaching the underlying window.
+- Keep every display covered during capture; shaded clicks remain in the editor. Switching apps cancels capture and prevents late export callbacks from restoring old overlays.
+- Preserve the permission relaunch helper across Settings' consent quit, while respecting real shutdown and explicit quit. Register the global shortcut early at the Carbon dispatcher and retain requests received during launch so the first shortcut works without clicking the desktop.
+- Keep exact crop geometry when releasing selections, resizing or moving. Shaded clicks and small pointer jitter preserve the existing crop; only a new drag replaces it. Keep the toolbar and copy hint visible and following the crop throughout adjustments.
+- Use dark clear Liquid Glass with stable dimming and subtle rim reflections for the toolbar and Return hint. Center the 13 pt hint's rendered glyphs and refine the visible gaps, including fractional and Retina layouts.
+- Default to blue and rotate the toolbar palette to blue, purple, white, coral, amber and mint. Changing ink affects new annotations and the corner glow.
+- Replace open arrows with filled triangular heads and tapered shafts. Share the silhouette across preview, export, selection and erasing, retaining endpoint editing and undo/redo.
+- Show resize feedback only at the four corners. A soft glow follows the rounded border in the selected ink, with rounded inner contours and a longer fade along the edges than into the crop. Keep straight edges draggable, clip glow away from the shaded desktop and exclude controls from exports.
+- Retain annotation controls across a shape's interior and a forgiving stroke margin. Enlarge handle targets without letting their invisible margins steal nearby annotations; keep empty interiors available for drawing.
+- Extend focus, held-key, repeated capture, permission relaunch, editing-hover and rendering regression checks. Update installation instructions, gestures and previews for build 43.
 
 ## 1.1.4 — 2026-11-16
 
