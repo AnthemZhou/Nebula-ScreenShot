@@ -300,17 +300,38 @@ import QuartzCore
     }
 
     private func drawSelectionHighlight(in rect: CGRect) {
-        guard let handle = highlightedSelectionHandle else { return }
+        guard let handle = highlightedSelectionHandle,
+              let context = NSGraphicsContext.current?.cgContext else { return }
         let left = handle == .topLeft || handle == .bottomLeft
         let top = handle == .topLeft || handle == .topRight
         let center = CGPoint(x: left ? rect.minX : rect.maxX, y: top ? rect.minY : rect.maxY)
-        let radius = min(72, max(12, min(rect.width, rect.height) * 0.65))
+        let reach = min(82, min(rect.width, rect.height) * 0.65)
+        let depth = min(8, min(rect.width, rect.height) / 6)
+        let region = CGRect(x: left ? rect.minX : rect.maxX - reach,
+                            y: top ? rect.minY : rect.maxY - reach, width: reach, height: reach)
         NSGraphicsContext.saveGraphicsState()
         defer { NSGraphicsContext.restoreGraphicsState() }
-        // A single corner-centered field fades smoothly inward and along both
-        // edges. Unlike a blurred L stroke it has no lobes at the segment ends.
+        // Confine the temporary blend surface to this small corner. First make
+        // a narrow, soft rim on the actual rounded outline, then tint/fade it
+        // along the edges. The center stays clear instead of filling a disk.
+        context.clip(to: region)
         selectionMask(in: rect).addClip()
-        Self.cornerGlows[ink]?.draw(fromCenter: center, radius: 0, toCenter: center, radius: radius, options: [])
+        context.beginTransparencyLayer(auxiliaryInfo: nil)
+        let path = selectionBorderPath(in: rect)
+        var previousOpacity: CGFloat = 0
+        let steps = 32
+        for step in stride(from: steps, through: 1, by: -1) {
+            let distance = depth * 3 * CGFloat(step) / CGFloat(steps)
+            let opacity = 0.98 * exp(-distance * distance / (2 * depth * depth))
+            NSColor.white.withAlphaComponent((opacity - previousOpacity) / (1 - previousOpacity)).setStroke()
+            path.lineWidth = 2 * distance
+            path.stroke()
+            previousOpacity = opacity
+        }
+        context.setBlendMode(.sourceIn)
+        Self.cornerGlows[ink]?.draw(fromCenter: center, radius: 0, toCenter: center, radius: reach,
+                                   options: [.drawsAfterEndingLocation])
+        context.endTransparencyLayer()
     }
 
     private func updateHint() {

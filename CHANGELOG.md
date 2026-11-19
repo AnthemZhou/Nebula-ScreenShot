@@ -3,7 +3,7 @@
 ## 1.1.5 — Unreleased
 
 - Retain annotation controls across a shape's interior and a forgiving stroke margin. Enlarge handle targets without letting their invisible margins steal nearby annotations; preserve empty interiors for drawing.
-- Show resize feedback only at the four corners, using a continuous gradient in the selected annotation color (blue by default). Fade smoothly inward and along both edges, clipped to the rounded selection, with no glow on the shaded desktop. Keep edge dragging, idle borders, hit targets and exported pixels unchanged.
+- Show resize feedback only at the four corners, using the selected annotation color (blue by default). Follow the rounded border with a soft narrow glow that fades farther along the two edges than into the crop, without a circular spot or segment-end blobs. Clip it to the rounded selection, keeping the shaded desktop, edge dragging, idle borders, hit targets and exported pixels unchanged.
 - Use clear Liquid Glass with a constant dark scrim and subtle rim reflections for both toolbar rows, avoiding the regular material's adaptive gray brightening while retaining native refraction.
 - Keep the toolbar and Return-to-copy hint visible and following the crop during edge/corner resizing, Space moves and replacement drags. Disable implicit position animation to avoid trailing or a release-only jump.
 - Preserve the permission relaunch helper when Settings' consent quit emits a spurious power-off notification. Continue cancelling it for real logout/shutdown, unknown senders and explicit quit.

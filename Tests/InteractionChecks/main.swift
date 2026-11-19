@@ -432,7 +432,7 @@ enum HarnessError: Error, CustomStringConvertible {
         let toolbar = canvas.subviews.compactMap { $0 as? AnnotationToolbar }.first!
         let cleanExport = bytes(try copy())
         let corner = CGPoint(x: crop.maxX - 3, y: crop.minY + 3)
-        let sample = CGPoint(x: crop.maxX - 14, y: crop.minY + 14)
+        let sample = CGPoint(x: crop.maxX - 24, y: crop.minY + 5)
         let borderSample = CGPoint(x: sample.x, y: crop.minY + 1)
         let fadedSample = CGPoint(x: crop.maxX - 54, y: crop.minY + 50)
         let outside = [CGPoint(x: crop.maxX + 1, y: crop.minY + 14),
@@ -472,6 +472,12 @@ enum HarnessError: Error, CustomStringConvertible {
                       "Corner must have a translucent selected-color glow without an opaque core: \(ink)")
             try check(abs(faded[channel] - fadedBase[channel]) < abs(active[channel] - base[channel]) * 0.5,
                       "Corner glow must fade softly into the crop")
+            let alongEdge = CGPoint(x: crop.maxX - 48, y: crop.minY + 3)
+            let diagonal = CGPoint(x: crop.maxX - 34, y: crop.minY + 34)
+            let edgeTint = abs(sampleColor(bitmap, alongEdge)[channel] - sampleColor(idle, alongEdge)[channel])
+            let innerTint = abs(sampleColor(bitmap, diagonal)[channel] - sampleColor(idle, diagonal)[channel])
+            try check(edgeTint > 0.035 && innerTint < edgeTint * 0.25,
+                      "At equal distance from the corner, glow must follow the border instead of filling a quarter disk")
             for point in outside {
                 try check(zip(sampleColor(bitmap, point), sampleColor(idle, point)).allSatisfy { abs($0 - $1) < 0.01 },
                           "Corner glow must not tint pixels outside the rounded crop")
@@ -484,7 +490,7 @@ enum HarnessError: Error, CustomStringConvertible {
         toolbar.onInk?(.blue)
         for (hoverPoint, insidePoint) in [
             (CGPoint(x: crop.minX + 3, y: crop.minY + 3), CGPoint(x: crop.minX + 14, y: crop.minY + 3)),
-            (corner, sample),
+            (corner, CGPoint(x: crop.maxX - 14, y: crop.minY + 3)),
             (CGPoint(x: crop.minX + 3, y: crop.maxY - 3), CGPoint(x: crop.minX + 14, y: crop.maxY - 3)),
             (CGPoint(x: crop.maxX - 3, y: crop.maxY - 3), CGPoint(x: crop.maxX - 14, y: crop.maxY - 3))
         ] {
@@ -500,7 +506,7 @@ enum HarnessError: Error, CustomStringConvertible {
             try bitmap.representation(using: .png, properties: [:])!.write(to: outputURL)
         }
         canvas.resetSelection()
-        print("PASS: four smooth corner gradients in six colors; no edge feedback, outer spill or exported glow")
+        print("PASS: four border-following corner gradients in six colors; no disk, outer spill or exported glow")
     }
 
     func runAnnotationHoverChecks() throws {
