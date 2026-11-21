@@ -159,14 +159,27 @@ MainActor.assumeIsolated {
         window.contentView = host
         toolbar.setFrameOrigin(CGPoint(x: 230, y: 310))
         host.addSubview(toolbar)
+        // A hidden AppKit view is not automatically marked for layout on every
+        // macOS version. Production marks it dirty when updating the controls.
+        toolbar.needsLayout = true
         toolbar.layoutSubtreeIfNeeded()
+        try check(toolbar.subviews.allSatisfy { $0.frame.width > 0 && $0.frame.height > 0 },
+                  "Hidden toolbar fixture must lay out both surfaces before rendering")
+        let reduceTransparency = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+        print("INFO: toolbar fixture on \(ProcessInfo.processInfo.operatingSystemVersionString); reduce transparency=\(reduceTransparency)")
         toolbar.updateGlassBackdrop(image: largeImage, canvasSize: CGSize(width: 900, height: 560),
                                     selection: CGRect(x: 50, y: 100, width: 400, height: 300))
-        let uiDeadline = Date().addingTimeInterval(5)
-        while !toolbar.hasRenderedGlass && Date() < uiDeadline {
-            RunLoop.current.run(until: Date().addingTimeInterval(0.001))
+        if reduceTransparency {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+            try check(!toolbar.hasRenderedGlass, "Reduce Transparency must keep the opaque fallback")
+            print("PASS: toolbar respects Reduce Transparency; foreground checks use the opaque fallback")
+        } else {
+            let uiDeadline = Date().addingTimeInterval(5)
+            while !toolbar.hasRenderedGlass && Date() < uiDeadline {
+                RunLoop.current.run(until: Date().addingTimeInterval(0.001))
+            }
+            try check(toolbar.hasRenderedGlass, "Actual toolbar must display the completed Metal frame")
         }
-        try check(toolbar.hasRenderedGlass, "Actual toolbar must display the completed Metal frame")
         func descendants(_ v: NSView) -> [NSView] { v.subviews.flatMap { [$0] + descendants($0) } }
         let buttons = descendants(toolbar).compactMap { $0 as? NSButton }
         let inks = buttons.filter { ($0.accessibilityLabel() ?? "").hasPrefix("标注颜色") ||
@@ -204,7 +217,7 @@ MainActor.assumeIsolated {
                 URL(fileURLWithPath: CommandLine.arguments[1]).appendingPathComponent("toolbar-with-controls.png"))
         }
         window.contentView = nil
-        print("PASS: completed Metal background leaves all toolbar controls visible and clickable")
+        print("PASS: toolbar background leaves all controls visible and clickable; Metal frame=\(toolbar.hasRenderedGlass)")
         print("PASS: all Metal glass checks")
     } catch { fputs("FAIL: \(error)\n", stderr); exit(1) }
 }
