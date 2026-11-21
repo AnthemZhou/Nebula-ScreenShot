@@ -30,6 +30,7 @@ import ScreenCaptureKit
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        GlassMetalRenderer.prewarm()
         configureMenu()
         let firstLaunch = !UserDefaults.standard.bool(forKey: "hasLaunched")
         permissionUpgrade = ScreenPermissionUpgrade()

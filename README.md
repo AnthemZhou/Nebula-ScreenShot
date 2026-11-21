@@ -4,19 +4,19 @@
 
 轻量的 macOS 菜单栏截图与标注工具。按 **⌃⇧⌘5** 拖选区域，添加编号图钉、图形或手绘标记，再按 **回车** 复制到剪贴板。
 
-**当前版本：v1.1.5** · macOS 14+ · Apple Silicon / Intel · GPL-3.0-only
+**当前版本：v1.1.6** · macOS 14+ · Apple Silicon / Intel · GPL-3.0-only
 
-[**下载 v1.1.5（Universal ZIP）**](https://github.com/AnthemZhou/Nebula-ScreenShot/releases/download/v1.1.5/Nebula-ScreenShot-1.1.5-universal.zip) · [发行说明](https://github.com/AnthemZhou/Nebula-ScreenShot/releases/tag/v1.1.5) · [安装](#安装) · [首次授权](#首次授权) · [使用](#使用) · [快捷键](#快捷键) · [常见问题](#常见问题)
+[**下载 v1.1.6（Universal ZIP）**](https://github.com/AnthemZhou/Nebula-ScreenShot/releases/download/v1.1.6/Nebula-ScreenShot-1.1.6-universal.zip) · [发行说明](https://github.com/AnthemZhou/Nebula-ScreenShot/releases/tag/v1.1.6) · [安装](#安装) · [首次授权](#首次授权) · [使用](#使用) · [快捷键](#快捷键) · [常见问题](#常见问题)
 
 ## 安装
 
-1. 下载上方的 **`Nebula-ScreenShot-1.1.5-universal.zip`**。同一个安装包适用于 Apple Silicon 和 Intel，无需选择架构；GitHub 的 `Source code` 是源码，不是应用安装包。
+1. 下载上方的 **`Nebula-ScreenShot-1.1.6-universal.zip`**。同一个安装包适用于 Apple Silicon 和 Intel，无需选择架构；GitHub 的 `Source code` 是源码，不是应用安装包。
 2. 双击 ZIP 解压，将 **Nebula ScreenShot.app** 拖入「应用程序」文件夹，再从那里打开。也可以安装到用户自己的 `~/Applications`，后续更新请沿用同一位置。
 3. 在屏幕顶部菜单栏找到 Nebula 的取景框图标。应用常驻菜单栏；关闭「关于」窗口不会退出应用。
 
 **首次打开被 macOS 阻止？** 当前下载包尚未经过 Apple Developer ID 签名与公证。确认文件来自本仓库的 Release 后，先尝试打开一次，再到 **系统设置 → 隐私与安全性 → 仍要打开**，按系统提示确认。详见 [Apple 的打开说明](https://support.apple.com/zh-cn/102445)。
 
-需要核对下载文件时，可使用发行页附带的 [SHA-256 校验文件](https://github.com/AnthemZhou/Nebula-ScreenShot/releases/download/v1.1.5/Nebula-ScreenShot-1.1.5-universal.zip.sha256)。
+需要核对下载文件时，可使用发行页附带的 [SHA-256 校验文件](https://github.com/AnthemZhou/Nebula-ScreenShot/releases/download/v1.1.6/Nebula-ScreenShot-1.1.6-universal.zip.sha256)。
 
 ## 首次授权
 
@@ -68,7 +68,7 @@ Nebula 只捕获屏幕画面，不录制音频。想先熟悉标注，可选择�
 - 色板顺序为 **蓝、紫、白、橙、黄、绿**，默认使用蓝色；切换颜色只影响后续标注，并同步改变四角柔光。
 - 滑杆图标菜单包含圆圈、方框、直线、箭头，以及线条 / 画笔粗细。圆角虚线方框固定使用细线。
 - 导出期间显示「正在导出…」并暂时锁定编辑，Esc 仍可取消，避免重复复制或丢失新画的标记。
-- 界面跟随系统或应用语言设置，支持中文和英文。macOS 26 使用原生 Liquid Glass，较早系统使用毛玻璃；上图为静态布局预览。
+- 界面跟随系统或应用语言设置，支持中文和英文。工具栏与复制提示使用 Metal 绘制偏黑的液态玻璃，沿圆角边缘呈现折射和高光；Metal 不可用时使用深色备用外观，开启「减少透明度」时使用不透明底色。上图为静态布局预览。
 
 工具栏、选区边框、编辑控制点和删除按钮都不会进入导出的图片。
 
@@ -132,28 +132,26 @@ Nebula 只捕获屏幕画面，不录制音频。想先熟悉标注，可选择�
 
 不会。截图和标注在本机处理，没有账号、云端上传或埋点；只有主动保存时才生成图片文件。复制后的图片由你自行粘贴到目标应用。
 
-## v1.1.5 更新
+## v1.1.6 更新
 
-- 修复回车偶尔未被截图窗口接收、连续按键可能落到底层应用的问题；复制处理中会隔离重复确认键，松开后再恢复桌面焦点。
-- 改善授权后自动重启和首次快捷键响应，避免必须先点击桌面才能截图。
-- 拖选松手时保持选区原尺寸；暗部单击保留已有选区，调整范围时工具栏和复制提示持续显示并跟随。
-- 四角使用当前标注颜色的柔光，贴合圆角边界自然渐隐；普通边缘仍可拖动，导出不含光晕或控制点。
-- 扩大标注控制点的操作容错，经过方框内部或轻微偏离边线时仍保持显示，同时避免误选附近标注。
-- 使用偏黑的 Liquid Glass 工具栏和匹配的复制提示，优化文字居中与间距；色板循环调整为蓝、紫、白、橙、黄、绿。
-- 默认蓝色标注，箭头采用实心三角尖端和渐细箭杆，保留二次编辑与撤销重做。
+- 增强工具栏和复制提示的液态玻璃：保留偏黑底色，加入更明显的圆角边缘折射与方向高光，文字和图标保持清晰。
+- 参考 Liquid Glass Engineering 的 Metal 光学模型，复用当前截图作为背景；不会为玻璃效果额外截屏。
+- 启动后后台预热，拖选时提前准备纹理；仅在两栏位置或大小变化时重绘，合并连续更新，截图入口不等待 GPU。
+- 保持原有按钮、间距和标注手势；提供 Metal 不可用及「减少透明度」下的备用外观。
+- 增加 GPU 渲染、取消、文字图标可见性和性能检查，并随应用附带第三方许可说明。
 
-发布包为 **v1.1.5 / build 43**，支持 Apple Silicon 和 Intel。核心测试、中英文编辑交互、快捷键与连续截图、授权重启检查及构建结果见 [GitHub Actions](https://github.com/AnthemZhou/Nebula-ScreenShot/actions)。完整变更见 [CHANGELOG.md](CHANGELOG.md)。
+发布包为 **v1.1.6 / build 46**，支持 Apple Silicon 和 Intel。核心测试、中英文编辑交互、快捷键与连续截图、Metal 渲染及构建结果见 [GitHub Actions](https://github.com/AnthemZhou/Nebula-ScreenShot/actions)。完整变更见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 开发
 
-从源码构建需要 **Xcode 16+ / Swift 6**；构建原生 Liquid Glass 界面需要 **Xcode 26+**。工程使用 Swift Package Manager，仅依赖 macOS 系统框架。
+从源码构建需要 **Xcode 16+ / Swift 6**。工程使用 Swift Package Manager，仅依赖 macOS 系统框架；液态玻璃使用 Metal，不需要额外下载渲染依赖。
 
 构建命令、测试、诊断日志与目录结构见 [开发与调试指南](docs/DEVELOPMENT.md)。参与贡献请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)，手动验收见 [TESTING.md](TESTING.md)。遇到问题可 [提交 Issue](https://github.com/AnthemZhou/Nebula-ScreenShot/issues)，附上应用版本、macOS 版本和复现步骤。
 
 <details>
 <summary>English quick start</summary>
 
-Requires macOS 14 or later. [Download v1.1.5](https://github.com/AnthemZhou/Nebula-ScreenShot/releases/download/v1.1.5/Nebula-ScreenShot-1.1.5-universal.zip), unzip, move **Nebula ScreenShot.app** to Applications, and open it. The Universal app supports Apple Silicon and Intel. This release is ad-hoc signed and not notarized; if macOS blocks it, follow [Apple’s opening instructions](https://support.apple.com/102445) after verifying its source.
+Requires macOS 14 or later. [Download v1.1.6](https://github.com/AnthemZhou/Nebula-ScreenShot/releases/download/v1.1.6/Nebula-ScreenShot-1.1.6-universal.zip), unzip, move **Nebula ScreenShot.app** to Applications, and open it. The Universal app supports Apple Silicon and Intel. This release is ad-hoc signed and not notarized; if macOS blocks it, follow [Apple’s opening instructions](https://support.apple.com/102445) after verifying its source.
 
 Press **Control–Shift–Command–5** and allow screen recording when macOS asks. Follow any quit/reopen prompt; Nebula restores its menu-bar app and shortcut automatically. Press the shortcut again and drag a region. In the default pin mode, click to number points, left-drag a rounded rectangle, and right-drag an arrow. The slider menu contains shapes and stroke widths; pen, eraser, undo/redo and PNG save are on the toolbar. The palette is blue, purple, white, orange, yellow and green, with blue selected by default. Resize the crop from any edge or corner; the toolbar stays visible, and only the corners show a soft colored glow.
 
@@ -164,5 +162,7 @@ Press **Return / Command–C** to copy, **Command–S** to save PNG, or **Esc** 
 ## License
 
 本项目采用 **GNU General Public License v3.0 only（GPL-3.0-only）**，完整协议见 [LICENSE](LICENSE)。
+
+液态玻璃光学模型参考 MIT 许可的 Liquid Glass Engineering，来源和第三方许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
 Copyright © 2026 Nebula ScreenShot contributors.

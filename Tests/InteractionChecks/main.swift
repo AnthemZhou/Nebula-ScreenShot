@@ -819,21 +819,10 @@ enum HarnessError: Error, CustomStringConvertible {
         let cropGap = toolbar.frame.minY + AnnotationToolbar.glassInset - canvas.selection!.maxY - 0.5
         try check(cropGap == 10 && abs(cropGap - rowGap - 1 / window.backingScaleFactor) < 0.001,
                   "The lower visible gap must be exactly one backing pixel smaller")
-        #if compiler(>=6.2)
-        if #available(macOS 26.0, *) {
-            guard let glass = surfaces[0] as? NSGlassEffectView,
-                  let content = glass.contentView else { throw HarnessError.failed("Native Liquid Glass is missing") }
-            try check(buttons.allSatisfy { $0.isDescendant(of: content) }, "All buttons belong inside the glass content view")
-            guard let hintGlass = surfaces[1] as? NSGlassEffectView, let hintContent = hintGlass.contentView else {
-                throw HarnessError.failed("Return hint must use the same native glass")
-            }
-            try check(copyHint.isDescendant(of: hintContent), "Return text belongs inside its glass content view")
-        } else {
-            try check(surfaces.allSatisfy { $0 is NSVisualEffectView }, "Both rows need the same older macOS blur fallback")
-        }
-        #else
-        try check(surfaces.allSatisfy { $0 is NSVisualEffectView }, "Both rows need the same older SDK blur fallback")
-        #endif
+        try check(buttons.allSatisfy { $0.isDescendant(of: surfaces[0]) },
+                  "Controls must stay above the toolbar backdrop")
+        try check(copyHint.isDescendant(of: surfaces[1]),
+                  "Return text must stay above its own centered backdrop")
         let menu = toolbar.optionsMenu()
         try check(!menu.items.contains { $0.title == "重新选择区域" || $0.title == "清空标注" },
                   "Reselect and clear menu options must be removed")

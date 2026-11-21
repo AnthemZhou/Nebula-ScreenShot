@@ -119,27 +119,47 @@ import NebulaCore
     }
 }
 
-/// Clear glass supplies refraction without the regular material's adaptive
-/// lightening. A constant scrim keeps both rows dark from their first frame.
+/// Retain native clear glass's stable lighting. Feather the fixed dark scrim
+/// away from its optical edge so it doesn't flatten the refraction and rim.
+/// Both rows share this treatment, including the older-system blur fallback.
 @MainActor private class ToolbarGlassContent: NSView {
     var cornerRadius: CGFloat = 14
+    var drawsFallback = true { didSet { needsDisplay = true } }
     override var isFlipped: Bool { true }
     override func draw(_ dirtyRect: NSRect) {
+        guard drawsFallback else { return }
         let rect = bounds.insetBy(dx: AnnotationToolbar.glassInset, dy: AnnotationToolbar.glassInset)
+        guard rect.width > 4, rect.height > 4 else { return }
         let shape = NSBezierPath(roundedRect: rect, xRadius: cornerRadius, yRadius: cornerRadius)
-        NSColor.black.withAlphaComponent(0.68).setFill()
-        shape.fill()
-        // Keep the center transparent; a faint top reflection and hairline rim
-        // reveal the glass without replacing it with an opaque gray surface.
-        NSGradient(starting: NSColor.white.withAlphaComponent(0.025),
-                   ending: NSColor.white.withAlphaComponent(0.005))?.draw(in: shape, angle: 90)
-        NSGraphicsContext.saveGraphicsState()
-        let rim = NSBezierPath(roundedRect: rect.insetBy(dx: 0.25, dy: 0.25),
-                               xRadius: cornerRadius - 0.25, yRadius: cornerRadius - 0.25)
-        rim.lineWidth = 0.5
-        NSColor.white.withAlphaComponent(0.08).setStroke()
-        rim.stroke()
-        NSGraphicsContext.restoreGraphicsState()
+        // Leave the optical edge unobscured; feather the dark center inward.
+        // Nine small rounded fills form a 2 pt feather; no offscreen blur or
+        // animation is needed when the crop and toolbar move. The center lets
+        // more backdrop color through than the previous uniform 68% overlay.
+        var previousOpacity: CGFloat = 0
+        for step in 0...8 {
+            let inset = CGFloat(step) * 0.25
+            let opacity = 0.54 * (0.45 + 0.55 * sin(CGFloat(step) / 8 * .pi / 2))
+            NSColor.black.withAlphaComponent((opacity - previousOpacity) / (1 - previousOpacity)).setFill()
+            NSBezierPath(roundedRect: rect.insetBy(dx: inset, dy: inset),
+                         xRadius: max(0, cornerRadius - inset), yRadius: max(0, cornerRadius - inset)).fill()
+            previousOpacity = opacity
+        }
+        NSGradient(colorsAndLocations: (NSColor.white.withAlphaComponent(0.075), 0),
+                   (NSColor.white.withAlphaComponent(0.005), 0.48),
+                   (NSColor.white.withAlphaComponent(0.025), 1))?.draw(in: shape, angle: -90)
+        // Directional specular light avoids a uniform, opaque white outline.
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
+        context.saveGState()
+        context.addPath(CGPath(roundedRect: rect.insetBy(dx: 0.35, dy: 0.35),
+                               cornerWidth: cornerRadius - 0.35,
+                               cornerHeight: cornerRadius - 0.35, transform: nil))
+        context.setLineWidth(0.65)
+        context.replacePathWithStrokedPath()
+        context.clip()
+        NSGradient(colorsAndLocations: (NSColor.white.withAlphaComponent(0.28), 0),
+                   (NSColor.white.withAlphaComponent(0.07), 0.50),
+                   (NSColor.white.withAlphaComponent(0.18), 1))?.draw(in: rect, angle: -90)
+        context.restoreGState()
     }
 }
 
@@ -174,14 +194,27 @@ import NebulaCore
     }
 }
 
-/// WindowServer glass cannot be included in cacheDisplay bitmaps. Offline layout
-/// previews use a neutral surface and the exact production controls instead.
-@MainActor private final class ToolbarSnapshotSurface: NSView {
+/// GPU output contains only the backdrop. AppKit controls stay sharp above it.
+@MainActor private final class ToolbarGlassSurface: NSView {
+    var image: NSImage?
+    var imageOrigin: CGPoint = .zero
+    var opaqueFallback = false
+    override var isFlipped: Bool { true }
     override func draw(_ dirtyRect: NSRect) {
-        let rect = bounds.insetBy(dx: AnnotationToolbar.glassInset, dy: AnnotationToolbar.glassInset)
-        let radius = min(14, rect.height / 2)
-        let shape = NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
-        NSColor(white: 0.18, alpha: 0.30).setFill(); shape.fill()
+        if let image {
+            // NSView doesn't clip drawing to its bounds by default. Both rows
+            // share one bitmap: the hint must never paint over toolbar icons.
+            NSGraphicsContext.saveGraphicsState()
+            NSBezierPath(rect: bounds).addClip()
+            image.draw(in: CGRect(origin: CGPoint(x: -imageOrigin.x, y: -imageOrigin.y), size: image.size),
+                       from: .zero, operation: .copy, fraction: 1, respectFlipped: true, hints: nil)
+            NSGraphicsContext.restoreGraphicsState()
+        } else {
+            let rect = bounds.insetBy(dx: AnnotationToolbar.glassInset, dy: AnnotationToolbar.glassInset)
+            NSColor(white: 0.08, alpha: opaqueFallback ? 1 : 0.42).setFill()
+            NSBezierPath(roundedRect: rect, xRadius: min(14, rect.height / 2),
+                         yRadius: min(14, rect.height / 2)).fill()
+        }
     }
 }
 
@@ -232,11 +265,23 @@ import NebulaCore
     private let hintContent = ToolbarGlassContent(frame: .zero)
     private var surface: NSView!
     private var hintSurface: NSView!
+    private let glassRenderer: GlassMetalRenderer
+    private var glassImage: CGImage?
+    private var glassCanvasSize = CGSize.zero
+    private var glassSelection: CGRect?
+    private var renderedGlassFrame: GlassFrame?
+    private var staticPreview = false
+    var hasRenderedGlass: Bool { (surface as? ToolbarGlassSurface)?.image != nil }
     private let copyHint = ToolbarHintLabel(labelWithString: L10n.text("回车以复制到剪贴板", "Press Return to copy to clipboard"))
 
     override var isFlipped: Bool { true }
 
-    override init(frame: NSRect) {
+    override convenience init(frame: NSRect) {
+        self.init(frame: frame, glassRenderer: GlassMetalRenderer())
+    }
+
+    init(frame: NSRect, glassRenderer: GlassMetalRenderer) {
+        self.glassRenderer = glassRenderer
         super.init(frame: frame)
         appearance = NSAppearance(named: .darkAqua)
         surface = makeSurface(content: rowContent)
@@ -270,6 +315,20 @@ import NebulaCore
         for button in rowButtons { rowContent.addSubview(button) }
         updateInkSelection()
         updateToolSelection()
+        glassRenderer.onImage = { [weak self] image, frame, _ in
+            guard let self, !self.staticPreview, !self.isHidden,
+                  !NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency else { return }
+            self.renderedGlassFrame = frame
+            let snapshot = NSImage(cgImage: image, size: frame.size)
+            for (view, content) in [(self.surface!, self.rowContent as ToolbarGlassContent),
+                                    (self.hintSurface!, self.hintContent)] {
+                guard let surface = view as? ToolbarGlassSurface else { continue }
+                surface.image = snapshot
+                surface.imageOrigin = view.frame.origin
+                content.drawsFallback = false
+                surface.needsDisplay = true
+            }
+        }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -325,49 +384,75 @@ import NebulaCore
                                    width: hintWidth, height: Self.hintHeight)
         hintContent.frame = hintSurface.bounds
         copyHint.frame = hintContent.bounds.insetBy(dx: 12, dy: 0)
+        requestGlassFrame()
         needsDisplay = true
     }
 
-    /// Both rows share the same native glass and the same older-system fallback.
+    /// A fixed dark fallback remains usable if Metal is unavailable or busy.
     private func makeSurface(content: ToolbarGlassContent, cornerRadius: CGFloat = 14) -> NSView {
         content.cornerRadius = cornerRadius
-        #if compiler(>=6.2)
-        if #available(macOS 26.0, *) {
-            let glass = NSGlassEffectView(frame: .zero)
-            glass.style = .clear
-            glass.cornerRadius = cornerRadius
-            glass.contentView = content
-            return glass
-        }
-        #endif
-        let blur = NSVisualEffectView(frame: .zero)
-        blur.material = .hudWindow
-        blur.blendingMode = .withinWindow
-        blur.state = .active
-        blur.wantsLayer = true
-        blur.layer?.cornerRadius = cornerRadius
-        blur.layer?.masksToBounds = true
-        blur.layer?.borderColor = NSColor.white.withAlphaComponent(0.18).cgColor
-        blur.layer?.borderWidth = 0.5
-        blur.addSubview(content)
-        return blur
+        let surface = ToolbarGlassSurface(frame: .zero)
+        surface.wantsLayer = true
+        surface.addSubview(content)
+        return surface
     }
 
     func useStaticPreviewMaterial() {
-        for (oldSurface, content) in [(surface!, rowContent as NSView), (hintSurface!, hintContent)] {
-            #if compiler(>=6.2)
-            if #available(macOS 26.0, *), let glass = oldSurface as? NSGlassEffectView { glass.contentView = nil }
-            #endif
-            content.removeFromSuperview()
-            oldSurface.removeFromSuperview()
+        staticPreview = true
+        glassRenderer.cancel()
+        clearGlassImage()
+    }
+
+    func updateGlassBackdrop(image: CGImage?, canvasSize: CGSize, selection: CGRect?) {
+        if glassImage !== image { clearGlassImage() }
+        glassImage = image
+        glassCanvasSize = canvasSize
+        glassSelection = selection
+        if image == nil { glassRenderer.cancel() }
+        requestGlassFrame()
+    }
+
+    private func clearGlassImage() {
+        renderedGlassFrame = nil
+        guard surface != nil, hintSurface != nil else { return }
+        for (view, content) in [(surface!, rowContent as ToolbarGlassContent), (hintSurface!, hintContent)] {
+            (view as? ToolbarGlassSurface)?.image = nil
+            (view as? ToolbarGlassSurface)?.opaqueFallback = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+            content.drawsFallback = true
+            view.needsDisplay = true
         }
-        surface = ToolbarSnapshotSurface(frame: .zero)
-        surface.addSubview(rowContent)
-        addSubview(surface)
-        hintSurface = ToolbarSnapshotSurface(frame: .zero)
-        hintSurface.addSubview(hintContent)
-        addSubview(hintSurface)
-        needsLayout = true
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil { glassRenderer.cancel() }
+        else { requestGlassFrame() }
+    }
+
+    private func requestGlassFrame() {
+        guard !staticPreview, let image = glassImage else { return }
+        guard window != nil, !NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency else {
+            glassRenderer.cancel()
+            clearGlassImage()
+            return
+        }
+        guard !isHidden, let selection = glassSelection else {
+            glassRenderer.suspend()
+            clearGlassImage()
+            return
+        }
+        let scale = max(1, window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1)
+        let inset = Self.glassInset
+        let frame = GlassFrame(size: bounds.size, scale: scale, origin: self.frame.origin,
+            canvasSize: glassCanvasSize, selection: selection,
+            selectionRadius: SelectionGeometry.cornerRadius(in: selection),
+            row: surface.frame.insetBy(dx: inset, dy: inset),
+            hint: hintSurface.frame.insetBy(dx: inset, dy: inset))
+        if let previous = renderedGlassFrame,
+           previous.size != frame.size || previous.row != frame.row || previous.hint != frame.hint {
+            clearGlassImage()
+        }
+        glassRenderer.update(image: image, frame: frame)
     }
 
     // Clicking the toolbar's padding must never place an annotation on the canvas.

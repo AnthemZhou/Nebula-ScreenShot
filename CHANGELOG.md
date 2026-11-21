@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.6 — 2026-11-22
+
+- Render matching dark Liquid Glass for the toolbar and Return hint with Metal, adapting Liquid Glass Engineering's MIT-licensed optical model. Refract the frozen screenshot along rounded edges, add directional rim highlights and retain a charcoal body beneath sharp AppKit controls.
+- Prewarm the GPU pipeline asynchronously after launch. Begin uploading one bounded backdrop texture at selection pointer-down, render only the two small rows when their geometry changes, coalesce pending requests and discard stale callbacks. No extra screen capture, continuous animation or main-thread GPU waits are introduced.
+- Preserve control hit areas, text centering and existing spacing. Keep a dark fallback when Metal is unavailable and an opaque backing when Reduce Transparency is enabled. Bundle third-party notices with the app.
+- Add real-GPU pixel, refraction, cancellation, foreground-visibility and timing checks alongside the existing repeated capture and shortcut checks.
+
 ## 1.1.5 — 2026-11-20
 
 - Give the screenshot editor keyboard focus and route Return, keypad Enter and editing shortcuts at the panel level. Consume repeated confirmation keys during export and restore the previous app only after held keys are released, preventing input from reaching the underlying window.

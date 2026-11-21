@@ -30,6 +30,7 @@ import QuartzCore
     private var tool: AnnotationTool = .pin
     private var ink: Ink = .blue
     private var lineWidth: CGFloat = 3.5
+    private let glassRenderer = GlassMetalRenderer()
     private var hasToolbar = false
     private lazy var toolbar = makeToolbar()
     private let hint = CaptureHint(frame: .zero)
@@ -127,7 +128,7 @@ import QuartzCore
 
     private func makeToolbar() -> AnnotationToolbar {
         hasToolbar = true
-        let toolbar = AnnotationToolbar(frame: .zero)
+        let toolbar = AnnotationToolbar(frame: .zero, glassRenderer: glassRenderer)
         addSubview(toolbar)
         toolbar.onTool = { [weak self] in self?.tool = $0; self?.selectedID = nil; self?.hoverID = nil; self?.refresh() }
         toolbar.onInk = { [weak self] in self?.ink = $0; self?.refresh() }
@@ -143,6 +144,7 @@ import QuartzCore
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window == nil {
+            glassRenderer.cancel()
             spaceHeld = false
         }
     }
@@ -521,6 +523,10 @@ import QuartzCore
 
     override func mouseDown(with event: NSEvent) {
         guard interaction == nil, !exportBusy else { return }
+        if selection == nil, let screenshot,
+           !NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency {
+            glassRenderer.prepare(image: screenshot)
+        }
         if window?.isKeyWindow == false { window?.makeKey() }
         window?.makeFirstResponder(self)
         let point = point(for: event)
@@ -727,6 +733,7 @@ import QuartzCore
         toolbar.frame = frame
         toolbar.layoutSubtreeIfNeeded()
         CATransaction.commit()
+        toolbar.updateGlassBackdrop(image: screenshot, canvasSize: bounds.size, selection: selection)
     }
 
     private func refresh() {
@@ -736,6 +743,7 @@ import QuartzCore
         if hasToolbar {
             toolbar.update(tool: tool, ink: ink, lineWidth: lineWidth, history: history,
                            canExport: screenshot != nil, isExporting: exportBusy)
+            toolbar.updateGlassBackdrop(image: screenshot, canvasSize: bounds.size, selection: selection)
         }
         needsDisplay = true
         window?.invalidateCursorRects(for: self)

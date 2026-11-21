@@ -6,7 +6,7 @@
 
 ## 从源码构建
 
-需要 Xcode 16 或更新版本，以及 Swift 6 工具链。工程使用 Swift Package Manager，可直接用 Xcode 打开 `Package.swift`。只依赖 macOS 系统框架，包括 AppKit、ScreenCaptureKit、Carbon 和 ImageIO。原生 Liquid Glass 需要使用 Xcode 26 或更新版本构建；旧工具链仍可构建毛玻璃兼容版本。
+需要 Xcode 16 或更新版本，以及 Swift 6 工具链。工程使用 Swift Package Manager，可直接用 Xcode 打开 `Package.swift`。只依赖 macOS 系统框架，包括 AppKit、ScreenCaptureKit、Carbon、ImageIO 和 Metal。液态玻璃着色器随应用内嵌，在后台编译并复用截图纹理；Metal 不可用时保留深色备用外观，第三方算法许可见 `THIRD_PARTY_NOTICES.md`。
 
 ```sh
 git clone https://github.com/AnthemZhou/Nebula-ScreenShot.git

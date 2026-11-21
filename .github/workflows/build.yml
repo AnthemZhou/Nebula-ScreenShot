@@ -15,6 +15,8 @@ jobs:
         run: swift test
       - name: Check editor gestures and repeated hint drawing
         run: ./scripts/check-interactions.sh
+      - name: Check Metal glass rendering (when GPU is available)
+        run: bash scripts/check-glass.sh
       - name: Check rapid capture sessions and shortcut lifecycle
         run: ./scripts/check-sessions.sh
       - name: Check own-process overlay exclusion
