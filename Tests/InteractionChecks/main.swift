@@ -1602,9 +1602,14 @@ enum HarnessError: Error, CustomStringConvertible {
 
         let selectedShade = try renderedCanvasColor(at: CGPoint(x: 10, y: 10))
         let initialBrightness = initialShade.redComponent + initialShade.greenComponent + initialShade.blueComponent
-        let selectedBrightness = selectedShade.redComponent + selectedShade.greenComponent + selectedShade.blueComponent
         let sourceBrightness = backgroundColor!.redComponent + backgroundColor!.greenComponent + backgroundColor!.blueComponent
-        try check(initialBrightness < sourceBrightness && abs(initialBrightness - selectedBrightness) < 0.005,
+        // The 8-bit calibrated-RGB bitmap can round each channel one level apart
+        // across render paths. Bound each channel rather than summing that error.
+        let quantizationTolerance: CGFloat = 1.0 / 255.0 + 0.000001
+        let shadeMatches = abs(initialShade.redComponent - selectedShade.redComponent) <= quantizationTolerance &&
+                           abs(initialShade.greenComponent - selectedShade.greenComponent) <= quantizationTolerance &&
+                           abs(initialShade.blueComponent - selectedShade.blueComponent) <= quantizationTolerance
+        try check(initialBrightness < sourceBrightness && shadeMatches,
                   "The first frame must already show the final dim shade; initial=\(initialShade), selected=\(selectedShade), source=\(backgroundColor!)")
         try check(window.frame == initialWindowFrame && window.alphaValue == initialWindowAlpha && !window.isVisible,
                   "Immediate capture must keep hidden window frame and alpha unchanged")
