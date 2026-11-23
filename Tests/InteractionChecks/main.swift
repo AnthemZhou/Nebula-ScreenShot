@@ -781,7 +781,7 @@ enum HarnessError: Error, CustomStringConvertible {
         for removed in ["圆圈", "直线", "箭头", "选择圆圈", "取消截图", "更多", "确认"] {
             try check(!labels.contains { $0.hasPrefix(removed) }, "Removed row button must stay absent: \(removed)")
         }
-        try check(buttons.count == 13, "Toolbar must contain six colors and seven actions")
+        try check(buttons.count == 14, "Toolbar must contain six colors and eight actions including opt-in text extraction")
         for button in buttons where button.isEnabled {
             let center = button.convert(CGPoint(x: button.bounds.midX, y: button.bounds.midY), to: canvas.superview)
             try check(canvas.hitTest(center) === button, "Glass must not intercept the button's hit area")

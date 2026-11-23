@@ -2,21 +2,21 @@
 
 <img src="docs/icon.png" width="96" alt="Nebula ScreenShot 黑白圆角图标">
 
-轻量的 macOS 菜单栏截图与标注工具。按 **⌃⇧⌘5** 拖选区域，添加编号图钉、图形或手绘标记，再按 **回车** 复制到剪贴板。
+轻量的 macOS 菜单栏截图、标注与文字提取工具。按 **⌃⇧⌘5** 拖选区域，添加编号图钉、图形或手绘标记，再按 **回车** 复制图片；也可开启 **提取文字**，选中图片里的文字并复制。
 
-**当前版本：v1.1.6** · macOS 14+ · Apple Silicon / Intel · GPL-3.0-only
+**当前版本：v1.1.7** · macOS 14+ · Apple Silicon / Intel · GPL-3.0-only
 
-[**下载 v1.1.6（Universal ZIP）**](https://github.com/AnthemZhou/Nebula-ScreenShot/releases/download/v1.1.6/Nebula-ScreenShot-1.1.6-universal.zip) · [发行说明](https://github.com/AnthemZhou/Nebula-ScreenShot/releases/tag/v1.1.6) · [安装](#安装) · [首次授权](#首次授权) · [使用](#使用) · [快捷键](#快捷键) · [常见问题](#常见问题)
+[**下载 v1.1.7（Universal ZIP）**](https://github.com/AnthemZhou/Nebula-ScreenShot/releases/download/v1.1.7/Nebula-ScreenShot-1.1.7-universal.zip) · [发行说明](https://github.com/AnthemZhou/Nebula-ScreenShot/releases/tag/v1.1.7) · [安装](#安装) · [首次授权](#首次授权) · [使用](#使用) · [快捷键](#快捷键) · [常见问题](#常见问题)
 
 ## 安装
 
-1. 下载上方的 **`Nebula-ScreenShot-1.1.6-universal.zip`**。同一个安装包适用于 Apple Silicon 和 Intel，无需选择架构；GitHub 的 `Source code` 是源码，不是应用安装包。
+1. 下载上方的 **`Nebula-ScreenShot-1.1.7-universal.zip`**。同一个安装包适用于 Apple Silicon 和 Intel，无需选择架构；GitHub 的 `Source code` 是源码，不是应用安装包。
 2. 双击 ZIP 解压，将 **Nebula ScreenShot.app** 拖入「应用程序」文件夹，再从那里打开。也可以安装到用户自己的 `~/Applications`，后续更新请沿用同一位置。
 3. 在屏幕顶部菜单栏找到 Nebula 的取景框图标。应用常驻菜单栏；关闭「关于」窗口不会退出应用。
 
 **首次打开被 macOS 阻止？** 当前下载包尚未经过 Apple Developer ID 签名与公证。确认文件来自本仓库的 Release 后，先尝试打开一次，再到 **系统设置 → 隐私与安全性 → 仍要打开**，按系统提示确认。详见 [Apple 的打开说明](https://support.apple.com/zh-cn/102445)。
 
-需要核对下载文件时，可使用发行页附带的 [SHA-256 校验文件](https://github.com/AnthemZhou/Nebula-ScreenShot/releases/download/v1.1.6/Nebula-ScreenShot-1.1.6-universal.zip.sha256)。
+需要核对下载文件时，可使用发行页附带的 [SHA-256 校验文件](https://github.com/AnthemZhou/Nebula-ScreenShot/releases/download/v1.1.7/Nebula-ScreenShot-1.1.7-universal.zip.sha256)。
 
 ## 首次授权
 
@@ -31,6 +31,18 @@
 Nebula 只捕获屏幕画面，不录制音频。想先熟悉标注，可选择菜单栏 → **试用标注…**，使用不需要屏幕录制权限的示例画布。
 
 ## 使用
+
+### 图片文字提取
+
+1. 拖出截图选区后，点击工具栏中橡皮擦右侧的 **「提取文字」** 图标（文字取景框）。默认不开启，普通截图不会启动识别。
+2. 等待下方的「正在识别文字…」结束，在图片文字上按住左键拖选；支持局部、反向和跨行选择。双击可选中整行，**⌘A** 可全选识别结果。
+3. 按 **回车 / ⌘C**，或右键选择 **复制文字**。底部显示「复制成功」，文字与玻璃底一起渐隐消失；截图和文字选区会保留，可重新选字、继续复制。再次选字时会恢复固定的「拖选文字」提示。完成后按 **Esc** 手动退出，再用 **⌘V** 粘贴。
+
+再次点击文字按钮，或选择图钉、画笔等工具，可返回标注模式；已有标记会保留。文字模式中，左键用于选字、选区内右键打开复制菜单。可从选区外侧拖动边缘，或按空格拖动选区，松手后自动重新识别。保存 PNG 仍保存原截图与标注，不包含文字高亮。
+
+识别使用 macOS 本机 Vision，支持中英文，不上传截图、不增加额外权限。模糊、过小或特殊字体可能识别不准，复制后请核对原文。
+
+### 截图与标注
 
 1. 按 **⌃⇧⌘5**：屏幕变暗，光标变为十字准星。
 2. **按住左键拖选区域**，松开后出现标注工具栏。截图画面准备期间可按 Esc 取消。
@@ -47,7 +59,7 @@ Nebula 只捕获屏幕画面，不录制音频。想先熟悉标注，可选择�
 | --- | --- |
 | 添加编号图钉 | 在选区空白处左键单击，依次生成 1、2、3……；每张新截图从 1 开始 |
 | 画圆角方框 | 在选区空白处按住左键拖动，生成细线、圆角、虚线矩形 |
-| 画箭头 | 在选区内按住右键拖动；其他工具模式下也可使用 |
+| 画箭头 | 在选区内按住右键拖动；其他标注工具模式下也可使用 |
 | 画圆圈、矩形、直线或箭头 | 从滑杆图标菜单选择形状，再按住左键拖动 |
 | 手绘 | 选择画笔（P），按住左键绘制 |
 | 擦除 | 选择橡皮擦（E），按住左键涂抹；手绘笔触只擦去经过的部分，图钉和几何图形按整个对象擦除 |
@@ -61,9 +73,9 @@ Nebula 只捕获屏幕画面，不录制音频。想先熟悉标注，可选择�
 
 ### 工具栏
 
-![工具栏：颜色、图钉、画笔、橡皮擦、形状与设置、撤销、重做、保存 PNG](docs/toolbar.png)
+![工具栏：颜色、图钉、画笔、橡皮擦、提取文字、形状与设置、撤销、重做、保存 PNG](docs/toolbar.png)
 
-从左到右是 **六种颜色 → 图钉 → 画笔 → 橡皮擦 → 形状与设置 → 撤销 → 重做 → 保存 PNG**。按钮仅显示图标，鼠标停留可查看提示。复制入口是工具栏下方的 **「回车以复制到剪贴板」**。
+从左到右是 **六种颜色 → 图钉 → 画笔 → 橡皮擦 → 提取文字 → 形状与设置 → 撤销 → 重做 → 保存 PNG**。按钮仅显示图标，鼠标停留可查看提示。普通标注模式中，下方显示 **「回车以复制到剪贴板」**；文字模式中显示 **「拖选文字 · ⌘A 全选 · 回车复制」**。
 
 - 色板顺序为 **蓝、紫、白、橙、黄、绿**，默认使用蓝色；切换颜色只影响后续标注，并同步改变四角柔光。
 - 滑杆图标菜单包含圆圈、方框、直线、箭头，以及线条 / 画笔粗细。圆角虚线方框固定使用细线。
@@ -90,7 +102,9 @@ Nebula 只捕获屏幕画面，不录制音频。想先熟悉标注，可选择�
 | 操作 | 快捷键 |
 | --- | --- |
 | 开始截图 | **⌃⇧⌘5** |
-| 复制并结束截图 | **Return / Enter** 或 **⌘C** |
+| 复制图片并结束截图（标注模式） | **Return / Enter** 或 **⌘C** |
+| 复制所选文字并保留选区（文字模式） | **Return / Enter** 或 **⌘C** |
+| 全选识别文字（文字模式） | **⌘A** |
 | 保存 PNG | **⌘S** |
 | 取消截图 | **Esc** |
 | 图钉 / 默认手势 | **N** |
@@ -118,6 +132,8 @@ Nebula 只捕获屏幕画面，不录制音频。想先熟悉标注，可选择�
 
 先从菜单栏 → **设置 → 屏幕录制权限…** 发起系统请求。仍异常时，使用 **设置 → 重新授权屏幕录制…**；授权失败后，主菜单也会出现 **修复屏幕录制授权…**。这会重置 Nebula 自己的屏幕录制记录并重新请求授权，需要你再次允许。
 
+恢复期间会立即显示简洁的进度提示，无需反复按快捷键；出现系统授权窗口时，应用的进度提示会让开。
+
 若系统列表仍未更新，可在该权限页面点「＋」，选择安装在「应用程序」或 `~/Applications` 中的 **Nebula ScreenShot.app**，再按系统提示重新打开。
 
 ### 更新后是否需要重新授权
@@ -130,17 +146,17 @@ Nebula 只捕获屏幕画面，不录制音频。想先熟悉标注，可选择�
 
 ### 截图会上传吗
 
-不会。截图和标注在本机处理，没有账号、云端上传或埋点；只有主动保存时才生成图片文件。复制后的图片由你自行粘贴到目标应用。
+不会。截图、标注和文字识别均在本机处理，没有账号、云端上传或埋点；只有主动保存时才生成图片文件。复制后的图片由你自行粘贴到目标应用。
 
-## v1.1.6 更新
+## v1.1.7 更新
 
-- 增强工具栏和复制提示的液态玻璃：保留偏黑底色，加入更明显的圆角边缘折射与方向高光，文字和图标保持清晰。
-- 参考 Liquid Glass Engineering 的 Metal 光学模型，复用当前截图作为背景；不会为玻璃效果额外截屏。
-- 启动后后台预热，拖选时提前准备纹理；仅在两栏位置或大小变化时重绘，合并连续更新，截图入口不等待 GPU。
-- 保持原有按钮、间距和标注手势；提供 Metal 不可用及「减少透明度」下的备用外观。
-- 增加 GPU 渲染、取消、文字图标可见性和性能检查，并随应用附带第三方许可说明。
+- 新增可主动开启的图片文字提取：本机识别中英文，支持拖选部分文字、跨行选择、双击整行和全选。
+- 回车或 ⌘C 复制纯文字后保留截图，可反复选字和复制；普通图片复制仍按原方式结束截图。
+- 淡化待选文字背景，保留清晰的选中高亮；固定拖选提示，复制成功后文字与玻璃底一起渐隐，再次选字时恢复提示。
+- 授权恢复过程改为后台执行，立即显示简洁进度，重复快捷键不会叠加提示；保留系统授权后的自动恢复。
+- 增加真实 OCR、重复文字复制、透明提示层和授权恢复回归检查；截图边框、标注手势与深色 Metal 玻璃延续 v1.1.6 的效果。
 
-发布包为 **v1.1.6 / build 46**，支持 Apple Silicon 和 Intel。核心测试、中英文编辑交互、快捷键与连续截图、Metal 渲染及构建结果见 [GitHub Actions](https://github.com/AnthemZhou/Nebula-ScreenShot/actions)。完整变更见 [CHANGELOG.md](CHANGELOG.md)。
+发布包为 **v1.1.7 / build 52**，支持 Apple Silicon 和 Intel。核心测试、中英文 OCR 与编辑交互、快捷键与连续截图、Metal 渲染及构建结果见 [GitHub Actions](https://github.com/AnthemZhou/Nebula-ScreenShot/actions)。完整变更见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 开发
 
@@ -151,11 +167,11 @@ Nebula 只捕获屏幕画面，不录制音频。想先熟悉标注，可选择�
 <details>
 <summary>English quick start</summary>
 
-Requires macOS 14 or later. [Download v1.1.6](https://github.com/AnthemZhou/Nebula-ScreenShot/releases/download/v1.1.6/Nebula-ScreenShot-1.1.6-universal.zip), unzip, move **Nebula ScreenShot.app** to Applications, and open it. The Universal app supports Apple Silicon and Intel. This release is ad-hoc signed and not notarized; if macOS blocks it, follow [Apple’s opening instructions](https://support.apple.com/102445) after verifying its source.
+Requires macOS 14 or later. [Download v1.1.7](https://github.com/AnthemZhou/Nebula-ScreenShot/releases/download/v1.1.7/Nebula-ScreenShot-1.1.7-universal.zip), unzip, move **Nebula ScreenShot.app** to Applications, and open it. The Universal app supports Apple Silicon and Intel. This release is ad-hoc signed and not notarized; if macOS blocks it, follow [Apple’s opening instructions](https://support.apple.com/102445) after verifying its source.
 
 Press **Control–Shift–Command–5** and allow screen recording when macOS asks. Follow any quit/reopen prompt; Nebula restores its menu-bar app and shortcut automatically. Press the shortcut again and drag a region. In the default pin mode, click to number points, left-drag a rounded rectangle, and right-drag an arrow. The slider menu contains shapes and stroke widths; pen, eraser, undo/redo and PNG save are on the toolbar. The palette is blue, purple, white, orange, yellow and green, with blue selected by default. Resize the crop from any edge or corner; the toolbar stays visible, and only the corners show a soft colored glow.
 
-Press **Return / Command–C** to copy, **Command–S** to save PNG, or **Esc** to cancel. Canceling Save returns to the editor. Screenshots stay on your Mac. An upgrade may require screen-recording consent again with the current ad-hoc releases.
+Press **Return / Command–C** to copy the image and finish capture, **Command–S** to save PNG, or **Esc** to cancel. Canceling Save returns to the editor. To extract text, click the **Extract Text** icon beside the eraser, then drag across text, double-click a line, or press **Command–A**. **Return / Command–C** copies plain text and keeps the editor open for another selection. The success message and glass background fade together; press **Esc** when finished. Recognition runs on-device and starts only when you enable text mode. Screenshots stay on your Mac. An upgrade may require screen-recording consent again with the current ad-hoc releases.
 
 </details>
 

@@ -1,5 +1,6 @@
 import AppKit
 import Metal
+import NebulaCore
 
 @MainActor final class GlassTestHost: NSView {
     override var isFlipped: Bool { true }
@@ -185,7 +186,7 @@ MainActor.assumeIsolated {
         let inks = buttons.filter { ($0.accessibilityLabel() ?? "").hasPrefix("标注颜色") ||
                                     ($0.accessibilityLabel() ?? "").hasPrefix("Annotation color") }
             .sorted { $0.frame.minX < $1.frame.minX }
-        try check(inks.count == 6 && buttons.count == 13, "All foreground controls must remain present")
+        try check(inks.count == 6 && buttons.count == 14, "All foreground controls including text extraction must remain present")
         toolbar.displayIfNeeded()
         let bitmap = toolbar.bitmapImageRepForCachingDisplay(in: toolbar.bounds)!
         toolbar.cacheDisplay(in: toolbar.bounds, to: bitmap)
@@ -216,7 +217,34 @@ MainActor.assumeIsolated {
             try bitmap.representation(using: .png, properties: [:])!.write(to:
                 URL(fileURLWithPath: CommandLine.arguments[1]).appendingPathComponent("toolbar-with-controls.png"))
         }
+        // The shared Metal bitmap still contains both rows. Hiding/fading the
+        // lower surface must remove its glass as well as its foreground text.
+        toolbar.update(tool: .pin, ink: .blue, lineWidth: 3.5, history: AnnotationHistory(),
+                       textMode: true, textHint: "Select text · ⌘A Select all · Return to copy")
+        toolbar.layoutSubtreeIfNeeded()
+        toolbar.showTextCopied()
+        let feedbackDeadline = Date().addingTimeInterval(4)
+        while toolbar.isShowingCopyFeedback && Date() < feedbackDeadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+        try check(!toolbar.isHintRowVisible, "Copy feedback must hide the entire lower surface")
+        let faded = toolbar.bitmapImageRepForCachingDisplay(in: toolbar.bounds)!
+        toolbar.cacheDisplay(in: toolbar.bounds, to: faded)
+        let fadedScale = CGFloat(faded.pixelsWide) / toolbar.bounds.width
+        for y in 48..<Int(toolbar.bounds.height) {
+            for x in 0..<Int(toolbar.bounds.width) {
+                let color = faded.colorAt(x: Int(CGFloat(x) * fadedScale), y: Int(CGFloat(y) * fadedScale))!
+                try check(color.alphaComponent < 0.02, "No glass or text pixels may remain in the dismissed lower row")
+            }
+        }
+        if CommandLine.arguments.count > 1 {
+            try faded.representation(using: .png, properties: [:])!.write(to:
+                URL(fileURLWithPath: CommandLine.arguments[1]).appendingPathComponent("toolbar-hint-dismissed.png"))
+        }
+        toolbar.resumeTextSelectionHint()
+        try check(toolbar.isHintRowVisible, "A new selection must restore the glass and instruction")
         window.contentView = nil
+        print("PASS: dismissed hint has zero text/glass pixels even with the shared Metal backdrop")
         print("PASS: toolbar background leaves all controls visible and clickable; Metal frame=\(toolbar.hasRenderedGlass)")
         print("PASS: all Metal glass checks")
     } catch { fputs("FAIL: \(error)\n", stderr); exit(1) }

@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.1.7 — 2026-11-23
+
+- Add an opt-in Extract Text toolbar icon. Recognize only the selected crop with on-device Vision, select partial or multiple lines by dragging, double-click a line or use Command–A, then copy plain text with Return, Command–C or the context menu. Switch tools to resume annotation; text mode resets for each capture.
+- Run recognition and image cropping off the main actor, cancel stale work after crop changes or mode/session exit, and reuse results for an unchanged crop. Keep text highlights out of image exports.
+- Keep the screenshot editor open after text copy for repeated selection and copying. Show one localized success message in the lower row that fades without moving the toolbar; repeated copies renew it. Lighten unselected text tint and exclude selected regions from that tint to avoid stacked backgrounds. Image copy still ends capture after key release.
+- Move the text-extraction hint up one display pixel and keep its instruction fixed during text selection. Fade the success message and its glass surface together; leave the row hidden until another selection or copy, without blocking pointer input in the hidden row.
+- Keep permission recovery responsive with an asynchronous, cancellable reset subprocess and a bounded timeout. Show one compact nonactivating progress row immediately, with a slower-system message after six seconds; repeated shortcuts reuse it. Dismiss it before native consent to avoid duplicate permission UI.
+- Add subprocess success, failure, cancellation, timeout and main-actor responsiveness checks, plus progress-panel focus, layout and lifecycle checks.
+
 ## 1.1.6 — 2026-11-22
 
 - Render matching dark Liquid Glass for the toolbar and Return hint with Metal, adapting Liquid Glass Engineering's MIT-licensed optical model. Refract the frozen screenshot along rounded edges, add directional rim highlights and retain a charcoal body beneath sharp AppKit controls.

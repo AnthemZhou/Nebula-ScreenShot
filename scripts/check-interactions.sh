@@ -10,7 +10,7 @@ swiftc -swift-version 5 -target "$CHECK_ARCH-apple-macos14.0" -emit-library -emi
 swiftc -swift-version 5 -target "$CHECK_ARCH-apple-macos14.0" \
     -I "$CHECK_DIR" -L "$CHECK_DIR" -lNebulaCore -Xlinker -rpath -Xlinker "$CHECK_DIR" \
     Sources/NebulaScreenShot/{GlassShader,GlassMetalRenderer,AnnotationToolbar}.swift Sources/NebulaScreenShot/CaptureHint.swift Sources/NebulaScreenShot/CaptureCursor.swift \
-    Sources/NebulaScreenShot/CaptureCanvas.swift Tests/InteractionChecks/main.swift \
+    Sources/NebulaScreenShot/{CaptureCanvas,CaptureTextSelection,TextRecognizer}.swift Tests/InteractionChecks/main.swift \
     -o "$CHECK_DIR/interaction-checks"
 "$CHECK_DIR/interaction-checks" "${1:-$CHECK_DIR/result.png}" -AppleLanguages '(zh-Hans)'
 "$CHECK_DIR/interaction-checks" "$CHECK_DIR/english.png" --english -AppleLanguages '(en)'

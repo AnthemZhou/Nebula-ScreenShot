@@ -13,6 +13,8 @@ import ScreenCaptureKit
     private var permissionFlowActive = false
     private var permissionPrompt = ScreenPermissionPrompt()
     private let permissionLifecycle = PermissionLifecycle()
+    private let permissionProgress = PermissionProgressHUD()
+    private var permissionRecoveryTask: Task<Void, Never>?
     private var plannedRelaunch: AppRelauncher.Session?
     private var permissionRestartPlanned = false
     private var explicitQuit = false
@@ -129,7 +131,7 @@ import ScreenCaptureKit
     }
 
     @objc private func beginCapture() {
-        guard !permissionFlowActive else { return }
+        guard !permissionFlowActive else { permissionProgress.showCurrent(); return }
         welcome?.window?.orderOut(nil)
         beginAuthorizedCapture(afterMenuDismissal: true)
     }
@@ -147,6 +149,7 @@ import ScreenCaptureKit
 
     private func beginAuthorizedCapture(afterMenuDismissal: Bool = false) {
         guard !permissionFlowActive, !permissionRestartPlanned, !capture.isActive else {
+            if permissionFlowActive || permissionRestartPlanned { permissionProgress.showCurrent() }
             permissionLogger.notice("Capture request ignored; permission work: \(self.permissionFlowActive, privacy: .public); restarting: \(self.permissionRestartPlanned, privacy: .public); capturing: \(self.capture.isActive, privacy: .public)")
             return
         }
@@ -248,18 +251,22 @@ import ScreenCaptureKit
             recoverScreenPermission()
             return
         }
+        permissionProgress.show(.preparing)
         Task { @MainActor [weak self] in
             guard let self else { return }
-            defer { self.permissionFlowActive = false }
+            defer { self.permissionFlowActive = false; self.permissionProgress.hide() }
             do {
                 // The helper must be watching before native consent can terminate this app.
                 try await self.permissionLifecycle.prepare()
                 guard !self.explicitQuit, !self.sessionEnding else { self.permissionLifecycle.cancel(); return }
                 guard self.permissionPrompt.beginRequest() else {
+                    self.permissionProgress.hide()
                     self.openScreenPermissionSettings()
                     return
                 }
                 self.permissionLogger.notice("Requesting native consent through ScreenCaptureKit once; automatic relaunch armed")
+                // Never stack an app permission message over the native dialog.
+                self.permissionProgress.hide()
                 do {
                     // Use the same framework as capture. Do not combine its native
                     // consent UI with the legacy Core Graphics permission dialog.
@@ -280,6 +287,7 @@ import ScreenCaptureKit
                 // here as well races the system's dialog dismissal/activation.
             } catch {
                 self.permissionLifecycle.cancel()
+                self.permissionProgress.hide()
                 self.showError(error.localizedDescription)
             }
         }
@@ -295,8 +303,9 @@ import ScreenCaptureKit
     private func recoverScreenPermission() {
         permissionLifecycle.cancel()
         permissionUpgrade.clear()
+        permissionProgress.show(.recovering)
         statusItem.button?.toolTip = L10n.text("正在重新授权屏幕录制…", "Reauthorizing screen recording…")
-        Task { @MainActor [weak self] in
+        permissionRecoveryTask = Task { @MainActor [weak self] in
             guard let self else { return }
             do {
                 let session = try await ScreenPermissionRecovery.resetAndPrepareRelaunch()
@@ -304,13 +313,17 @@ import ScreenCaptureKit
                 try await session.waitUntilReady()
                 guard !self.explicitQuit, !self.sessionEnding else { session.cancel(); return }
                 self.permissionRestartPlanned = true
+                self.permissionProgress.show(.restarting)
                 self.permissionLogger.notice("Screen permission reset completed; relaunching for native consent")
                 NSApp.terminate(nil)
             } catch {
                 self.plannedRelaunch?.cancel(); self.plannedRelaunch = nil
+                self.permissionProgress.hide()
                 self.restoreStatusIcon()
-                self.showError(error.localizedDescription)
                 self.permissionFlowActive = false
+                if !(error is CancellationError), !self.explicitQuit, !self.sessionEnding {
+                    self.showError(error.localizedDescription)
+                }
             }
         }
     }
@@ -325,6 +338,7 @@ import ScreenCaptureKit
         guard !explicitQuit, !sessionEnding, !permissionRestartPlanned else { return }
         permissionRestartPlanned = true
         permissionFlowActive = true
+        permissionProgress.show(.restarting)
         capture.finish(restoreFocus: false)
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -338,6 +352,7 @@ import ScreenCaptureKit
                 self.permissionLifecycle.cancel()
                 self.permissionRestartPlanned = false
                 self.permissionFlowActive = false
+                self.permissionProgress.hide()
                 self.showError(error.localizedDescription)
             }
         }
@@ -366,6 +381,7 @@ import ScreenCaptureKit
     @objc private func openRepository() { NSWorkspace.shared.open(URL(string: "https://github.com/AnthemZhou/Nebula-ScreenShot")!) }
     @objc private func quit() {
         explicitQuit = true
+        permissionRecoveryTask?.cancel()
         permissionLifecycle.cancel()
         plannedRelaunch?.cancel()
         NSApp.terminate(nil)
@@ -418,5 +434,10 @@ import ScreenCaptureKit
         showWelcome()
         return true
     }
-    func applicationWillTerminate(_ notification: Notification) { hotKey.unregister(); capture.finish(restoreFocus: false) }
+    func applicationWillTerminate(_ notification: Notification) {
+        permissionRecoveryTask?.cancel()
+        permissionProgress.hide()
+        hotKey.unregister()
+        capture.finish(restoreFocus: false)
+    }
 }

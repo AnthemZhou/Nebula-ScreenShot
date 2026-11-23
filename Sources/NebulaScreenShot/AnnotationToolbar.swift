@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 import AppKit
 import CoreText
+import QuartzCore
 import NebulaCore
 
 @MainActor private final class ToolbarInkButton: NSButton {
@@ -219,7 +220,7 @@ import NebulaCore
 }
 
 @MainActor final class AnnotationToolbar: NSView {
-    static let preferredWidth: CGFloat = 440
+    static let preferredWidth: CGFloat = 476
     // Desired gap between solid silhouettes. Live WindowServer captures show
     // the glass body 1 pt inside its frame; the faint outer glint is not
     // its visual boundary. Account for both facing glass edges between rows.
@@ -235,7 +236,7 @@ import NebulaCore
     }
     private static let rowHeight: CGFloat = 40
     private static let hintHeight: CGFloat = 24
-    private static let compactWidth: CGFloat = 372
+    private static let compactWidth: CGFloat = 402
 
     static func preferredSize(for availableWidth: CGFloat, backingScale: CGFloat? = nil) -> CGSize {
         let width = availableWidth >= preferredWidth ? preferredWidth : min(compactWidth, max(1, availableWidth))
@@ -249,6 +250,7 @@ import NebulaCore
     var onUndo: (() -> Void)?
     var onRedo: (() -> Void)?
     var onSave: (() -> Void)?
+    var onText: (() -> Void)?
 
     private var selectedTool: AnnotationTool = .pin
     private var selectedInk: Ink = .blue
@@ -257,6 +259,8 @@ import NebulaCore
     private var pinButton: ToolbarButton!
     private var penButton: ToolbarButton!
     private var eraserButton: ToolbarButton!
+    private var textButton: ToolbarButton!
+    private var textMode = false
     private var redoButton: ToolbarButton!
     private var styleButton: ToolbarButton!
     private var undoButton: ToolbarButton!
@@ -273,6 +277,11 @@ import NebulaCore
     private var staticPreview = false
     var hasRenderedGlass: Bool { (surface as? ToolbarGlassSurface)?.image != nil }
     private let copyHint = ToolbarHintLabel(labelWithString: L10n.text("回车以复制到剪贴板", "Press Return to copy to clipboard"))
+    private let copyFeedback = ToolbarHintLabel(labelWithString: L10n.text("复制成功", "Copied to clipboard"))
+    private var copyFeedbackTask: Task<Void, Never>?
+    private static let feedbackAnimationKey = "textCopyFeedback"
+    var isShowingCopyFeedback: Bool { !copyFeedback.isHidden }
+    var isHintRowVisible: Bool { !hintSurface.isHidden }
 
     override var isFlipped: Bool { true }
 
@@ -299,6 +308,7 @@ import NebulaCore
         eraserButton = toolButton(.eraser)
         eraserButton.toolTip = L10n.text("橡皮擦（E）· 局部擦除笔触，其他标注整项擦除；一次拖动可撤销", "Eraser (E) · Erase part of a pen stroke or a whole shape; undo each drag")
         eraserButton.setAccessibilityLabel(eraserButton.toolTip)
+        textButton = ToolbarButton(title: "", symbol: "text.viewfinder", help: L10n.text("提取文字 · 拖选文字后按回车或 ⌘C 复制 · 双击选中整行", "Extract text · Drag to select, Return or ⌘C to copy · Double-click a line")) { [weak self] in self?.onText?() }
         styleButton = ToolbarButton(title: "", symbol: "slider.horizontal.3", help: L10n.text("形状与设置", "Shapes and settings")) { [weak self] in self?.showStyleMenu() }
         undoButton = ToolbarButton(title: "", symbol: "arrow.uturn.backward", help: L10n.text("撤销（⌘Z）", "Undo (⌘Z)")) { [weak self] in self?.onUndo?() }
         undoButton.isEnabled = false
@@ -312,6 +322,13 @@ import NebulaCore
         copyHint.alignment = .center
         copyHint.isSelectable = false
         hintContent.addSubview(copyHint)
+        copyFeedback.font = copyHint.font
+        copyFeedback.textColor = copyHint.textColor
+        copyFeedback.alignment = .center
+        copyFeedback.isSelectable = false
+        copyFeedback.wantsLayer = true
+        copyFeedback.isHidden = true
+        hintContent.addSubview(copyFeedback)
         for button in rowButtons { rowContent.addSubview(button) }
         updateInkSelection()
         updateToolSelection()
@@ -334,7 +351,7 @@ import NebulaCore
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     private var rowButtons: [ToolbarButton] {
-        [pinButton, penButton, eraserButton, styleButton, undoButton, redoButton, saveButton]
+        [pinButton, penButton, eraserButton, textButton, styleButton, undoButton, redoButton, saveButton]
     }
 
     private func toolButton(_ tool: AnnotationTool) -> ToolbarButton {
@@ -348,8 +365,8 @@ import NebulaCore
         surface.frame = NSRect(x: 0, y: 0, width: bounds.width, height: Self.rowHeight)
         rowContent.frame = surface.bounds
         let compact = bounds.width < Self.preferredWidth
-        let widths: [CGFloat] = compact ? [28, 28, 28, 28, 28, 28, 28] : [32, 32, 32, 32, 32, 32, 32]
-        let gaps: [CGFloat] = compact ? [2, 2, 6, 6, 2, 6] : [4, 4, 10, 10, 4, 10]
+        let widths = Array(repeating: CGFloat(compact ? 28 : 32), count: rowButtons.count)
+        let gaps: [CGFloat] = compact ? [2, 2, 2, 6, 6, 2, 6] : [4, 4, 4, 10, 10, 4, 10]
         let padding: CGFloat = compact ? 6 : 8
         let inkHitWidth: CGFloat = compact ? 22 : 24
         let inkGroupWidth = CGFloat(inkButtons.count) * inkHitWidth
@@ -372,7 +389,7 @@ import NebulaCore
             x += widths[index] * scale
             if index < gaps.count {
                 let gap = gaps[index] * scale
-                if index == 2 || index == 5 {
+                if index == 3 || index == 6 {
                     rowContent.separators.append(NSRect(x: x + gap / 2, y: (Self.rowHeight - 18) / 2, width: 0.5, height: 18))
                 }
                 x += gap
@@ -380,10 +397,12 @@ import NebulaCore
         }
         let hintWidth = min(bounds.width, ceil(copyHint.intrinsicContentSize.width) + 24)
         let backingScale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1
-        hintSurface.frame = NSRect(x: (bounds.width - hintWidth) / 2, y: Self.rowHeight + Self.rowSpacing(for: backingScale),
+        let textOffset: CGFloat = textMode ? 1 / max(1, backingScale) : 0
+        hintSurface.frame = NSRect(x: (bounds.width - hintWidth) / 2, y: Self.rowHeight + Self.rowSpacing(for: backingScale) - textOffset,
                                    width: hintWidth, height: Self.hintHeight)
         hintContent.frame = hintSurface.bounds
         copyHint.frame = hintContent.bounds.insetBy(dx: 12, dy: 0)
+        copyFeedback.frame = copyHint.frame
         requestGlassFrame()
         needsDisplay = true
     }
@@ -425,8 +444,54 @@ import NebulaCore
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window == nil { glassRenderer.cancel() }
+        if window == nil { glassRenderer.cancel(); hideCopyFeedback() }
         else { requestGlassFrame() }
+    }
+
+    /// Fade the whole lower surface, including glass and text. Its parent layer
+    /// composites the fade without redrawing Metal or moving toolbar controls.
+    func showTextCopied() {
+        guard textMode else { return }
+        hideCopyFeedback()
+        copyHint.isHidden = true
+        copyFeedback.isHidden = false
+        let animation = CAKeyframeAnimation(keyPath: "opacity")
+        animation.values = [1, 1, 0]
+        animation.keyTimes = [0, 0.65, 1]
+        animation.duration = 1.4
+        animation.timingFunctions = [CAMediaTimingFunction(name: .linear), CAMediaTimingFunction(name: .easeOut)]
+        animation.fillMode = .forwards
+        animation.isRemovedOnCompletion = false
+        hintSurface.layer?.add(animation, forKey: Self.feedbackAnimationKey)
+        copyFeedbackTask = Task { @MainActor [weak self] in
+            do { try await Task.sleep(for: .milliseconds(1400)) } catch { return }
+            self?.hideCopyFeedback(hideRow: true)
+        }
+    }
+
+    func resumeTextSelectionHint() {
+        guard textMode else { return }
+        hideCopyFeedback()
+    }
+
+    private func hideCopyFeedback(hideRow: Bool = false) {
+        copyFeedbackTask?.cancel(); copyFeedbackTask = nil
+        // Hide before removing the zero-opacity animation to avoid a final flash.
+        let visibilityChanged = hintSurface.isHidden != hideRow
+        hintSurface.isHidden = hideRow
+        if visibilityChanged { window?.invalidateCursorRects(for: self) }
+        hintSurface.layer?.removeAnimation(forKey: Self.feedbackAnimationKey)
+        copyFeedback.isHidden = true
+        copyHint.isHidden = false
+    }
+
+    func containsInteractivePoint(_ point: CGPoint) -> Bool {
+        bounds.contains(point) && (!hintSurface.isHidden || point.y < surface.frame.maxY)
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard containsInteractivePoint(convert(point, from: superview)) else { return nil }
+        return super.hitTest(point)
     }
 
     private func requestGlassFrame() {
@@ -462,19 +527,23 @@ import NebulaCore
     override func rightMouseDown(with event: NSEvent) {}
     override func rightMouseDragged(with event: NSEvent) {}
     override func rightMouseUp(with event: NSEvent) {}
-    override func resetCursorRects() { addCursorRect(bounds, cursor: .arrow) }
+    override func resetCursorRects() { addCursorRect(hintSurface.isHidden ? surface.frame : bounds, cursor: .arrow) }
 
     func update(tool: AnnotationTool, ink: Ink, lineWidth: CGFloat, history: AnnotationHistory,
-                canExport: Bool = true, isExporting: Bool = false) {
+                canExport: Bool = true, isExporting: Bool = false, textMode: Bool = false, textHint: String? = nil) {
+        let nextHint = isExporting ? L10n.text("正在导出…", "Exporting…") :
+            (textHint ?? (canExport ? L10n.text("回车以复制到剪贴板", "Press Return to copy to clipboard") : L10n.text("正在准备截图…", "Preparing screenshot…")))
+        if self.textMode != textMode || !textMode || isExporting || copyHint.stringValue != nextHint { hideCopyFeedback() }
+        self.textMode = textMode
         selectedTool = tool
         selectedInk = ink
         selectedWidth = lineWidth
-        copyHint.stringValue = isExporting ? L10n.text("正在导出…", "Exporting…") :
-            (canExport ? L10n.text("回车以复制到剪贴板", "Press Return to copy to clipboard") : L10n.text("正在准备截图…", "Preparing screenshot…"))
+        copyHint.stringValue = nextHint
         needsLayout = true
         for button in rowButtons { button.isEnabled = !isExporting; button.needsDisplay = true }
         for button in inkButtons { button.isEnabled = !isExporting; button.needsDisplay = true }
         saveButton.isEnabled = canExport && !isExporting
+        textButton.isEnabled = canExport && !isExporting
         undoButton.isEnabled = history.canUndo && !isExporting
         undoButton.needsDisplay = true
         redoButton.isEnabled = history.canRedo && !isExporting
@@ -503,6 +572,7 @@ import NebulaCore
     }
 
     private func chooseTool(_ tool: AnnotationTool) {
+        textMode = false
         selectedTool = tool
         updateToolSelection()
         onTool?(tool)
@@ -512,9 +582,12 @@ import NebulaCore
         let nestedTool = [.ellipse, .rectangle, .line, .arrow].contains(selectedTool)
         for (button, selected) in [(pinButton, selectedTool == .pin), (penButton, selectedTool == .pen),
                                    (eraserButton, selectedTool == .eraser), (styleButton, nestedTool)] {
-            button?.state = selected ? .on : .off
+            button?.state = selected && !textMode ? .on : .off
             button?.needsDisplay = true
         }
+        textButton?.state = textMode ? .on : .off
+        textButton?.setAccessibilityValue(textMode ? 1 : 0)
+        textButton?.needsDisplay = true
     }
 
     private func showStyleMenu() { present(optionsMenu(), from: styleButton) }

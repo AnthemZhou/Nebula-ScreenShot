@@ -62,6 +62,7 @@ import QuartzCore
     var isInteracting: Bool { interaction != nil }
     private var spaceHeld = false
     private var exportBusy = false
+    let textSelection: CaptureTextSelection
     private static let dragThreshold: CGFloat = 4
     private static let cornerGlows: [Ink: NSGradient] = Dictionary(uniqueKeysWithValues: Ink.allCases.map { ink in
         (ink, NSGradient(colorsAndLocations: (ink.color.withAlphaComponent(0.62), 0),
@@ -79,10 +80,12 @@ import QuartzCore
         case rightOutside(start: CGPoint, dragged: Bool)
         case edit(original: Annotation, handle: AnnotationHandle?, start: CGPoint)
         case erase(last: CGPoint)
+        case text
     }
 
     var onCancel: (() -> Void)?
     var onCopy: ((NSBitmapImageRep) -> Void)?
+    var onCopyText: ((String) -> Void)?
     var onSave: ((NSBitmapImageRep) -> Void)?
     var onBeginSelection: (() -> Void)?
     var onReselect: (() -> Void)?
@@ -95,11 +98,18 @@ import QuartzCore
     override var needsPanelToBecomeKey: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
-    init(frame: NSRect, screenshot: CGImage? = nil, pixelScale: CGFloat = 1) {
+    init(frame: NSRect, screenshot: CGImage? = nil, pixelScale: CGFloat = 1,
+         textSelection: CaptureTextSelection? = nil) {
+        self.textSelection = textSelection ?? CaptureTextSelection()
         self.screenshot = screenshot
         self.background = screenshot.map { NSImage(cgImage: $0, size: frame.size) }
         self.pixelScale = pixelScale
         super.init(frame: frame)
+        self.textSelection.onChange = { [weak self] in self?.refresh() }
+        self.textSelection.onSelectionBegan = { [weak self] in
+            guard let self, self.hasToolbar else { return }
+            self.toolbar.resumeTextSelectionHint()
+        }
         wantsLayer = true
         layerContentsRedrawPolicy = .onSetNeedsDisplay
         markings.isHidden = true
@@ -110,6 +120,7 @@ import QuartzCore
 
     /// Keep the same view, selection and in-flight drag when fresh pixels arrive.
     func installScreenshot(_ image: CGImage) {
+        textSelection.invalidate()
         screenshot = image
         background = NSImage(cgImage: image, size: bounds.size)
         refresh()
@@ -130,7 +141,16 @@ import QuartzCore
         hasToolbar = true
         let toolbar = AnnotationToolbar(frame: .zero, glassRenderer: glassRenderer)
         addSubview(toolbar)
-        toolbar.onTool = { [weak self] in self?.tool = $0; self?.selectedID = nil; self?.hoverID = nil; self?.refresh() }
+        toolbar.onTool = { [weak self] in
+            self?.textSelection.setEnabled(false)
+            self?.tool = $0; self?.selectedID = nil; self?.hoverID = nil; self?.refresh()
+        }
+        toolbar.onText = { [weak self] in
+            guard let self, self.interaction == nil else { return }
+            self.selectedID = nil; self.hoverID = nil; self.newlyPlacedPinID = nil
+            self.textSelection.setEnabled(!self.textSelection.isEnabled)
+            self.updateRecognizedText()
+        }
         toolbar.onInk = { [weak self] in self?.ink = $0; self?.refresh() }
         toolbar.onWidth = { [weak self] in self?.lineWidth = $0; self?.refresh() }
         toolbar.onUndo = { [weak self] in self?.history.undo(); self?.refresh() }
@@ -144,6 +164,7 @@ import QuartzCore
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window == nil {
+            textSelection.reset()
             glassRenderer.cancel()
             spaceHeld = false
         }
@@ -156,6 +177,7 @@ import QuartzCore
     }
 
     func resetSelection() {
+        textSelection.reset()
         spaceHeld = false
         suppressSelectionHover = false
         selection = nil
@@ -231,7 +253,8 @@ import QuartzCore
             NSGraphicsContext.saveGraphicsState()
             selectionMask(in: selection).addClip()
             for annotation in displayAnnotations { AnnotationRenderer.draw(annotation, selection: selection) }
-            drawEditingControls(selection: selection)
+            if textSelection.isEnabled { drawTextSelection() }
+            else { drawEditingControls(selection: selection) }
             NSGraphicsContext.restoreGraphicsState()
             drawSelectionHighlight(in: selection)
             drawSelectionBorder(in: selection)
@@ -273,7 +296,7 @@ import QuartzCore
             handle = activeHandle
         } else {
             guard interaction == nil, !suppressSelectionHover, let pointer else { return nil }
-            if hasToolbar && !toolbar.isHidden && toolbar.frame.contains(pointer) { return nil }
+            if pointerIsOnToolbar(pointer) { return nil }
             handle = cropResizeHandle(at: pointer)
         }
         switch handle {
@@ -287,6 +310,7 @@ import QuartzCore
               let handle = SelectionGeometry.hitBorder(at: point, in: selection,
                   cornerRadius: SelectionGeometry.cornerRadius(in: selection)) else { return nil }
         if spaceHeld && selection.contains(point) { return nil }
+        if textSelection.isEnabled && selection.contains(point) { return nil }
         if pinToDelete(at: point) != nil { return nil }
         if tool != .pen && tool != .eraser && selection.contains(point),
            editHandle(at: point) != nil || hitItem(at: point, tolerance: 1) != nil { return nil }
@@ -294,7 +318,7 @@ import QuartzCore
     }
 
     private func pinToDelete(at point: CGPoint) -> Annotation? {
-        guard tool != .pen, tool != .eraser, let selection, let pin = item(id: hoverID),
+        guard !textSelection.isEnabled, tool != .pen, tool != .eraser, let selection, let pin = item(id: hoverID),
               AnnotationGeometry.hitBadge(at: point, for: pin, selection: selection, within: bounds) else { return nil }
         // The invisible click margin must not steal a neighboring mark's drag.
         if hoveredPinBadge?.contains(point) != true, hitItem(at: point, tolerance: 0) != nil { return nil }
@@ -401,11 +425,17 @@ import QuartzCore
         }
         if point != previousPointer { suppressSelectionHover = false }
         pointer = point
+        if textSelection.isEnabled {
+            hoverID = nil
+            updatePointerCursor(at: point)
+            if previousSelectionHandle != highlightedSelectionHandle { needsDisplay = true }
+            return
+        }
         if let selection, let pin = item(id: newlyPlacedPinID),
            AnnotationGeometry.pinHoverRegion(for: pin, selection: selection, within: bounds)?.contains(point) != true {
             newlyPlacedPinID = nil
         }
-        if hasToolbar && !toolbar.isHidden && toolbar.frame.contains(point) { hoverID = nil }
+        if pointerIsOnToolbar(point) { hoverID = nil }
         else if let selection, let item = item(id: hoverID),
                 AnnotationGeometry.pinHoverRegion(for: item, selection: selection, within: bounds)?.contains(point) == true {
             // Keep the badge stable across the pin, its edge, and the path to minus.
@@ -441,7 +471,10 @@ import QuartzCore
 
     private func updatePointerCursor(at point: CGPoint) {
         guard window?.isVisible == true else { return }
-        if hasToolbar && !toolbar.isHidden && toolbar.frame.contains(point) { NSCursor.arrow.set(); return }
+        if pointerIsOnToolbar(point) { NSCursor.arrow.set(); return }
+        if textSelection.isEnabled, selection?.contains(point) == true, !spaceHeld {
+            NSCursor.iBeam.set(); return
+        }
         if pinToDelete(at: point) != nil { NSCursor.pointingHand.set(); return }
         if let selection {
             if spaceHeld && selection.contains(point) { NSCursor.openHand.set(); return }
@@ -457,7 +490,7 @@ import QuartzCore
     }
 
     var hoveredPinBadge: CGRect? {
-        guard tool != .pen, tool != .eraser, let selection, let pin = item(id: hoverID) else { return nil }
+        guard !textSelection.isEnabled, tool != .pen, tool != .eraser, let selection, let pin = item(id: hoverID) else { return nil }
         return AnnotationGeometry.badge(for: pin, selection: selection, within: bounds)
     }
 
@@ -534,6 +567,9 @@ import QuartzCore
         if let selection {
             if spaceHeld, selection.contains(point) {
                 interaction = .move(original: selection, start: point)
+            } else if textSelection.isEnabled, selection.contains(point) {
+                textSelection.begin(at: point, wholeLine: event.clickCount >= 2)
+                interaction = .text
             } else if let pin = pinToDelete(at: point) {
                 history.remove(ids: [pin.id])
                 hoverID = nil; selectedID = nil
@@ -578,6 +614,7 @@ import QuartzCore
         window?.makeFirstResponder(self)
         let point = point(for: event)
         if let selection, selection.contains(point) {
+            if textSelection.isEnabled { showTextMenu(at: point); return }
             interaction = .draw(start: point, tool: .arrow, ink: ink,
                                 width: lineWidth, right: true, dragged: false)
         } else {
@@ -594,6 +631,7 @@ import QuartzCore
 
     private func updateInteraction(with event: NSEvent) {
         guard let interaction else { return }
+        let oldSelection = selection
         let point = point(for: event)
         pointer = point
         switch interaction {
@@ -650,7 +688,9 @@ import QuartzCore
         case .rightOutside(let start, let wasDragged):
             self.interaction = .rightOutside(start: start,
                                             dragged: wasDragged || hypot(point.x - start.x, point.y - start.y) >= Self.dragThreshold)
+        case .text: textSelection.drag(to: point)
         }
+        if oldSelection != selection { textSelection.invalidate() }
         updateHint()
         needsDisplay = true
     }
@@ -680,6 +720,7 @@ import QuartzCore
         case .resize(let original, _, _, let dragged):
             if !dragged { selection = original }
         case .move: break
+        case .text: textSelection.end()
         case .draw(let start, let drawingTool, let ink, let width, let right, let dragged):
             if drawingTool == .pen, let draft { history.append(draft) }
             else if dragged {
@@ -708,6 +749,7 @@ import QuartzCore
         draft = nil
         if selection != nil || hasToolbar { toolbar.isHidden = selection == nil }
         positionToolbar()
+        updateRecognizedText()
         refresh()
     }
 
@@ -742,12 +784,71 @@ import QuartzCore
         updateHint()
         if hasToolbar {
             toolbar.update(tool: tool, ink: ink, lineWidth: lineWidth, history: history,
-                           canExport: screenshot != nil, isExporting: exportBusy)
+                           canExport: screenshot != nil, isExporting: exportBusy,
+                           textMode: textSelection.isEnabled, textHint: textSelection.hint)
             toolbar.updateGlassBackdrop(image: screenshot, canvasSize: bounds.size, selection: selection)
         }
         needsDisplay = true
         window?.invalidateCursorRects(for: self)
         window?.makeFirstResponder(self)
+    }
+
+    private func pointerIsOnToolbar(_ point: CGPoint) -> Bool {
+        hasToolbar && !toolbar.isHidden && toolbar.containsInteractivePoint(toolbar.convert(point, from: self))
+    }
+
+    private func updateRecognizedText() {
+        guard let screenshot, let selection else { return }
+        textSelection.update(image: screenshot, canvasSize: bounds.size, crop: selection)
+    }
+
+    private func drawTextSelection() {
+        let highlights = textSelection.highlights.map {
+            NSBezierPath(roundedRect: $0.insetBy(dx: -1, dy: -1), xRadius: 2, yRadius: 2)
+        }
+        // Exclude selected text from the faint discovery tint, so the two
+        // backgrounds never darken one another. Selected ink stays unchanged.
+        NSGraphicsContext.saveGraphicsState()
+        for highlight in highlights {
+            let outside = NSBezierPath(rect: bounds)
+            outside.append(highlight)
+            outside.windingRule = .evenOdd
+            outside.addClip()
+        }
+        for line in textSelection.document?.lines ?? [] {
+            NSColor.systemBlue.withAlphaComponent(0.05).setFill()
+            NSBezierPath(roundedRect: line.bounds.insetBy(dx: -1, dy: -1), xRadius: 2, yRadius: 2).fill()
+        }
+        NSGraphicsContext.restoreGraphicsState()
+        for highlight in highlights {
+            NSColor.selectedTextBackgroundColor.withAlphaComponent(0.55).setFill()
+            highlight.fill()
+        }
+    }
+
+    func showTextCopied() {
+        guard hasToolbar, textSelection.isEnabled else { return }
+        toolbar.showTextCopied()
+    }
+
+    @objc private func copySelectedText() {
+        guard textSelection.isEnabled, !exportBusy, interaction == nil else { return }
+        let text = textSelection.selectedText
+        guard !text.isEmpty else { NSSound.beep(); return }
+        onCopyText?(text)
+    }
+
+    private func showTextMenu(at point: CGPoint) {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        let item = NSMenuItem(title: L10n.text("复制文字", "Copy Text"), action: #selector(copySelectedText), keyEquivalent: "")
+        item.target = self; item.isEnabled = !textSelection.selectedText.isEmpty
+        menu.addItem(item)
+        guard let window else { return }
+        let previous = window.level
+        window.level = NSWindow.Level(rawValue: NSWindow.Level.popUpMenu.rawValue - 1)
+        defer { window.level = previous }
+        menu.popUp(positioning: nil, at: point, in: self)
     }
 
     private func export(save: Bool) {
@@ -774,6 +875,13 @@ import QuartzCore
         guard interaction == nil else { return }
         if event.isARepeat && (event.keyCode == 36 || event.keyCode == 76 ||
             (event.modifierFlags.contains(.command) && ["c", "s"].contains(key))) { return }
+        if textSelection.isEnabled {
+            if event.modifierFlags.contains(.command), key == "a" { textSelection.selectAll(); return }
+            if event.keyCode == 36 || event.keyCode == 76 || (event.modifierFlags.contains(.command) && key == "c") {
+                copySelectedText(); return
+            }
+            if event.keyCode == 51 || event.keyCode == 117 { return }
+        }
         if event.keyCode == 51 || event.keyCode == 117 {
             if let selectedID { history.remove(ids: [selectedID]); self.selectedID = nil; hoverID = nil; refresh() }
             return
@@ -790,6 +898,7 @@ import QuartzCore
         } else if event.keyCode == 36 || event.keyCode == 76 { export(save: false) }
         else if key == "r" { onReselect?() }
         else if let selected = AnnotationTool.allCases.first(where: { $0.shortcut == key }) {
+            textSelection.setEnabled(false)
             tool = selected
             selectedID = nil; hoverID = nil
             refresh()
@@ -805,7 +914,7 @@ import QuartzCore
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if event.modifierFlags.contains(.command), ["c", "s", "z"].contains(event.charactersIgnoringModifiers?.lowercased() ?? "") {
+        if event.modifierFlags.contains(.command), ["a", "c", "s", "z"].contains(event.charactersIgnoringModifiers?.lowercased() ?? "") {
             keyDown(with: event)
             return true
         }
@@ -819,6 +928,7 @@ import QuartzCore
             addCursorRect(selection, cursor: .openHand)
             return
         }
+        if textSelection.isEnabled { addCursorRect(selection, cursor: .iBeam); return }
         addCursorRect(CGRect(x: selection.minX - 6, y: selection.minY, width: 8, height: selection.height), cursor: .resizeLeftRight)
         addCursorRect(CGRect(x: selection.maxX - 2, y: selection.minY, width: 8, height: selection.height), cursor: .resizeLeftRight)
         addCursorRect(CGRect(x: selection.minX, y: selection.minY - 6, width: selection.width, height: 8), cursor: .resizeUpDown)

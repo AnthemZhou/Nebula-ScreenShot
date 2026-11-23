@@ -6,16 +6,19 @@
 
 ## 从源码构建
 
-需要 Xcode 16 或更新版本，以及 Swift 6 工具链。工程使用 Swift Package Manager，可直接用 Xcode 打开 `Package.swift`。只依赖 macOS 系统框架，包括 AppKit、ScreenCaptureKit、Carbon、ImageIO 和 Metal。液态玻璃着色器随应用内嵌，在后台编译并复用截图纹理；Metal 不可用时保留深色备用外观，第三方算法许可见 `THIRD_PARTY_NOTICES.md`。
+需要 Xcode 16 或更新版本，以及 Swift 6 工具链。工程使用 Swift Package Manager，可直接用 Xcode 打开 `Package.swift`。只依赖 macOS 系统框架，包括 AppKit、ScreenCaptureKit、Carbon、ImageIO、Vision、CoreText 和 Metal。液态玻璃着色器随应用内嵌，在后台编译并复用截图纹理；Metal 不可用时保留深色备用外观，第三方算法许可见 `THIRD_PARTY_NOTICES.md`。
 
 ```sh
 git clone https://github.com/AnthemZhou/Nebula-ScreenShot.git
 cd Nebula-ScreenShot
 swift test
 ./scripts/check-interactions.sh
+bash scripts/check-text-recognition.sh
+bash scripts/check-glass.sh
 ./scripts/check-sessions.sh
 python3 scripts/check-exclusion.py
 ./scripts/check-relaunch.sh
+bash scripts/check-permission-recovery.sh
 ./scripts/build.sh
 open "dist/Nebula ScreenShot.app"
 ```
@@ -77,6 +80,8 @@ open "dist/Nebula ScreenShot.app" --args --demo
 - `Tests/InteractionChecks`：实际 AppKit 控件的隐藏窗口手势回归与反复绘制检查；不捕获桌面、不注入系统输入、不写系统剪贴板。
 - `Tests/SessionChecks`：快捷键注册与冲突恢复、连续截图取消、过期回调隔离、独立剪贴板导出及后台编码响应检查。
 - `Tests/RelaunchChecks`：用独立测试父子进程验证退出状态、取消和超时，不请求屏幕权限、不启动真实截图应用。
+- `Tests/TextRecognitionChecks`：真实中英文 Vision 识别、部分选字、取消和过期任务隔离、保留截图的重复文字复制与独立剪贴板检查。
+- `Tests/PermissionRecoveryChecks`：授权恢复子进程的成功、失败、取消和超时，以及主线程响应和进度提示生命周期检查；不修改真实授权。
 - `.github/workflows/build.yml`：macOS 核心、编辑器交互、截图会话、遮罩排除与重启测试，以及 Universal 构建和构建产物上传。
 
 手动验收步骤见 [TESTING.md](../TESTING.md)。欢迎提交 Issue 与 Pull Request。

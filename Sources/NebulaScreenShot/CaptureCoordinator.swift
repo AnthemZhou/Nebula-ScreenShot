@@ -22,7 +22,7 @@ import Carbon
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if event.modifierFlags.contains(.command),
-           ["c", "s", "z"].contains(event.charactersIgnoringModifiers?.lowercased() ?? ""), let onKeyEvent {
+           ["a", "c", "s", "z"].contains(event.charactersIgnoringModifiers?.lowercased() ?? ""), let onKeyEvent {
             return onKeyEvent(event)
         }
         return super.performKeyEquivalent(with: event)
@@ -164,6 +164,10 @@ import Carbon
             let canvas = CaptureCanvas(frame: CGRect(origin: .zero, size: screen.frame.size), pixelScale: screen.backingScaleFactor)
             canvas.onCancel = { [weak self] in self?.finish() }
             canvas.onCopy = { [weak self] in self?.copy($0) }
+            canvas.onCopyText = { [weak self, weak canvas] text in
+                guard let canvas else { return }
+                self?.copyText(text, from: canvas)
+            }
             canvas.onSave = { [weak self] in self?.save($0) }
             canvas.onReselect = { [weak self] in
                 self?.selectedCanvas = nil
@@ -351,6 +355,20 @@ import Carbon
                 }
             }
         }
+    }
+
+    private func copyText(_ text: String, from canvas: CaptureCanvas) {
+        guard isActive, sessionID != nil, exportTask == nil, pendingCopyCompletion == nil,
+              savePanel == nil, !text.isEmpty,
+              panels.contains(where: { $0.contentView === canvas }) else { return }
+        pasteboard.clearContents()
+        guard pasteboard.setString(text, forType: .string) else {
+            onError?(L10n.text("无法复制文字，请重试。", "Unable to copy text. Please try again."))
+            return
+        }
+        // Text copy is repeatable within the same capture. Keep the panels,
+        // crop, selection and keyboard focus; only image copy ends the session.
+        canvas.showTextCopied()
     }
 
     private func setExportBusy(_ busy: Bool) {

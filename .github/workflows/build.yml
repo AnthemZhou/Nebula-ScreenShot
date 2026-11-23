@@ -15,6 +15,8 @@ jobs:
         run: swift test
       - name: Check editor gestures and repeated hint drawing
         run: ./scripts/check-interactions.sh
+      - name: Check local OCR, text selection and clipboard isolation
+        run: bash scripts/check-text-recognition.sh
       - name: Check Metal glass rendering (when GPU is available)
         run: bash scripts/check-glass.sh
       - name: Check rapid capture sessions and shortcut lifecycle
@@ -23,6 +25,8 @@ jobs:
         run: python3 scripts/check-exclusion.py
       - name: Check permission relaunch lifecycle
         run: ./scripts/check-relaunch.sh
+      - name: Check permission recovery responsiveness and progress
+        run: bash scripts/check-permission-recovery.sh
       - name: Build universal app
         run: ./scripts/package.sh --universal
       - name: Check stable local signing safeguards
