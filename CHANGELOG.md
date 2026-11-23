@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.1.8 — 2026-11-23
+
+- Add two pen modes: pull-circle smooth freehand is the initial default; select cubic Bézier paths from the pen dropdown or Shapes and settings. Match the icon to the selected mode and reduce pen widths by 20%.
+- Add separate trailing Default radio controls to pen mode rows. Persist the chosen default across captures/relaunches and show its toolbar glyph on the next capture; temporary mode selection does not overwrite it.
+- Support holding the pen or settings toolbar button to open its native menu, drag over an option and release to select. Keep short-click behavior and route custom mode/default row releases independently, with duplicate suppression.
+- Match nib, node and closure cursor canvases at 18 pt and slim their outlines and silhouettes.
+- Click to place Bézier anchors, drag new anchors to create tangent handles, and drag existing anchors or handles to edit. Highlight nearby controls and show a faint dashed preview of the next segment. Right-click inside the crop ends drawing/editing without adding a segment or closing capture; right-click on the shade exits capture in every pen state; click either endpoint of a finished path to continue it. Preserve undo/redo for pending edits and completed continuations.
+- Use a small native nib cursor for Bézier drawing and hollow arrow cursors for nodes/tangents. Indicate the precise closing target with a small ring and a tangent-aware forecast. Close on a click-and-release of the starting anchor; latch real drags so dragging away and back never closes a path. Preserve endpoint continuation after finishing a path and undo after resumed closure.
+- Use a distance-based freehand tether with spatial substeps and no release-time catch-up. Replace the painted pen cursor with a small native cursor and update live ink/guides on a separate vector layer without implicit animation or full-canvas redraws. Keep guides out of exported images and preserve local erasing.
+- Add geometry, continuation, preview, tangent editing, event-rate consistency, jitter suppression and real AppKit path/export regression checks.
+- Keep the image-copy hint and its glass width unchanged while exporting, rather than switching to a progress caption. Preserve background encoding, input isolation and normal capture completion.
+
 ## 1.1.7 — 2026-11-23
 
 - Add an opt-in Extract Text toolbar icon. Recognize only the selected crop with on-device Vision, select partial or multiple lines by dragging, double-click a line or use Command–A, then copy plain text with Return, Command–C or the context menu. Switch tools to resume annotation; text mode resets for each capture.

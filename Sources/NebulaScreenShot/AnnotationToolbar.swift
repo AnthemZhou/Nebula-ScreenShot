@@ -57,9 +57,11 @@ import NebulaCore
     }
 }
 
-@MainActor private final class ToolbarButton: NSButton {
+@MainActor final class ToolbarButton: NSButton {
     override var isFlipped: Bool { true }
     var actionBlock: (() -> Void)?
+    var menuAction: (() -> Void)?
+    var penMode: PenMode? { didSet { needsDisplay = true } }
     var pinInk: Ink? { didSet { needsDisplay = true } }
     private var hovering = false
     private var hoverTrackingArea: NSTrackingArea?
@@ -82,6 +84,27 @@ import NebulaCore
     override var acceptsFirstResponder: Bool { false }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     @objc private func invoke() { actionBlock?() }
+
+    override func mouseDown(with event: NSEvent) {
+        guard isEnabled else { return }
+        guard menuAction != nil, let window else { super.mouseDown(with: event); return }
+        highlight(true)
+        defer { highlight(false) }
+        let deadline = Date().addingTimeInterval(0.25)
+        // Track only this press; hand the still-held mouse to the native menu.
+        // Its tracking loop consumes release and picks the item under the cursor.
+        while let next = window.nextEvent(matching: [.leftMouseDragged, .leftMouseUp], until: deadline, inMode: .eventTracking, dequeue: true) {
+            guard self.window === window, window.isVisible, isEnabled else { return }
+            if next.type == .leftMouseUp {
+                if bounds.contains(convert(next.locationInWindow, from: nil)) { actionBlock?() }
+                return
+            }
+            if Date() >= deadline { break }
+        }
+        guard self.window === window, window.isVisible, isEnabled else { return }
+        menuAction?()
+    }
+
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
@@ -109,6 +132,8 @@ import NebulaCore
                               width: iconSize, height: iconSize)
         if let pinInk {
             AnnotationRenderer.drawPinIcon(in: iconRect.insetBy(dx: -1, dy: -1), ink: pinInk)
+        } else if let penMode {
+            drawPenMode(penMode, in: iconRect, color: foreground)
         } else if let image {
             let colored = image.withSymbolConfiguration(NSImage.SymbolConfiguration(paletteColors: [foreground])) ?? image
             let scale = min(iconSize / max(1, colored.size.width), iconSize / max(1, colored.size.height))
@@ -116,6 +141,115 @@ import NebulaCore
             colored.draw(in: NSRect(x: bounds.midX - size.width / 2, y: bounds.midY - size.height / 2,
                                    width: size.width, height: size.height),
                          from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+        }
+    }
+    private func drawPenMode(_ mode: PenMode, in rect: CGRect, color: NSColor) {
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: rect.minX + x * rect.width / 20, y: rect.minY + y * rect.height / 20) }
+        let line = NSBezierPath(); line.lineWidth = 1.4; line.lineJoinStyle = .round; line.lineCapStyle = .round
+        color.setStroke()
+        if mode == .bezier {
+            line.move(to: p(3, 17)); line.line(to: p(6, 5)); line.line(to: p(11, 2)); line.line(to: p(18, 9))
+            line.line(to: p(15, 14)); line.close(); line.stroke()
+            let slit = NSBezierPath(); slit.move(to: p(3, 17)); slit.line(to: p(10, 10)); slit.lineWidth = 1.2; slit.stroke()
+            color.setFill(); NSBezierPath(ovalIn: CGRect(x: p(10, 10).x - 1.4, y: p(10, 10).y - 1.4, width: 2.8, height: 2.8)).fill()
+        } else {
+            line.move(to: p(1, 16)); line.curve(to: p(10, 10), controlPoint1: p(8, 18), controlPoint2: p(2, 5)); line.stroke()
+            let tether = NSBezierPath(); tether.move(to: p(10, 10)); tether.line(to: p(14, 6)); tether.lineWidth = 0.8; tether.stroke()
+            NSBezierPath(ovalIn: CGRect(x: p(11, 1).x, y: p(11, 1).y, width: 8 * rect.width / 20, height: 8 * rect.height / 20)).stroke()
+        }
+        // The small chevron advertises the mode menu without widening the row.
+        let chevron = NSBezierPath(); chevron.move(to: p(15, 18)); chevron.line(to: p(17, 20)); chevron.line(to: p(19, 18))
+        chevron.lineWidth = 1; chevron.stroke()
+    }
+
+}
+
+/// Menu views receive mouseDragged/mouseUp during native press-drag tracking.
+/// Keep the default radio separate from the temporary mode-selection action.
+@MainActor private final class PenModeMenuRow: NSView {
+    override var isFlipped: Bool { true }
+    let modeButton = NSButton(frame: .zero)
+    let defaultButton = NSButton(frame: .zero)
+    weak var ownerMenu: NSMenu?
+    private let selected: Bool
+    private let chooseMode: () -> Void
+    private let chooseDefault: () -> Void
+    private var hoverDefault: Bool?
+    private var tracking: NSTrackingArea?
+    private var activated = false
+
+    init(mode: PenMode, selected: Bool, isDefault: Bool, width: CGFloat,
+         choose: @escaping () -> Void, setDefault: @escaping () -> Void) {
+        self.selected = selected; chooseMode = choose; chooseDefault = setDefault
+        super.init(frame: NSRect(x: 0, y: 0, width: width, height: 32))
+        autoresizingMask = [.width]
+        modeButton.title = mode.title; modeButton.font = .menuFont(ofSize: 13)
+        modeButton.isBordered = false; modeButton.alignment = .left
+        modeButton.target = self; modeButton.action = #selector(selectMode)
+        modeButton.identifier = NSUserInterfaceItemIdentifier("pen-mode-" + mode.rawValue)
+        modeButton.setAccessibilityLabel(mode.title)
+        defaultButton.setButtonType(.radio)
+        defaultButton.title = L10n.text("默认", "Default"); defaultButton.font = .menuFont(ofSize: 12)
+        defaultButton.state = isDefault ? .on : .off
+        defaultButton.target = self; defaultButton.action = #selector(selectDefault)
+        defaultButton.identifier = NSUserInterfaceItemIdentifier("pen-default-" + mode.rawValue)
+        defaultButton.setAccessibilityLabel(L10n.text("将\(mode.title)设为默认", "Use \(mode.title) by default"))
+        defaultButton.toolTip = L10n.text("后续截图使用这个画笔模式", "Use this pen mode in future captures")
+        addSubview(modeButton); addSubview(defaultButton)
+        layout()
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    override func layout() {
+        super.layout()
+        let width: CGFloat = L10n.text("默认", "Default").size(withAttributes: [.font: NSFont.menuFont(ofSize: 12)]).width + 25
+        defaultButton.frame = NSRect(x: bounds.width - width - 10, y: 4, width: width, height: 24)
+        modeButton.frame = NSRect(x: 25, y: 4, width: defaultButton.frame.minX - 33, height: 24)
+    }
+    override func hitTest(_ point: NSPoint) -> NSView? { bounds.contains(convert(point, from: superview)) ? self : nil }
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        guard tracking == nil else { return }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self, userInfo: nil)
+        addTrackingArea(area); tracking = area
+    }
+    private func updateHover(_ event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        hoverDefault = bounds.contains(point) ? point.x >= defaultButton.frame.minX - 4 : nil
+        needsDisplay = true
+    }
+    override func mouseEntered(with event: NSEvent) { updateHover(event) }
+    override func mouseMoved(with event: NSEvent) { updateHover(event) }
+    override func mouseDragged(with event: NSEvent) { updateHover(event) }
+    override func mouseExited(with event: NSEvent) { hoverDefault = nil; needsDisplay = true }
+    override func mouseDown(with event: NSEvent) { updateHover(event) }
+    override func mouseUp(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        guard bounds.contains(point) else { return }
+        activate(setDefault: point.x >= defaultButton.frame.minX - 4)
+    }
+    @objc private func selectMode() { activate(setDefault: false) }
+    @objc private func selectDefault() { activate(setDefault: true) }
+    private func activate(setDefault: Bool) {
+        guard !activated else { return }
+        activated = true
+        var root = ownerMenu
+        while let parent = root?.supermenu { root = parent }
+        root?.cancelTracking()
+        if setDefault { chooseDefault() } else { chooseMode() }
+    }
+    override func draw(_ dirtyRect: NSRect) {
+        if let hoverDefault {
+            let rect = hoverDefault ? defaultButton.frame.insetBy(dx: -4, dy: -2)
+                : NSRect(x: 3, y: 2, width: defaultButton.frame.minX - 10, height: bounds.height - 4)
+            NSColor.white.withAlphaComponent(0.12).setFill()
+            NSBezierPath(roundedRect: rect, xRadius: 5, yRadius: 5).fill()
+        } else if enclosingMenuItem?.isHighlighted == true {
+            NSColor.white.withAlphaComponent(0.09).setFill()
+            NSBezierPath(roundedRect: bounds.insetBy(dx: 3, dy: 2), xRadius: 5, yRadius: 5).fill()
+        }
+        if selected {
+            let check = NSBezierPath(); check.move(to: NSPoint(x: 8, y: 16)); check.line(to: NSPoint(x: 11, y: 19)); check.line(to: NSPoint(x: 17, y: 12))
+            NSColor.labelColor.setStroke(); check.lineWidth = 1.5; check.lineCapStyle = .round; check.stroke()
         }
     }
 }
@@ -251,10 +385,13 @@ import NebulaCore
     var onRedo: (() -> Void)?
     var onSave: (() -> Void)?
     var onText: (() -> Void)?
+    var onPenMode: ((PenMode) -> Void)?
 
     private var selectedTool: AnnotationTool = .pin
     private var selectedInk: Ink = .blue
     private var selectedWidth: CGFloat = 3.5
+    private var penMode: PenMode
+    private let preferences: UserDefaults
     private var inkButtons: [ToolbarInkButton] = []
     private var pinButton: ToolbarButton!
     private var penButton: ToolbarButton!
@@ -289,7 +426,9 @@ import NebulaCore
         self.init(frame: frame, glassRenderer: GlassMetalRenderer())
     }
 
-    init(frame: NSRect, glassRenderer: GlassMetalRenderer) {
+    init(frame: NSRect, glassRenderer: GlassMetalRenderer, preferences: UserDefaults = .standard) {
+        self.preferences = preferences
+        self.penMode = PenPreferences.defaultMode(in: preferences)
         self.glassRenderer = glassRenderer
         super.init(frame: frame)
         appearance = NSAppearance(named: .darkAqua)
@@ -305,11 +444,16 @@ import NebulaCore
         pinButton.toolTip = L10n.text("图钉（N）· 点击打钉 · 左键拖动细方框 · 右键拖动箭头", "Pin (N) · Click to pin · Left-drag a rectangle · Right-drag an arrow")
         pinButton.setAccessibilityLabel(pinButton.toolTip)
         penButton = toolButton(.pen)
+        penButton.penMode = penMode
+        penButton.menuAction = { [weak self] in
+            guard let self else { return }; self.present(self.penModesMenu(), from: self.penButton)
+        }
         eraserButton = toolButton(.eraser)
         eraserButton.toolTip = L10n.text("橡皮擦（E）· 局部擦除笔触，其他标注整项擦除；一次拖动可撤销", "Eraser (E) · Erase part of a pen stroke or a whole shape; undo each drag")
         eraserButton.setAccessibilityLabel(eraserButton.toolTip)
         textButton = ToolbarButton(title: "", symbol: "text.viewfinder", help: L10n.text("提取文字 · 拖选文字后按回车或 ⌘C 复制 · 双击选中整行", "Extract text · Drag to select, Return or ⌘C to copy · Double-click a line")) { [weak self] in self?.onText?() }
         styleButton = ToolbarButton(title: "", symbol: "slider.horizontal.3", help: L10n.text("形状与设置", "Shapes and settings")) { [weak self] in self?.showStyleMenu() }
+        styleButton.menuAction = { [weak self] in self?.showStyleMenu() }
         undoButton = ToolbarButton(title: "", symbol: "arrow.uturn.backward", help: L10n.text("撤销（⌘Z）", "Undo (⌘Z)")) { [weak self] in self?.onUndo?() }
         undoButton.isEnabled = false
         redoButton = ToolbarButton(title: "", symbol: "arrow.uturn.forward", help: L10n.text("重做（⇧⌘Z）", "Redo (⇧⌘Z)")) { [weak self] in self?.onRedo?() }
@@ -355,7 +499,12 @@ import NebulaCore
     }
 
     private func toolButton(_ tool: AnnotationTool) -> ToolbarButton {
-        ToolbarButton(title: tool.title, symbol: tool.symbol, help: "\(tool.title) (\(tool.shortcut.uppercased()))") { [weak self] in self?.chooseTool(tool) }
+        ToolbarButton(title: tool.title, symbol: tool.symbol, help: "\(tool.title) (\(tool.shortcut.uppercased()))") { [weak self] in
+            guard let self else { return }
+            if tool == .pen, self.selectedTool == .pen, !self.textMode {
+                self.present(self.penModesMenu(), from: self.penButton)
+            } else { self.chooseTool(tool) }
+        }
     }
 
     override func setFrameSize(_ newSize: NSSize) { super.setFrameSize(newSize); needsLayout = true }
@@ -530,9 +679,10 @@ import NebulaCore
     override func resetCursorRects() { addCursorRect(hintSurface.isHidden ? surface.frame : bounds, cursor: .arrow) }
 
     func update(tool: AnnotationTool, ink: Ink, lineWidth: CGFloat, history: AnnotationHistory,
-                canExport: Bool = true, isExporting: Bool = false, textMode: Bool = false, textHint: String? = nil) {
-        let nextHint = isExporting ? L10n.text("正在导出…", "Exporting…") :
-            (textHint ?? (canExport ? L10n.text("回车以复制到剪贴板", "Press Return to copy to clipboard") : L10n.text("正在准备截图…", "Preparing screenshot…")))
+                canExport: Bool = true, isExporting: Bool = false, textMode: Bool = false, textHint: String? = nil,
+                penMode: PenMode = .stabilized, penHint: String? = nil, canUndoDraft: Bool? = nil, canRedoDraft: Bool? = nil) {
+        self.penMode = penMode
+        let nextHint = textHint ?? penHint ?? (canExport ? L10n.text("回车以复制到剪贴板", "Press Return to copy to clipboard") : L10n.text("正在准备截图…", "Preparing screenshot…"))
         if self.textMode != textMode || !textMode || isExporting || copyHint.stringValue != nextHint { hideCopyFeedback() }
         self.textMode = textMode
         selectedTool = tool
@@ -544,13 +694,16 @@ import NebulaCore
         for button in inkButtons { button.isEnabled = !isExporting; button.needsDisplay = true }
         saveButton.isEnabled = canExport && !isExporting
         textButton.isEnabled = canExport && !isExporting
-        undoButton.isEnabled = history.canUndo && !isExporting
+        undoButton.isEnabled = (canUndoDraft ?? history.canUndo) && !isExporting
         undoButton.needsDisplay = true
-        redoButton.isEnabled = history.canRedo && !isExporting
+        redoButton.isEnabled = (canRedoDraft ?? history.canRedo) && !isExporting
         redoButton.needsDisplay = true
         pinButton.toolTip = L10n.text("图钉（N）· 点击打钉 · 左键拖动细方框 · 右键拖动箭头 · 下一枚：\(history.nextPinNumber)", "Pin (N) · Click to pin · Left-drag a rectangle · Right-drag an arrow · Next: \(history.nextPinNumber)")
         pinButton.setAccessibilityLabel(pinButton.toolTip)
-        styleButton.toolTip = L10n.text("形状与设置 · 当前：\(tool.title) · 线宽：\(widthTitle(lineWidth))", "Shapes and settings · Current: \(tool.title) · Width: \(widthTitle(lineWidth))")
+        penButton.penMode = penMode
+        penButton.toolTip = L10n.text("画笔（P）· \(penMode.title) · 再次点击或长按切换模式", "Pen (P) · \(penMode.title) · Click again or hold for modes")
+        penButton.setAccessibilityLabel(penButton.toolTip)
+        styleButton.toolTip = L10n.text("形状与设置 · 点击或长按 · 当前：\(tool.title) · 线宽：\(widthTitle(lineWidth))", "Shapes and settings · Click or hold · Current: \(tool.title) · Width: \(widthTitle(lineWidth))")
         styleButton.setAccessibilityLabel(styleButton.toolTip)
         updateInkSelection()
         updateToolSelection()
@@ -613,7 +766,44 @@ import NebulaCore
         }
         widthItem.submenu = widths
         menu.addItem(widthItem)
+        let modeItem = NSMenuItem(title: L10n.text("画笔模式", "Pen mode"), action: nil, keyEquivalent: "")
+        modeItem.submenu = penModesMenu()
+        menu.addItem(modeItem)
         return menu
+    }
+
+    private func penModesMenu() -> NSMenu {
+        let menu = makeMenu()
+        let defaultMode = PenPreferences.defaultMode(in: preferences)
+        let font = NSFont.menuFont(ofSize: 13)
+        let widest = PenMode.allCases.map { $0.title.size(withAttributes: [.font: font]).width }.max() ?? 200
+        let radioWidth = L10n.text("默认", "Default").size(withAttributes: [.font: NSFont.menuFont(ofSize: 12)]).width + 25
+        for mode in PenMode.allCases {
+            let item = makeItem(mode.title, action: #selector(selectPenMode(_:)))
+            item.representedObject = mode.rawValue
+            item.state = penMode == mode ? .on : .off
+            let row = PenModeMenuRow(mode: mode, selected: penMode == mode, isDefault: defaultMode == mode,
+                width: max(270, widest + radioWidth + 60), choose: { [weak self] in self?.choosePenMode(mode) },
+                setDefault: { [weak self] in
+                    guard let self else { return }
+                    PenPreferences.setDefaultMode(mode, in: self.preferences)
+                    self.choosePenMode(mode)
+                })
+            row.ownerMenu = menu; item.view = row
+            menu.addItem(item)
+        }
+        return menu
+    }
+
+    @objc private func selectPenMode(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let mode = PenMode(rawValue: raw) else { return }
+        choosePenMode(mode)
+    }
+
+    private func choosePenMode(_ mode: PenMode) {
+        penMode = mode; penButton.penMode = mode
+        onPenMode?(mode)
+        chooseTool(.pen)
     }
 
     private func makeMenu() -> NSMenu {

@@ -63,6 +63,12 @@ public struct Annotation: Equatable, Sendable {
     public var lineWidth: CGFloat
     public var number: Int?
     public var erasures: [PenErasure] = []
+    public private(set) var bezier: BezierPath?
+
+    public mutating func setBezier(_ path: BezierPath) {
+        bezier = path
+        points = path.sampledPoints()
+    }
 
     public init(tool: AnnotationTool, points: [CGPoint], ink: Ink = .blue,
                 lineWidth: CGFloat = 3, number: Int? = nil, id: UUID = UUID()) {

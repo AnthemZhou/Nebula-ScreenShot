@@ -11,6 +11,21 @@ final class HiddenHarnessWindow: NSWindow {
     override func makeKey() {}
 }
 
+// Supplies only this fixture's own events to the real button tracking loop.
+// No native window is ordered onscreen and no system input is posted.
+@MainActor final class MenuPressHarnessWindow: NSWindow {
+    var available = true
+    var events: [NSEvent] = []
+    var onNextEvent: (() -> Void)?
+    var observedTrackingMode = false
+    override var isVisible: Bool { available }
+    override func nextEvent(matching mask: NSEvent.EventTypeMask, until expiration: Date?, inMode mode: RunLoop.Mode, dequeue deqFlag: Bool) -> NSEvent? {
+        observedTrackingMode = mode == .eventTracking && deqFlag
+        onNextEvent?()
+        return events.isEmpty ? nil : events.removeFirst()
+    }
+}
+
 enum HarnessError: Error, CustomStringConvertible {
     case failed(String)
     var description: String { switch self { case .failed(let message): return message } }
@@ -29,7 +44,7 @@ enum HarnessError: Error, CustomStringConvertible {
     private var eventNumber = 0
     let initialCrop = CGRect(x: 40, y: 40, width: 820, height: 460)
 
-    init(pending: Bool = false) throws {
+    init(pending: Bool = false, preferences: UserDefaults = .standard) throws {
         let size = CGSize(width: 900, height: 640)
         guard let context = CGContext(data: nil, width: 1800, height: 1280,
                                       bitsPerComponent: 8, bytesPerRow: 0,
@@ -45,7 +60,7 @@ enum HarnessError: Error, CustomStringConvertible {
         window = HiddenHarnessWindow(contentRect: CGRect(origin: .zero, size: size),
                                       styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        canvas = CaptureCanvas(frame: CGRect(origin: .zero, size: size), screenshot: pending ? nil : image, pixelScale: 2)
+        canvas = CaptureCanvas(frame: CGRect(origin: .zero, size: size), screenshot: pending ? nil : image, pixelScale: 2, preferences: preferences)
         window.contentView = canvas
         canvas.onCopy = { [weak self] in self?.exported = $0; self?.copyCount += 1 }
         canvas.onSave = { [weak self] in self?.saved = $0; self?.saveCount += 1 }
@@ -57,12 +72,12 @@ enum HarnessError: Error, CustomStringConvertible {
     }
 
     private func mouse(_ type: NSEvent.EventType, _ point: CGPoint,
-                       flags: NSEvent.ModifierFlags = []) throws -> NSEvent {
+                       flags: NSEvent.ModifierFlags = [], clickCount: Int = 1) throws -> NSEvent {
         eventNumber += 1
         guard let event = NSEvent.mouseEvent(with: type, location: canvas.convert(point, to: nil),
                                              modifierFlags: flags, timestamp: Double(eventNumber),
                                              windowNumber: window.windowNumber, context: nil,
-                                             eventNumber: eventNumber, clickCount: 1, pressure: 1) else {
+                                             eventNumber: eventNumber, clickCount: clickCount, pressure: 1) else {
             throw HarnessError.failed("Cannot construct internal mouse event")
         }
         return event
@@ -86,13 +101,13 @@ enum HarnessError: Error, CustomStringConvertible {
         canvas.layoutSubtreeIfNeeded()
     }
 
-    func click(_ point: CGPoint, right: Bool = false) throws {
+    func click(_ point: CGPoint, right: Bool = false, clickCount: Int = 1) throws {
         if right {
             canvas.rightMouseDown(with: try mouse(.rightMouseDown, point))
             canvas.rightMouseUp(with: try mouse(.rightMouseUp, point))
         } else {
-            canvas.mouseDown(with: try mouse(.leftMouseDown, point))
-            canvas.mouseUp(with: try mouse(.leftMouseUp, point))
+            canvas.mouseDown(with: try mouse(.leftMouseDown, point, clickCount: clickCount))
+            canvas.mouseUp(with: try mouse(.leftMouseUp, point, clickCount: clickCount))
         }
     }
 
@@ -216,6 +231,397 @@ enum HarnessError: Error, CustomStringConvertible {
     }
 
     func hover(_ point: CGPoint) throws { canvas.mouseMoved(with: try mouse(.mouseMoved, point)) }
+
+    func choosePenMode(_ mode: PenMode) throws {
+        guard let toolbar = descendants(of: canvas).compactMap({ $0 as? AnnotationToolbar }).first,
+              let item = toolbar.optionsMenu().items.compactMap(\.submenu).flatMap(\.items).first(where: { $0.representedObject as? String == mode.rawValue }),
+              let action = item.action else { throw HarnessError.failed("Missing pen mode menu") }
+        try check(NSApp.sendAction(action, to: item.target, from: item), "Pen mode must be selectable from the toolbar")
+    }
+
+    func runPenModeChecks(outputURL: URL) throws {
+        try drag(from: initialCrop.origin, to: CGPoint(x: initialCrop.maxX, y: initialCrop.maxY))
+        let blank = bytes(try copy()), blue = try referenceColor(.blue)
+        let modes = descendants(of: canvas).compactMap { $0 as? AnnotationToolbar }.first!.optionsMenu().items.compactMap(\.submenu).flatMap(\.items)
+        try check(modes.first { $0.representedObject as? String == PenMode.stabilized.rawValue }?.state == .on, "Pull-circle is the default pen mode")
+        try choosePenMode(.bezier)
+        // Save the real custom button drawing at 4x for checking both glyphs.
+        let iconSheet = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 320, pixelsHigh: 160, bitsPerSample: 8,
+            samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .calibratedRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+        let iconContext = NSGraphicsContext(bitmapImageRep: iconSheet)!
+        NSGraphicsContext.saveGraphicsState()
+        iconContext.cgContext.translateBy(x: 0, y: 160); iconContext.cgContext.scaleBy(x: 4, y: -4)
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: iconContext.cgContext, flipped: true)
+        NSColor(white: 0.16, alpha: 1).setFill(); NSRect(x: 0, y: 0, width: 80, height: 40).fill()
+        for (index, mode) in [PenMode.stabilized, .bezier].enumerated() {
+            try choosePenMode(mode)
+            let pen = descendants(of: canvas).compactMap { $0 as? NSButton }.first { $0.toolTip?.contains(mode.title) == true }!
+            iconContext.cgContext.saveGState(); iconContext.cgContext.translateBy(x: CGFloat(index * 40) + 4, y: 4)
+            pen.draw(pen.bounds); iconContext.cgContext.restoreGState()
+        }
+        NSGraphicsContext.restoreGraphicsState()
+        try iconSheet.representation(using: .png, properties: [:])!.write(to: outputURL.deletingPathExtension().appendingPathExtension("icons.png"))
+        let start = CGPoint(x: 150, y: 220), end = CGPoint(x: 430, y: 220)
+        try drag(from: start, to: CGPoint(x: 230, y: 140))
+        try click(end)
+        try check(!canvas.isInteracting && copyCount == 1, "Pen anchors persist between clicks without exporting")
+        var expected = Annotation(tool: .pen, points: [], lineWidth: 2.8)
+        expected.setBezier(BezierPath(nodes: [BezierNode(anchor: start, incoming: CGPoint(x: 70, y: 300), outgoing: CGPoint(x: 230, y: 140)), BezierNode(anchor: end)]))
+
+        // Validate the actual composited live plane, including orientation, rather
+        // than accepting a correct export while the user sees a misplaced curve.
+        window.display(); CATransaction.flush()
+        let toolbar = descendants(of: canvas).compactMap { $0 as? AnnotationToolbar }.first!
+        toolbar.isHidden = true
+        let context = CGContext(data: nil, width: 1800, height: 1280, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        context.translateBy(x: 0, y: 1280); context.scaleBy(x: 2, y: -2)
+        canvas.layer!.render(in: context)
+        toolbar.isHidden = false
+        let live = NSBitmapImageRep(cgImage: context.makeImage()!)
+        let liveColor = live.colorAt(x: 640, y: 380)!.usingColorSpace(.sRGB)!
+        try live.representation(using: .png, properties: [:])!.write(to: outputURL)
+        try check(liveColor.blueComponent > 0.95 && liveColor.greenComponent > 0.55 && liveColor.redComponent < 0.4,
+                  "Live Bézier must put blue ink at the cubic midpoint: \(liveColor)")
+
+        // Return must finish the pending path and copy on this first press.
+        let curve = bytes(try copy())
+        canvas.setExportBusy(true); window.display(); CATransaction.flush()
+        toolbar.isHidden = true
+        context.clear(canvas.bounds); canvas.layer!.render(in: context)
+        toolbar.isHidden = false
+        let committed = NSBitmapImageRep(cgImage: context.makeImage()!).colorAt(x: 640, y: 380)!.usingColorSpace(.sRGB)!
+        canvas.setExportBusy(false)
+        try check(abs(committed.redComponent - liveColor.redComponent) < 0.025 && abs(committed.greenComponent - liveColor.greenComponent) < 0.025,
+                  "Committing a live curve must not change its composited ink color: \(liveColor) → \(committed)")
+        let reference = AnnotationRenderer.export(image: syntheticImage, canvasSize: canvas.bounds.size, selection: initialCrop, annotations: [expected])!
+        try check(curve == bytes(reference), "Return must copy the exact cubic without handles, duplicate nodes or guide lines")
+        try key("z", flags: [.command]); try check(bytes(try copy()) == blank, "A finished path must undo in one step")
+        try key("z", flags: [.command, .shift]); try check(bytes(try copy()) == curve, "Redo must restore path handles exactly")
+        try hover(start); try hover(CGPoint(x: 190, y: 180)); try hover(CGPoint(x: 230, y: 140))
+        try drag(from: CGPoint(x: 230, y: 140), to: CGPoint(x: 250, y: 100))
+        try check(bytes(try copy()) != curve, "A committed curve's handle remains editable across its tether")
+        try key("z", flags: [.command]); try check(bytes(try copy()) == curve, "Handle edit is one undo step")
+        // Draft anchor undo must not accidentally undo an older finished mark,
+        // or enable its redo while a new path is being constructed.
+        try click(CGPoint(x: 500, y: 300)); try click(CGPoint(x: 650, y: 300))
+        try key("z", flags: [.command]); try key("z", flags: [.command]); try key("z", flags: [.command])
+        try check(bytes(try copy()) == curve, "Undo past the first pending anchor must preserve finished annotations")
+        try key("z", flags: [.command])
+        try click(CGPoint(x: 500, y: 300)); try key("z", flags: [.command, .shift])
+        try key("z", flags: [.command]); try check(bytes(try copy()) == blank, "Draft redo must not revive an unrelated undone annotation")
+        canvas.resetSelection(); try key("n")
+        try drag(from: initialCrop.origin, to: CGPoint(x: initialCrop.maxX, y: initialCrop.maxY))
+        try choosePenMode(.bezier)
+        let a = CGPoint(x: 160, y: 160), b = CGPoint(x: 300, y: 160), c = CGPoint(x: 300, y: 300)
+        try click(a); try click(b); try click(c)
+        try key("z", flags: [.command]); try key("z", flags: [.command, .shift])
+        // Editing a pending node changes that node; it must not add a segment.
+        let moved = CGPoint(x: 340, y: 180)
+        try hover(b); try drag(from: b, to: moved)
+        try key("z", flags: [.command]); try key("z", flags: [.command, .shift])
+        let cancelBefore = cancelCount
+        try click(CGPoint(x: 700, y: 400), right: true)
+        try check(cancelCount == cancelBefore && canvas.selection == initialCrop, "Right-click ends a pen path without cancelling capture")
+        var edited = Annotation(tool: .pen, points: [], lineWidth: 2.8)
+        edited.setBezier(BezierPath(nodes: [BezierNode(anchor: a), BezierNode(anchor: moved), BezierNode(anchor: c)]))
+        func expectedRaster(_ item: Annotation) -> Data {
+            bytes(AnnotationRenderer.export(image: syntheticImage, canvasSize: canvas.bounds.size, selection: initialCrop, annotations: [item])!)
+        }
+        let original = bytes(try copy())
+        try check(original == expectedRaster(edited), "Pending node drag and right-click must preserve exactly three nodes")
+        // Last endpoint click resumes the existing path, in one undoable edit.
+        try hover(CGPoint(x: 800, y: 400)); try hover(c); try click(c)
+        let d = CGPoint(x: 500, y: 320)
+        try hover(d)
+        // The ghost is visible in the live layer but must never be committed.
+        window.display(); CATransaction.flush()
+        let ghostLayers = descendants(of: canvas).flatMap { $0.layer?.sublayers ?? [] }.compactMap { $0 as? CAShapeLayer }
+        try check(ghostLayers.contains { $0.lineDashPattern == [4, 4] && $0.path != nil }, "Next-segment preview appears while awaiting another point")
+        toolbar.isHidden = true; context.clear(canvas.bounds); canvas.layer!.render(in: context); toolbar.isHidden = false
+        try NSBitmapImageRep(cgImage: context.makeImage()!).representation(using: .png, properties: [:])!.write(to: outputURL.deletingPathExtension().appendingPathExtension("forecast.png"))
+        try click(d); try click(CGPoint(x: 700, y: 400), right: true)
+        edited.setBezier(BezierPath(nodes: edited.bezier!.nodes + [BezierNode(anchor: d)]))
+        try check(bytes(try copy()) == expectedRaster(edited), "Clicking the last endpoint continues the same path without extra marks")
+        try key("z", flags: [.command]); try check(bytes(try copy()) == original, "Continuation undo restores the original path")
+        try key("z", flags: [.command, .shift]); let extended = bytes(try copy())
+        // Starting at the other endpoint reverses handles, preserving geometry.
+        try hover(a); try click(a)
+        let e = CGPoint(x: 100, y: 240)
+        try click(e); try click(CGPoint(x: 700, y: 400), right: true)
+        var reversed = edited.bezier!.reversed(); reversed.nodes.append(BezierNode(anchor: e)); edited.setBezier(reversed)
+        try check(bytes(try copy()) == expectedRaster(edited), "The first endpoint also supports continuing without changing the old curve")
+        try key("z", flags: [.command]); try check(bytes(try copy()) == extended, "First-end continuation undo restores orientation and geometry")
+        // Dragging a completed endpoint moves it instead of arming continuation.
+        try hover(d); let d2 = CGPoint(x: 550, y: 320)
+        try drag(from: d, to: d2); try copy(); try expectColor(CGPoint(x: 540, y: 319), blue, "Endpoint drag edits a finished path")
+        try key("z", flags: [.command]); try check(bytes(try copy()) == extended, "Endpoint move undo is exact")
+        try hover(c); try click(c) // An internal node must never resume the path.
+        try click(CGPoint(x: 700, y: 400), right: true)
+        try check(bytes(try copy()) == extended, "Clicking an internal node does not create another node")
+        // A repeated click is no longer a completion command or an extra node.
+        try click(CGPoint(x: 650, y: 180)); try click(CGPoint(x: 750, y: 180)); try click(CGPoint(x: 750, y: 180), clickCount: 2)
+        try click(CGPoint(x: 700, y: 400), right: true)
+        try copy(); try expectColor(CGPoint(x: 700, y: 180), blue, "Repeated endpoint clicks preserve the open segment")
+
+        canvas.resetSelection(); try key("n")
+        try drag(from: initialCrop.origin, to: CGPoint(x: initialCrop.maxX, y: initialCrop.maxY))
+        try choosePenMode(.stabilized)
+        try drag(from: CGPoint(x: 150, y: 350), through: [CGPoint(x: 300, y: 350)], to: CGPoint(x: 650, y: 350))
+        let smooth = bytes(try copy())
+        try expectColor(CGPoint(x: 300, y: 350), blue, "Pull-circle mode must produce a continuous stroke")
+        try expectColor(CGPoint(x: 645, y: 350), syntheticImageColor(), "Guide tether must not be exported or snap to the pointer on release")
+        try key("z", flags: [.command]); try check(bytes(try copy()) == blank, "Smoothed stroke is one undo step")
+        try key("z", flags: [.command, .shift]); try check(bytes(try copy()) == smooth, "Smoothed stroke redo is exact")
+        try key("e"); try drag(from: CGPoint(x: 350, y: 330), to: CGPoint(x: 350, y: 370)); try copy()
+        try expectColor(CGPoint(x: 350, y: 350), syntheticImageColor(), "Smoothed stroke erases locally")
+        try expectColor(CGPoint(x: 250, y: 350), blue, "Partial erasing preserves the remaining stroke")
+        try check(CaptureCursor.pen(width: 3.5).image.size.width < 14, "Native pen cursor must be smaller than the old painted ring")
+        try choosePenMode(.stabilized)
+        canvas.mouseDown(with: try mouse(.leftMouseDown, CGPoint(x: 120, y: 420)))
+        let before = CFAbsoluteTimeGetCurrent()
+        for i in 1...1000 {
+            canvas.mouseDragged(with: try mouse(.leftMouseDragged, CGPoint(x: 120 + CGFloat(i) * 0.65, y: 420 + sin(CGFloat(i) * 0.02) * 15)))
+        }
+        let elapsed = (CFAbsoluteTimeGetCurrent() - before) * 1000
+        canvas.mouseUp(with: try mouse(.leftMouseUp, CGPoint(x: 770, y: 420 + sin(CGFloat(20)) * 15)))
+        print("PERF: 1000 stabilized drag events=\(Int(elapsed)) ms; native cursor needs no canvas redraw")
+        print("PASS: cubic anchor drag, both-end continuation, right-click/Return completion, ghost preview, undo, smooth tether and clean export")
+    }
+
+    func runBezierClosureChecks(outputURL: URL) throws {
+        func reset() throws {
+            canvas.resetSelection(); try key("n")
+            try drag(from: initialCrop.origin, to: CGPoint(x: initialCrop.maxX, y: initialCrop.maxY))
+            try choosePenMode(.bezier)
+        }
+        func raster(_ item: Annotation) -> Data {
+            bytes(AnnotationRenderer.export(image: syntheticImage, canvasSize: canvas.bounds.size, selection: initialCrop, annotations: [item])!)
+        }
+        try reset()
+        let a = CGPoint(x: 160, y: 160), b = CGPoint(x: 340, y: 160), c = CGPoint(x: 340, y: 320)
+        let handle = CGPoint(x: 220, y: 140), empty = CGPoint(x: 650, y: 350), outside = CGPoint(x: 12, y: 12)
+        let path = BezierPath(nodes: [BezierNode(anchor: a, incoming: CGPoint(x: 100, y: 180), outgoing: handle),
+                                     BezierNode(anchor: b), BezierNode(anchor: c, incoming: CGPoint(x: 300, y: 300), outgoing: CGPoint(x: 380, y: 340))])
+        var open = Annotation(tool: .pen, points: [], lineWidth: 2.8); open.setBezier(path)
+        var closed = open; var closedPath = path; closedPath.isClosed = true; closed.setBezier(closedPath)
+        try check(canvas.pointerCursor(at: empty) === CaptureCursor.bezier, "Bézier drawing uses the small nib cursor")
+        canvas.mouseDown(with: try mouse(.leftMouseDown, a))
+        try check(canvas.pointerCursor(at: a) === CaptureCursor.bezier, "Placing/dragging a new anchor keeps the nib cursor")
+        canvas.mouseDragged(with: try mouse(.leftMouseDragged, handle)); canvas.mouseUp(with: try mouse(.leftMouseUp, handle))
+        try click(b); try drag(from: c, to: CGPoint(x: 380, y: 340))
+        try hover(handle)
+        try check(canvas.pointerCursor(at: handle) === CaptureCursor.bezierNode, "Tangent handles use a hollow arrow rather than a hand")
+        let nearStart = CGPoint(x: a.x + 8, y: a.y)
+        try hover(nearStart)
+        try check(canvas.pointerCursor(at: nearStart) === CaptureCursor.bezierNode, "The forgiving node hit area must not imply closure outside its precise target")
+        try click(nearStart)
+        try hover(a)
+        try check(canvas.pointerCursor(at: a) === CaptureCursor.bezierClose, "The precise first-anchor target advertises click-to-close")
+        let forecasts = descendants(of: canvas).flatMap { $0.layer?.sublayers ?? [] }.compactMap { $0 as? CAShapeLayer }
+        let closingPreview = BezierPath(nodes: [path.nodes.last!, path.nodes.first!]).cgPath
+        try check(forecasts.contains { $0.lineDashPattern == [4, 4] && $0.path?.boundingBoxOfPath == closingPreview.boundingBoxOfPath },
+                  "Closing preview must follow both endpoint tangents")
+        canvas.mouseDown(with: try mouse(.leftMouseDown, a))
+        try check(canvas.isInteracting && canvas.pointerCursor(at: a) === CaptureCursor.bezierNode, "Pressing the first point begins a possible node drag, not immediate closure")
+        canvas.mouseUp(with: try mouse(.leftMouseUp, CGPoint(x: a.x + 1, y: a.y + 1)))
+        try check(bytes(try copy()) == raster(closed), "A click on the start closes the cubic without a duplicate point")
+        try key("z", flags: [.command]); try key("z", flags: [.command, .shift])
+        try check(bytes(try copy()) == raster(closed), "Closed-path undo/redo restores the exact curve")
+        try click(a); try click(empty, right: true)
+        try check(bytes(try copy()) == raster(closed), "A closed curve's anchor remains editable without resuming it")
+
+        try reset()
+        try drag(from: a, to: handle); try click(b); try drag(from: c, to: CGPoint(x: 380, y: 340))
+        // A drag that returns exactly to its origin must never become a click.
+        try drag(from: a, through: [CGPoint(x: a.x + 24, y: a.y + 10)], to: a)
+        try click(empty, right: true)
+        try check(bytes(try copy()) == raster(open), "Dragging the start away and back cannot accidentally close the path")
+        try hover(a); try click(a)
+        try check(canvas.pointerCursor(at: c) === CaptureCursor.bezierClose, "Resuming at the first endpoint reverses the closing target")
+        try click(c)
+        var reversed = open; var reversedPath = path.reversed(); reversedPath.isClosed = true; reversed.setBezier(reversedPath)
+        try check(bytes(try copy()) == raster(reversed), "Resumed paths can close from either endpoint")
+        try key("z", flags: [.command]); try check(bytes(try copy()) == raster(open), "Closing a resumed path undoes to the original open path")
+
+        try reset(); try click(a); try click(b)
+        let moved = CGPoint(x: a.x + 25, y: a.y + 20)
+        try drag(from: a, to: moved); try click(empty, right: true)
+        var movedPath = Annotation(tool: .pen, points: [], lineWidth: 2.8)
+        movedPath.setBezier(BezierPath(nodes: [BezierNode(anchor: moved), BezierNode(anchor: b)]))
+        try check(bytes(try copy()) == raster(movedPath), "Dragging the starting point moves it without closure")
+
+        try reset(); try click(a)
+        let cancelBefore = cancelCount
+        try drag(from: outside, to: CGPoint(x: 25, y: 25), right: true)
+        try check(cancelCount == cancelBefore, "Right-dragging the shade does not count as a click to exit")
+        try click(b); try click(empty, right: true)
+        var twoNodes = Annotation(tool: .pen, points: [], lineWidth: 2.8)
+        twoNodes.setBezier(BezierPath(nodes: [BezierNode(anchor: a), BezierNode(anchor: b)]))
+        try check(bytes(try copy()) == raster(twoNodes), "A shaded right drag preserves the pending path")
+        for mode in PenMode.allCases {
+            try reset(); try choosePenMode(mode)
+            if mode == .bezier { try click(a); try click(b) }
+            let before = cancelCount
+            try click(outside, right: true)
+            try check(cancelCount == before + 1, "Shaded right click exits capture in every pen mode, even with a pending path")
+        }
+        try reset(); try click(a); try click(b); try click(empty, right: true); try hover(a); try click(a)
+        let before = cancelCount; try click(outside, right: true)
+        try check(cancelCount == before + 1, "Shaded right click also exits resumed Bézier editing")
+
+        try check(CaptureCursor.bezier.hotSpot == CGPoint(x: 3, y: 15) && CaptureCursor.bezierNode.hotSpot == CGPoint(x: 2.5, y: 2.5),
+                  "Cursor hotspots agree with the visible nib and arrow tips")
+        try check(CaptureCursor.bezier.image.size == CGSize(width: 18, height: 18)
+                  && CaptureCursor.bezierNode.image.size == CaptureCursor.bezier.image.size
+                  && CaptureCursor.bezierClose.image.size == CaptureCursor.bezier.image.size,
+                  "Drawing, node and closing cursors share a compact footprint")
+        let arrowBitmap = NSBitmapImageRep(data: CaptureCursor.bezierNode.image.tiffRepresentation!)!
+        let sx = CGFloat(arrowBitmap.pixelsWide) / CaptureCursor.bezierNode.image.size.width
+        try check(arrowBitmap.colorAt(x: Int(4.5 * sx), y: Int(6 * sx))!.alphaComponent < 0.1, "Node arrow body is genuinely transparent")
+        let sheet = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 480, pixelsHigh: 320, bitsPerSample: 8,
+            samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .calibratedRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+        let context = NSGraphicsContext(bitmapImageRep: sheet)!
+        NSGraphicsContext.saveGraphicsState()
+        context.cgContext.translateBy(x: 0, y: 320); context.cgContext.scaleBy(x: 4, y: -4)
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: context.cgContext, flipped: true)
+        for row in 0...1 {
+            NSColor(white: row == 0 ? 0.15 : 0.96, alpha: 1).setFill(); NSRect(x: 0, y: row * 40, width: 120, height: 40).fill()
+            for (column, cursor) in [CaptureCursor.bezier, CaptureCursor.bezierNode, CaptureCursor.bezierClose].enumerated() {
+                cursor.image.draw(in: NSRect(x: CGFloat(column * 40) + 8, y: CGFloat(row * 40) + 8, width: cursor.image.size.width, height: cursor.image.size.height),
+                                  from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+            }
+        }
+        NSGraphicsContext.restoreGraphicsState()
+        try sheet.representation(using: .png, properties: [:])!.write(to: outputURL)
+        print("PASS: nib/hollow-arrow cursors, click-vs-drag closure, closing forecast, resumed closure undo, shaded right-click exit and right-drag preservation")
+    }
+
+    func runPenPreferenceMenuChecks(outputURL: URL) throws {
+        let suite = "Nebula.PenMenu.Tests." + UUID().uuidString
+        let preferences = UserDefaults(suiteName: suite)!
+        defer { preferences.removePersistentDomain(forName: suite) }
+        let local = try CanvasHarness(preferences: preferences)
+        try local.drag(from: initialCrop.origin, to: CGPoint(x: initialCrop.maxX, y: initialCrop.maxY))
+        let toolbar = local.descendants(of: local.canvas).compactMap { $0 as? AnnotationToolbar }.first!
+        func modes() -> [NSMenuItem] { toolbar.optionsMenu().items.compactMap(\.submenu).flatMap(\.items).filter { PenMode(rawValue: $0.representedObject as? String ?? "") != nil } }
+        func radio(_ row: NSView, _ mode: PenMode) -> NSButton {
+            local.descendants(of: row).compactMap { $0 as? NSButton }.first { $0.identifier?.rawValue == "pen-default-" + mode.rawValue }!
+        }
+        try check(local.descendants(of: toolbar).compactMap { $0 as? ToolbarButton }.filter { $0.menuAction != nil }.count == 2,
+                  "Pen and settings buttons both support hold-to-open")
+        let menu = toolbar.optionsMenu()
+        let items = menu.items.compactMap(\.submenu).flatMap(\.items)
+        let bezierRow = items.first { $0.representedObject as? String == PenMode.bezier.rawValue }!.view!
+        let radioButton = radio(bezierRow, .bezier)
+        try check(radioButton.state == .off, "Bézier is not the saved default on a fresh preference domain")
+        radioButton.performClick(nil)
+        try check(PenPreferences.defaultMode(in: preferences) == .bezier, "The trailing default radio saves the requested mode")
+        try check(local.descendants(of: toolbar).compactMap { $0 as? ToolbarButton }.contains { $0.penMode == .bezier },
+                  "Setting the default immediately updates the pen toolbar glyph")
+        let latest = modes()
+        try check(latest.filter { radio($0.view!, PenMode(rawValue: $0.representedObject as! String)!).state == .on }.count == 1,
+                  "Exactly one default radio is selected")
+        try local.choosePenMode(.stabilized)
+        try check(PenPreferences.defaultMode(in: preferences) == .bezier, "Temporary mode changes do not overwrite the saved default")
+        let nextCapture = try CanvasHarness(preferences: UserDefaults(suiteName: suite)!)
+        try nextCapture.drag(from: initialCrop.origin, to: CGPoint(x: initialCrop.maxX, y: initialCrop.maxY))
+        let nextToolbar = nextCapture.descendants(of: nextCapture.canvas).compactMap { $0 as? AnnotationToolbar }.first!
+        try check(nextCapture.descendants(of: nextToolbar).compactMap { $0 as? ToolbarButton }.contains { $0.penMode == .bezier },
+                  "A new capture shows the saved Bézier icon before selecting the pen tool")
+        try nextCapture.key("p")
+        try check(nextCapture.canvas.pointerCursor(at: CGPoint(x: 600, y: 300)) === CaptureCursor.bezier,
+                  "The saved default also controls actual drawing, not only the icon")
+
+        // A custom menu row must accept release after a drag from the opener,
+        // without requiring a second mouseDown inside the row.
+        let dragMenu = toolbar.optionsMenu()
+        let dragItems = dragMenu.items.compactMap(\.submenu).flatMap(\.items)
+        let dragRow = dragItems.first { $0.representedObject as? String == PenMode.bezier.rawValue }!.view!
+        let host = HiddenHarnessWindow(contentRect: CGRect(x: 0, y: 0, width: 400, height: 100), styleMask: [.borderless], backing: .buffered, defer: false)
+        host.isReleasedWhenClosed = false; host.contentView = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 100))
+        host.contentView!.addSubview(dragRow)
+        func event(_ type: NSEvent.EventType, in view: NSView, at point: CGPoint) -> NSEvent {
+            NSEvent.mouseEvent(with: type, location: view.convert(point, to: nil), modifierFlags: [], timestamp: 0,
+                              windowNumber: view.window!.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1)!
+        }
+        let left = CGPoint(x: 70, y: 16)
+        dragRow.mouseDragged(with: event(.leftMouseDragged, in: dragRow, at: left))
+        dragRow.mouseUp(with: event(.leftMouseUp, in: dragRow, at: left))
+        try check(local.descendants(of: toolbar).compactMap { $0 as? ToolbarButton }.contains { $0.penMode == .bezier },
+                  "Release over the mode title selects that mode without another click")
+        try check(PenPreferences.defaultMode(in: preferences) == .bezier, "Mode release preserves the saved default")
+        let defaultMenu = toolbar.optionsMenu()
+        let defaultItems = defaultMenu.items.compactMap(\.submenu).flatMap(\.items)
+        let defaultRow = defaultItems.first { $0.representedObject as? String == PenMode.stabilized.rawValue }!.view!
+        dragRow.removeFromSuperview(); host.contentView!.addSubview(defaultRow)
+        let defaultControl = radio(defaultRow, .stabilized)
+        let right = CGPoint(x: defaultControl.frame.midX, y: defaultControl.frame.midY)
+        defaultRow.mouseDragged(with: event(.leftMouseDragged, in: defaultRow, at: right))
+        defaultRow.mouseUp(with: event(.leftMouseUp, in: defaultRow, at: right))
+        try check(PenPreferences.defaultMode(in: preferences) == .stabilized, "Drag-release over the trailing radio sets the default")
+        try local.choosePenMode(.bezier)
+        defaultRow.mouseUp(with: event(.leftMouseUp, in: defaultRow, at: right))
+        try check(local.descendants(of: toolbar).compactMap { $0 as? ToolbarButton }.contains { $0.penMode == .bezier },
+                  "A consumed release cannot fire the same custom row action twice")
+        defaultRow.removeFromSuperview()
+
+        // Inspect the real two-column menu rows, including native radio artwork.
+        let previewMenu = toolbar.optionsMenu()
+        let rows = previewMenu.items.compactMap(\.submenu).flatMap(\.items).compactMap(\.view)
+        let width = rows.map { $0.frame.width }.max()!
+        let panel = NSView(frame: NSRect(x: 0, y: 0, width: width, height: 64))
+        panel.wantsLayer = true; panel.layer?.backgroundColor = NSColor(white: 0.16, alpha: 1).cgColor
+        panel.appearance = NSAppearance(named: .darkAqua); host.contentView = panel
+        for (index, row) in rows.enumerated() { row.frame.origin = CGPoint(x: 0, y: CGFloat(1 - index) * 32); panel.addSubview(row) }
+        panel.layoutSubtreeIfNeeded()
+        let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(width * 2), pixelsHigh: 128, bitsPerSample: 8,
+            samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .calibratedRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+        let graphics = NSGraphicsContext(bitmapImageRep: bitmap)!
+        NSGraphicsContext.saveGraphicsState()
+        graphics.cgContext.translateBy(x: 0, y: 128); graphics.cgContext.scaleBy(x: 2, y: -2)
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: graphics.cgContext, flipped: true)
+        NSColor(white: 0.16, alpha: 1).setFill(); NSRect(x: 0, y: 0, width: width, height: 64).fill()
+        for (index, row) in rows.enumerated() {
+            print("MENU ROW: frame=\(row.frame) bounds=\(row.bounds) children=\(row.subviews.map { $0.frame })")
+            try check(row.subviews[0].frame.maxX < row.subviews[1].frame.minX, "Mode title and default radio must never overlap")
+            graphics.cgContext.saveGState(); graphics.cgContext.translateBy(x: 0, y: CGFloat(index * 32))
+            row.draw(row.bounds)
+            for child in row.subviews {
+                graphics.cgContext.saveGState(); graphics.cgContext.translateBy(x: child.frame.minX, y: child.frame.minY)
+                child.draw(child.bounds); graphics.cgContext.restoreGState()
+            }
+            graphics.cgContext.restoreGState()
+        }
+        NSGraphicsContext.restoreGraphicsState()
+        try bitmap.representation(using: .png, properties: [:])!.write(to: outputURL)
+
+        let trackingWindow = MenuPressHarnessWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.borderless], backing: .buffered, defer: false)
+        trackingWindow.isReleasedWhenClosed = false
+        let button = ToolbarButton(title: "", symbol: "pencil", help: "Fixture", action: {})
+        button.frame = NSRect(x: 0, y: 0, width: 32, height: 32)
+        trackingWindow.contentView = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100)); trackingWindow.contentView!.addSubview(button)
+        var clicks = 0, holds = 0
+        button.actionBlock = { clicks += 1 }; button.menuAction = { holds += 1 }
+        let center = CGPoint(x: 16, y: 16)
+        trackingWindow.events = [event(.leftMouseUp, in: button, at: center)]
+        button.mouseDown(with: event(.leftMouseDown, in: button, at: center))
+        try check(clicks == 1 && holds == 0, "A short press keeps the ordinary click action")
+        trackingWindow.events = [] // No release before the deadline.
+        button.mouseDown(with: event(.leftMouseDown, in: button, at: center))
+        try check(clicks == 1 && holds == 1 && trackingWindow.observedTrackingMode, "A held press opens the menu once without a click action")
+        trackingWindow.events = [event(.leftMouseDragged, in: button, at: CGPoint(x: 80, y: 16)), event(.leftMouseUp, in: button, at: CGPoint(x: 80, y: 16))]
+        button.mouseDown(with: event(.leftMouseDown, in: button, at: center))
+        try check(clicks == 1 && holds == 1, "A quick drag/release outside does not choose the button")
+        trackingWindow.available = false
+        button.mouseDown(with: event(.leftMouseDown, in: button, at: center))
+        try check(holds == 1, "Closing the capture before the hold deadline must not open a late menu")
+        print("PASS: persistent pen default, independent radio/mode actions, next-capture icon and tool, hold/click routing, drag-release row selection and duplicate suppression")
+    }
+
+    private func syntheticImageColor() -> NSColor {
+        NSBitmapImageRep(cgImage: syntheticImage).colorAt(x: 10, y: 10)!.usingColorSpace(.sRGB)!
+    }
 
     func runPresentationChecks() throws {
         let context = CGContext(data: nil, width: 1800, height: 1280, bitsPerComponent: 8, bytesPerRow: 0,
@@ -976,7 +1382,7 @@ enum HarnessError: Error, CustomStringConvertible {
         canvas.resetSelection()
         try key("n")
         try drag(from: initialCrop.origin, to: CGPoint(x: initialCrop.maxX, y: initialCrop.maxY))
-        try key("p")
+        try choosePenMode(.stabilized)
         try drag(from: CGPoint(x: 150, y: 200), to: CGPoint(x: 450, y: 200))
         let uncutStroke = bytes(try copy())
         try key("e")
@@ -997,17 +1403,17 @@ enum HarnessError: Error, CustomStringConvertible {
         try drag(from: initialCrop.origin, to: CGPoint(x: initialCrop.maxX, y: initialCrop.maxY))
         try click(CGPoint(x: 100, y: 200))
         try click(CGPoint(x: 450, y: 200))
-        try button(labelPrefix: "画笔").performClick(nil)
-        try drag(from: CGPoint(x: 250, y: 180), through: [CGPoint(x: 270, y: 220)], to: CGPoint(x: 300, y: 180))
+        try choosePenMode(.stabilized)
+        try drag(from: CGPoint(x: 250, y: 200), through: [CGPoint(x: 275, y: 200)], to: CGPoint(x: 300, y: 200))
         try copy()
-        try expectColor(CGPoint(x: 270, y: 220), orange, "Freehand brush follows intermediate points")
+        try expectColor(CGPoint(x: 270, y: 200), orange, "Smoothed brush keeps the stable interior of a stroke")
         try expectNextPin(3)
         let beforeErase = bytes(try copy())
         try button(labelPrefix: "橡皮擦").performClick(nil)
-        try drag(from: CGPoint(x: 100, y: 180), through: [CGPoint(x: 270, y: 220)], to: CGPoint(x: 450, y: 180))
+        try drag(from: CGPoint(x: 100, y: 180), through: [CGPoint(x: 270, y: 200)], to: CGPoint(x: 450, y: 180))
         try expectNextPin(1)
         try copy()
-        try expectColor(CGPoint(x: 270, y: 220), backgroundColor!, "Eraser removes the freehand stroke")
+        try expectColor(CGPoint(x: 270, y: 200), backgroundColor!, "Eraser removes the freehand stroke")
         try button(labelPrefix: "撤销").performClick(nil)
         try expectNextPin(3)
         try check(bytes(try copy()) == beforeErase, "One undo restores all objects removed by one eraser drag")
@@ -1259,6 +1665,10 @@ MainActor.assumeIsolated {
             try smallCrops.runSmallCropChecks()
         }
         let harness = try CanvasHarness()
+        let pens = try CanvasHarness()
+        try pens.runPenModeChecks(outputURL: URL(fileURLWithPath: CommandLine.arguments[1]).deletingPathExtension().appendingPathExtension("pen.png"))
+        try pens.runBezierClosureChecks(outputURL: URL(fileURLWithPath: CommandLine.arguments[1]).deletingPathExtension().appendingPathExtension("cursors.png"))
+        try pens.runPenPreferenceMenuChecks(outputURL: URL(fileURLWithPath: CommandLine.arguments[1]).deletingPathExtension().appendingPathExtension("pen-menu.png"))
         try harness.runHintRasterChecks()
         if CommandLine.arguments.contains("--english") { try harness.runEnglishChecks(); exit(0) }
         try harness.run(outputURL: URL(fileURLWithPath: CommandLine.arguments[1]))

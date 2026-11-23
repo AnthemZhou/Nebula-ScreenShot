@@ -81,6 +81,11 @@ extension Ink {
             let diameter = annotation.lineWidth
             NSBezierPath(ovalIn: CGRect(x: first.x - diameter / 2, y: first.y - diameter / 2,
                                        width: diameter, height: diameter)).fill()
+        } else if let bezier = annotation.bezier {
+            context.addPath(bezier.cgPath)
+            context.setLineWidth(annotation.lineWidth)
+            context.setLineCap(.round); context.setLineJoin(.round)
+            context.strokePath()
         } else {
             let path = NSBezierPath()
             path.move(to: first)

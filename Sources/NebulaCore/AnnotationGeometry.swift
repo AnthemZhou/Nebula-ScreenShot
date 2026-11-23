@@ -4,12 +4,21 @@ import Foundation
 public enum AnnotationHandle: Equatable, Sendable {
     case point(Int)
     case box(SelectionHandle)
+    case anchor(Int), incoming(Int), outgoing(Int)
 }
 
 public enum AnnotationGeometry {
     public static func cornerRadius(in rect: CGRect) -> CGFloat { min(10, min(rect.width, rect.height) / 4) }
 
     public static func handles(for item: Annotation) -> [(handle: AnnotationHandle, point: CGPoint)] {
+        if let path = item.bezier {
+            return path.nodes.enumerated().flatMap { index, node in
+                var handles: [(AnnotationHandle, CGPoint)] = [(.anchor(index), node.anchor)]
+                if let p = node.incoming { handles.append((.incoming(index), p)) }
+                if let p = node.outgoing { handles.append((.outgoing(index), p)) }
+                return handles
+            }
+        }
         guard let first = item.points.first, let last = item.points.last else { return [] }
         switch item.tool {
         case .line, .arrow: return [(.point(0), first), (.point(item.points.count - 1), last)]
@@ -28,10 +37,15 @@ public enum AnnotationGeometry {
     /// just off its stroke. Empty interiors remain available for new drawings.
     public static func retainsEditingHover(for item: Annotation, at point: CGPoint, selection: CGRect) -> Bool {
         guard selection.contains(point), let first = item.points.first, let last = item.points.last else { return false }
+        if let path = item.bezier {
+            return hit(item, at: point, selection: selection, tolerance: 12) || hitHandle(at: point, item: item, tolerance: 14) != nil || path.nodes.contains { node in
+                [node.incoming, node.outgoing].compactMap { $0 }.contains { distance(point, to: node.anchor, $0) <= 12 }
+            }
+        }
         switch item.tool {
         case .rectangle, .ellipse:
             return Geometry.rect(from: first, to: last).insetBy(dx: -14, dy: -14).contains(point)
-        case .line, .arrow:
+        case .line, .arrow, .pen:
             return hit(item, at: point, selection: selection, tolerance: 12) || hitHandle(at: point, item: item, tolerance: 14) != nil
         default: return false
         }
@@ -117,6 +131,26 @@ public enum AnnotationGeometry {
         guard let first = item.points.first, let last = item.points.last else { return item }
         let delta = CGSize(width: end.x - start.x, height: end.y - start.y)
         switch handle {
+        case .anchor(let index), .incoming(let index), .outgoing(let index):
+            guard var path = item.bezier, path.nodes.indices.contains(index) else { return item }
+            var node = path.nodes[index]
+            switch handle {
+            case .anchor:
+                let target = Geometry.clamp(CGPoint(x: node.anchor.x + delta.width, y: node.anchor.y + delta.height), to: bounds)
+                node = node.translated(by: CGSize(width: target.x - node.anchor.x, height: target.y - node.anchor.y))
+            case .incoming, .outgoing:
+                let isIncoming = handle == .incoming(index)
+                let original = (isIncoming ? node.incoming : node.outgoing) ?? node.anchor
+                let target = Geometry.clamp(CGPoint(x: original.x + delta.width, y: original.y + delta.height), to: bounds)
+                let opposite = isIncoming ? node.outgoing : node.incoming
+                let length = opposite.map { hypot($0.x - node.anchor.x, $0.y - node.anchor.y) } ?? 0
+                let dx = target.x - node.anchor.x, dy = target.y - node.anchor.y, magnitude = hypot(dx, dy)
+                let mirrored = magnitude > 0 ? CGPoint(x: node.anchor.x - dx * length / magnitude, y: node.anchor.y - dy * length / magnitude) : node.anchor
+                if isIncoming { node.incoming = target; if opposite != nil { node.outgoing = mirrored } }
+                else { node.outgoing = target; if opposite != nil { node.incoming = mirrored } }
+            default: break
+            }
+            path.nodes[index] = node; item.setBezier(path)
         case .point(let index):
             guard item.points.indices.contains(index) else { return item }
             item.points[index] = Geometry.clamp(CGPoint(x: item.points[index].x + delta.width,
@@ -132,6 +166,7 @@ public enum AnnotationGeometry {
             let dx = min(max(delta.width, bounds.minX - xs.min()!), bounds.maxX - xs.max()!)
             let dy = min(max(delta.height, bounds.minY - ys.min()!), bounds.maxY - ys.max()!)
             item.points = item.points.map { CGPoint(x: $0.x + dx, y: $0.y + dy) }
+            if let path = item.bezier { item.setBezier(path.translated(by: CGSize(width: dx, height: dy))) }
             item.erasures = item.erasures.map { $0.translated(by: CGSize(width: dx, height: dy)) }
         }
         return item
