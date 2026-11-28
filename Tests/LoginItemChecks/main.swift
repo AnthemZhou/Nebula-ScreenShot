@@ -12,16 +12,21 @@ actor FakeLoginService: LoginItemServicing {
     var state: LoginItemState
     var registrations = 0, removals = 0
     var fails = false
-    var registerDelay: UInt64 = 0, statusDelay: UInt64 = 0
+    private var holdRegistration = false, holdNextStatus = false
+    private var pendingRegistration: CheckedContinuation<Void, Never>?
+    private var pendingStatus: CheckedContinuation<Void, Never>?
     init(_ state: LoginItemState = .notRegistered) { self.state = state }
     func status() async -> LoginItemState {
         let snapshot = state
-        if statusDelay > 0 { try? await Task.sleep(nanoseconds: statusDelay) }
+        if holdNextStatus {
+            holdNextStatus = false
+            await withCheckedContinuation { pendingStatus = $0 }
+        }
         return snapshot
     }
     func register() async throws {
         registrations += 1
-        if registerDelay > 0 { try await Task.sleep(nanoseconds: registerDelay) }
+        if holdRegistration { await withCheckedContinuation { pendingRegistration = $0 } }
         if fails { throw NSError(domain: "Fixture registration failure", code: 42) }
         state = .enabled
     }
@@ -32,12 +37,23 @@ actor FakeLoginService: LoginItemServicing {
     }
     func change(_ state: LoginItemState) { self.state = state }
     func setFailure(_ value: Bool) { fails = value }
-    func delayRegister(_ value: UInt64) { registerDelay = value }
-    func delayStatus(_ value: UInt64) { statusDelay = value }
+    func suspendRegistration() { holdRegistration = true }
+    func registrationIsPending() -> Bool { pendingRegistration != nil }
+    func releaseRegistration() { holdRegistration = false; pendingRegistration?.resume(); pendingRegistration = nil }
+    func suspendNextStatus() { holdNextStatus = true }
+    func statusIsPending() -> Bool { pendingStatus != nil }
+    func releaseStatus() { pendingStatus?.resume(); pendingStatus = nil }
     func counts() -> (Int, Int) { (registrations, removals) }
 }
 
 @MainActor func runChecks() async throws {
+    func waitUntil(_ ready: () async -> Bool) async throws {
+        let deadline = ProcessInfo.processInfo.systemUptime + 10
+        while !(await ready()) {
+            try check(ProcessInfo.processInfo.systemUptime < deadline, "Timed out waiting for a controlled service request")
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+    }
     let suite = "NebulaLoginFixture.\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suite)!
     defer { defaults.removePersistentDomain(forName: suite) }
@@ -98,19 +114,24 @@ actor FakeLoginService: LoginItemServicing {
     await unbundled.configureDefaultIfNeeded(); await unbundled.toggle()
     try check(defaults.persistentDomain(forName: suite)?.isEmpty != false, "Unbundled tools never consume the app's default or register")
     let slowService = FakeLoginService()
-    await slowService.delayRegister(120_000_000)
+    await slowService.suspendRegistration()
     let slow = LoginItemController(service: slowService, defaults: defaults, canConfigure: true)
     let configure = Task { await slow.configureDefaultIfNeeded() }
-    while !slow.isBusy { await Task.yield() }
+    try await waitUntil { await slowService.registrationIsPending() }
     await slow.toggle() // Reject duplicate mutation while the first request is pending.
-    var ticks = 0
-    while slow.isBusy { ticks += 1; try await Task.sleep(nanoseconds: 5_000_000) }
+    // Keep registration pending until another main-actor task actually runs.
+    // No assumption about timer granularity, VM speed or scheduler throughput.
+    let heartbeat = Task { @MainActor in slow.isBusy }
+    try check(await heartbeat.value, "Main actor executes while registration is still pending")
+    try check(await slowService.counts().0 == 1, "Pending registration suppresses duplicate mutations")
+    await slowService.releaseRegistration()
     await configure.value
-    try check(await slowService.counts().0 == 1 && ticks > 5, "Registration leaves the main actor responsive and suppresses duplicates")
-    await slowService.delayStatus(50_000_000)
+    try check(slow.state == .enabled && !slow.isBusy, "Explicit service completion updates the controller")
+    await slowService.suspendNextStatus()
     let refresh = Task { await slow.refresh() }
-    await Task.yield()
+    try await waitUntil { await slowService.statusIsPending() }
     await slow.toggle()
+    await slowService.releaseStatus()
     await refresh.value
     try check(slow.state == .notRegistered, "A stale menu refresh cannot restore enabled state after turning off")
     print("PASS: unbundled safety, responsive startup, duplicate suppression and refresh race")
