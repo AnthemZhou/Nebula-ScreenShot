@@ -5,9 +5,11 @@ import OSLog
 import Carbon
 import ScreenCaptureKit
 
-@MainActor final class AppDelegate: NSObject, NSApplicationDelegate {
+@MainActor final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem!
     private let hotKey = HotKey()
+    private let loginItem = LoginItemController()
+    private var loginItemMenuItem: NSMenuItem!
     private let capture = CaptureCoordinator()
     private var welcome: WelcomeWindow?
     private var permissionFlowActive = false
@@ -32,8 +34,11 @@ import ScreenCaptureKit
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        let launchEvent = NSAppleEventManager.shared().currentAppleEvent
         GlassMetalRenderer.prewarm()
         configureMenu()
+        loginItem.onChange = { [weak self] in self?.updateLoginItemMenu() }
+        Task { await loginItem.configureDefaultIfNeeded() }
         let firstLaunch = !UserDefaults.standard.bool(forKey: "hasLaunched")
         permissionUpgrade = ScreenPermissionUpgrade()
         UserDefaults.standard.set(true, forKey: "hasLaunched")
@@ -73,7 +78,8 @@ import ScreenCaptureKit
             capture.begin(demo: true)
         } else if CommandLine.arguments.contains("--capture") {
             beginAuthorizedCapture()
-        } else if firstLaunch && !captureRequestedDuringLaunch {
+        } else if ApplicationLaunchContext.showsWelcome(firstLaunch: firstLaunch,
+                    captureRequested: captureRequestedDuringLaunch, event: launchEvent) {
             showWelcome()
         }
         if captureRequestedDuringLaunch {
@@ -110,6 +116,12 @@ import ScreenCaptureKit
         menu.addItem(withTitle: L10n.text("关于 Nebula ScreenShot…", "About Nebula ScreenShot…"), action: #selector(showWelcome), keyEquivalent: "")
         let settingsItem = NSMenuItem(title: L10n.text("设置", "Settings"), action: nil, keyEquivalent: "")
         let settings = NSMenu()
+        settings.delegate = self
+        settings.autoenablesItems = false
+        loginItemMenuItem = NSMenuItem(title: L10n.text("登录时启动", "Launch at Login"),
+                                      action: #selector(toggleLoginItem), keyEquivalent: "")
+        settings.addItem(loginItemMenuItem)
+        settings.addItem(.separator())
         settings.addItem(withTitle: L10n.text("屏幕录制权限…", "Screen Recording Permission…"), action: #selector(openScreenPermission), keyEquivalent: "")
         settings.addItem(withTitle: L10n.text("重新授权屏幕录制…", "Reauthorize Screen Recording…"), action: #selector(reauthorizeScreenPermission), keyEquivalent: "")
         settings.addItem(withTitle: L10n.text("键盘快捷键设置…", "Keyboard Shortcut Settings…"), action: #selector(openKeyboardSettings), keyEquivalent: "")
@@ -123,6 +135,30 @@ import ScreenCaptureKit
         menu.addItem(withTitle: L10n.text("退出 Nebula ScreenShot", "Quit Nebula ScreenShot"), action: #selector(quit), keyEquivalent: "q")
         for item in menu.items where item.action != nil { item.target = self }
         statusItem.menu = menu
+        updateLoginItemMenu()
+    }
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        Task { await loginItem.refresh() }
+    }
+
+    private func updateLoginItemMenu() {
+        guard let item = loginItemMenuItem else { return }
+        item.state = loginItem.state == .enabled ? .on : .off
+        item.isEnabled = loginItem.canConfigure && !loginItem.isBusy
+        item.title = loginItem.state == .requiresApproval
+            ? L10n.text("登录时启动（需系统允许）", "Launch at Login (Approval Required)")
+            : L10n.text("登录时启动", "Launch at Login")
+        item.toolTip = loginItem.lastError ?? L10n.text("登录后在后台启动并恢复截图快捷键", "Start in the background and restore the capture shortcut after login")
+    }
+
+    @objc private func toggleLoginItem() {
+        Task {
+            await loginItem.toggle()
+            if let error = loginItem.lastError {
+                showError(L10n.text("无法更改登录启动设置：", "Could not change Launch at Login: ") + error)
+            }
+        }
     }
 
     private func restoreStatusIcon() {
@@ -428,11 +464,13 @@ import ScreenCaptureKit
     func applicationDidBecomeActive(_ notification: Notification) {
         if !hotKey.isRegistered { hotKey.register() }
         capture.restoreKeyboardFocusIfNeeded()
+        if launchFinished { Task { await loginItem.refresh() } }
     }
     func applicationDidResignActive(_ notification: Notification) { capture.applicationLostFocus() }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        showWelcome()
-        return true
+        guard ApplicationLaunchContext.showsWelcomeOnReopen(launchFinished: launchFinished,
+                event: NSAppleEventManager.shared().currentAppleEvent) else { return false }
+        showWelcome(); return true
     }
     func applicationWillTerminate(_ notification: Notification) {
         permissionRecoveryTask?.cancel()

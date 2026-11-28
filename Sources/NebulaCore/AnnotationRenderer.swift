@@ -99,6 +99,7 @@ extension Ink {
             for erasure in annotation.erasures {
                 guard let start = erasure.points.first else { continue }
                 context.saveGState()
+                context.concatenate(erasure.transform)
                 if let clip = erasure.clip { context.clip(to: clip) }
                 context.setLineWidth(erasure.radius * 2)
                 context.setLineCap(.round); context.setLineJoin(.round)

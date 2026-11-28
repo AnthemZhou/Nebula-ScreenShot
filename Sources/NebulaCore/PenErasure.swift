@@ -1,16 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-only
 import Foundation
+import CoreGraphics
 
 /// A round eraser sweep in canvas coordinates, retained as a non-destructive stroke mask.
 public struct PenErasure: Equatable, Sendable {
     public var points: [CGPoint]
     public var radius: CGFloat
     public var clip: CGRect?
+    public var transform: CGAffineTransform = .identity
     public init(points: [CGPoint], radius: CGFloat = 7, clip: CGRect? = nil) {
         self.points = points; self.radius = radius; self.clip = clip
     }
 
     public func contains(_ point: CGPoint) -> Bool {
+        let point = point.applying(transform.inverted())
         guard let first = points.first, clip?.contains(point) != false else { return false }
         return hypot(first.x - point.x, first.y - point.y) <= radius ||
             zip(points, points.dropFirst()).contains { AnnotationGeometry.distance(point, to: $0.0, $0.1) <= radius }
@@ -35,8 +38,15 @@ public struct PenErasure: Equatable, Sendable {
         return false
     }
 
+    public func applying(_ affine: CGAffineTransform) -> Self {
+        var result = self
+        result.transform = transform.concatenating(affine)
+        return result
+    }
+
     public func translated(by delta: CGSize) -> PenErasure {
-        PenErasure(points: points.map { CGPoint(x: $0.x + delta.width, y: $0.y + delta.height) }, radius: radius,
+        if !transform.isIdentity { return applying(CGAffineTransform(translationX: delta.width, y: delta.height)) }
+        return PenErasure(points: points.map { CGPoint(x: $0.x + delta.width, y: $0.y + delta.height) }, radius: radius,
                    clip: clip?.offsetBy(dx: delta.width, dy: delta.height))
     }
 

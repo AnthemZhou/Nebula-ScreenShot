@@ -120,6 +120,16 @@ import QuartzCore
     private var bezierUndo: [BezierPath] = []
     private var bezierRedo: [BezierPath] = []
     private var bezierOriginal: Annotation?
+    private struct PathTransformSession {
+        var id: UUID
+        var frame: PathTransformFrame
+        var pivot: CGPoint
+    }
+    private var pathTransform: PathTransformSession?
+    // A double-click must not inherit a first click's single-click closure.
+    private var lastClosedPath: (annotation: Annotation, history: AnnotationHistory)?
+    var pathTransformFrame: PathTransformFrame? { pathTransform?.frame }
+    var pathTransformPivot: CGPoint? { pathTransform?.pivot }
     private var penLineWidth: CGFloat { lineWidth * 0.8 }
     private var stabilizer: PenStabilizer?
     private var canEditMarks: Bool { tool != .eraser && (tool != .pen || (penMode == .bezier && bezierDraft == nil)) }
@@ -174,6 +184,7 @@ import QuartzCore
         case edit(original: Annotation, handle: AnnotationHandle?, start: CGPoint)
         case erase(last: CGPoint)
         case text
+        case transformPath(original: Annotation, session: PathTransformSession, part: PathTransformPart, start: CGPoint)
         case bezierHandle(Int, dragged: Bool)
         case bezierEdit(original: Annotation, handle: AnnotationHandle, start: CGPoint, dragged: Bool)
     }
@@ -266,6 +277,7 @@ import QuartzCore
         super.viewDidMoveToWindow()
         if window == nil {
             penPreview.reset(); stabilizer = nil; bezierDraft = nil; bezierUndo.removeAll(); bezierRedo.removeAll(); bezierOriginal = nil; draft = nil
+            pathTransform = nil; lastClosedPath = nil
             textSelection.reset()
             glassRenderer.cancel()
             spaceHeld = false
@@ -286,6 +298,7 @@ import QuartzCore
         interaction = nil
         draft = nil
         bezierDraft = nil; bezierUndo.removeAll(); bezierRedo.removeAll(); bezierOriginal = nil; stabilizer = nil; penPreview.reset()
+        pathTransform = nil; lastClosedPath = nil
         history = AnnotationHistory()
         hoverID = nil
         newlyPlacedPinID = nil
@@ -397,7 +410,7 @@ import QuartzCore
     }
 
     private var highlightedSelectionHandle: SelectionHandle? {
-        guard !exportBusy, let selection, selection.width >= 8, selection.height >= 8 else { return nil }
+        guard pathTransform == nil, !exportBusy, let selection, selection.width >= 8, selection.height >= 8 else { return nil }
         let handle: SelectionHandle?
         if case .resize(_, let activeHandle, _, _) = interaction {
             handle = activeHandle
@@ -560,6 +573,10 @@ import QuartzCore
         }
         if point != previousPointer { suppressSelectionHover = false }
         pointer = point
+        if pathTransform != nil {
+            updatePointerCursor(at: point)
+            return
+        }
         if bezierDraft != nil {
             hoverID = nil
             updatePenPreview(); updatePointerCursor(at: point)
@@ -609,6 +626,9 @@ import QuartzCore
     /// Resolve separately from applying the native cursor so hidden-window
     /// interaction checks can verify tool/hover/drag states without system input.
     func pointerCursor(at point: CGPoint) -> NSCursor {
+        if case .transformPath(_, let session, let part, _) = interaction { return transformCursor(part, frame: session.frame, dragging: true) }
+        if !pointerIsOnToolbar(point), let session = pathTransform,
+           let part = session.frame.hit(at: point, pivot: session.pivot) { return transformCursor(part, frame: session.frame) }
         if case .bezierEdit = interaction { return CaptureCursor.bezierNode }
         if case .edit(let original, let handle, _) = interaction, handle != nil {
             return original.bezier != nil ? CaptureCursor.bezierNode : .closedHand
@@ -640,6 +660,10 @@ import QuartzCore
     }
 
     private func drawEditingControls(selection: CGRect) {
+        if let session = pathTransform, let annotation = item(id: session.id) {
+            drawPathTransform(session, annotation: annotation)
+            return
+        }
         let ids = Set([selectedID, hoverID].compactMap { $0 })
         if canEditMarks {
             for annotation in displayAnnotations where ids.contains(annotation.id) {
@@ -725,6 +749,16 @@ import QuartzCore
         window?.makeFirstResponder(self)
         let point = point(for: event)
         pointer = point
+        if event.clickCount >= 2, !spaceHeld, !textSelection.isEnabled, tool != .eraser,
+           selection?.contains(point) == true, beginPathTransform(at: point) { return }
+        lastClosedPath = nil
+        if let session = pathTransform, !spaceHeld {
+            if let part = session.frame.hit(at: point, pivot: session.pivot), let annotation = item(id: session.id) {
+                interaction = .transformPath(original: annotation, session: session, part: part, start: point)
+                updatePointerCursor(at: point)
+            } else { pathTransform = nil }
+            refresh(); return
+        }
         if let selection, selection.contains(point), !spaceHeld, bezierDraft != nil {
             beginBezier(at: point)
             return
@@ -793,7 +827,7 @@ import QuartzCore
             return
         }
         if textSelection.isEnabled { showTextMenu(at: point); return }
-        if tool == .pen || item(id: selectedID)?.bezier != nil {
+        if pathTransform != nil || tool == .pen || item(id: selectedID)?.bezier != nil {
             // Inside the crop, end editing but keep capture open.
             finishBezierPath(); selectedID = nil; hoverID = nil; pointer = nil
             refresh(); return
@@ -870,6 +904,32 @@ import QuartzCore
             self.interaction = .rightOutside(start: start,
                                             dragged: wasDragged || hypot(point.x - start.x, point.y - start.y) >= Self.dragThreshold)
         case .text: textSelection.drag(to: point)
+        case .transformPath(let original, let session, let part, let start):
+            if point == start { pathTransform = session; draft = nil; refresh(); return }
+            guard draft != nil || hypot(point.x - start.x, point.y - start.y) >= 2 else { return }
+            var updated = session
+            let affine: CGAffineTransform
+            switch part {
+            case .pivot:
+                updated.pivot = CGPoint(x: session.pivot.x + point.x - start.x, y: session.pivot.y + point.y - start.y)
+                pathTransform = updated; refresh(); return
+            case .move:
+                affine = CGAffineTransform(translationX: point.x - start.x, y: point.y - start.y)
+                updated.frame.center = session.frame.center.applying(affine)
+            case .rotate:
+                let angle = atan2(point.y - session.pivot.y, point.x - session.pivot.x) - atan2(start.y - session.pivot.y, start.x - session.pivot.x)
+                affine = PathTransformFrame.rotation(angle, around: session.pivot)
+                updated.frame.angle += angle
+                updated.frame.center = session.frame.center.applying(affine)
+            case .scale(let index):
+                let result = session.frame.resized(handle: index, from: start, to: point, pivot: session.pivot,
+                    uniform: event.modifierFlags.contains(.shift), aroundPivot: event.modifierFlags.contains(.command))
+                affine = result.transform; updated.frame = result.frame
+            }
+            updated.pivot = session.pivot.applying(affine)
+            pathTransform = updated
+            draft = original.transformingPath(by: affine)
+            updatePointerCursor(at: point)
         case .bezierEdit(let original, let handle, let start, let wasDragged):
             guard let selection else { return }
             let dragged = wasDragged || hypot(point.x - start.x, point.y - start.y) >= Self.dragThreshold
@@ -916,6 +976,7 @@ import QuartzCore
                var path = bezierDraft {
                 // Mouse-up distinguishes a deliberate click from dragging the
                 // start node (including dragging away and returning to it).
+                lastClosedPath = (original, history)
                 path.isClosed = true; bezierDraft = path; draft?.setBezier(path)
                 finishBezierPath(); selectedID = original.id; hoverID = original.id
                 refresh(); return
@@ -940,6 +1001,8 @@ import QuartzCore
         case .move: break
         case .text: textSelection.end()
         case .bezierHandle, .bezierEdit: break
+        case .transformPath:
+            if let draft { history.replace(draft) }
         case .draw(let start, let drawingTool, let ink, let width, let right, let dragged):
             if drawingTool == .pen, let draft { history.append(draft) }
             else if dragged {
@@ -982,6 +1045,71 @@ import QuartzCore
         refresh()
     }
 
+    private func beginPathTransform(at point: CGPoint) -> Bool {
+        func matches(_ annotation: Annotation) -> Bool {
+            guard let path = annotation.bezier, path.nodes.count >= 2, let selection else { return false }
+            return path.nodes.contains { hypot($0.anchor.x - point.x, $0.anchor.y - point.y) <= 11 } ||
+                AnnotationGeometry.hit(annotation, at: point, selection: selection, tolerance: 5)
+        }
+        var candidate: Annotation?
+        if let closed = lastClosedPath, matches(closed.annotation) {
+            // Undo only the first click's automatic closure, preserving earlier edits.
+            history = closed.history
+            if history.annotations.contains(where: { $0.id == closed.annotation.id }) { history.replace(closed.annotation) }
+            else { history.append(closed.annotation) }
+            candidate = closed.annotation
+        } else if let draft, matches(draft) { candidate = draft }
+        else { candidate = history.annotations.reversed().first(where: matches) }
+        guard let candidate else { return false }
+        finishBezierPath()
+        guard let annotation = history.annotations.first(where: { $0.id == candidate.id }), let path = annotation.bezier else { return false }
+        let frame = PathTransformFrame(path: path)
+        pathTransform = PathTransformSession(id: annotation.id, frame: frame, pivot: frame.center)
+        lastClosedPath = nil; selectedID = annotation.id; hoverID = nil; interaction = nil
+        penPreview.reset(); refresh(); updatePointerCursor(at: point)
+        return true
+    }
+
+    private func restoreTransformAfterHistory() {
+        lastClosedPath = nil
+        guard let session = pathTransform else { return }
+        guard let path = item(id: session.id)?.bezier else { pathTransform = nil; return }
+        let frame = PathTransformFrame(path: path)
+        pathTransform = PathTransformSession(id: session.id, frame: frame, pivot: frame.center)
+    }
+
+    private func transformCursor(_ part: PathTransformPart, frame: PathTransformFrame, dragging: Bool = false) -> NSCursor {
+        switch part {
+        case .move: return dragging ? .closedHand : .openHand
+        case .pivot: return .crosshair
+        case .rotate: return CaptureCursor.pathRotate
+        case .scale(let index):
+            let d = PathTransformFrame.directions[index]
+            return CaptureCursor.pathResize(angle: frame.angle + atan2(d.y, d.x))
+        }
+    }
+
+    private func drawPathTransform(_ session: PathTransformSession, annotation: Annotation) {
+        let handles = session.frame.handles
+        let outline = NSBezierPath()
+        outline.move(to: handles[0]); for index in [2, 4, 6] { outline.line(to: handles[index]) }; outline.close()
+        NSColor.black.withAlphaComponent(0.35).setStroke(); outline.lineWidth = 2; outline.stroke()
+        annotation.ink.color.setStroke(); outline.lineWidth = 1; outline.stroke()
+        for p in handles {
+            let box = NSBezierPath(rect: CGRect(x: p.x - 3, y: p.y - 3, width: 6, height: 6))
+            NSColor.white.setFill(); box.fill(); annotation.ink.color.setStroke(); box.lineWidth = 1; box.stroke()
+        }
+        for node in annotation.bezier?.nodes ?? [] {
+            let dot = NSBezierPath(ovalIn: CGRect(x: node.anchor.x - 2, y: node.anchor.y - 2, width: 4, height: 4))
+            annotation.ink.color.setFill(); dot.fill()
+        }
+        let p = session.pivot, pivot = NSBezierPath(ovalIn: CGRect(x: p.x - 4, y: p.y - 4, width: 8, height: 8))
+        pivot.move(to: CGPoint(x: p.x - 7, y: p.y)); pivot.line(to: CGPoint(x: p.x + 7, y: p.y))
+        pivot.move(to: CGPoint(x: p.x, y: p.y - 7)); pivot.line(to: CGPoint(x: p.x, y: p.y + 7))
+        NSColor.black.withAlphaComponent(0.7).setStroke(); pivot.lineWidth = 2; pivot.stroke()
+        NSColor.white.setStroke(); pivot.lineWidth = 0.8; pivot.stroke()
+    }
+
     private func beginBezier(at point: CGPoint) {
         if let draft, bezierDraft != nil,
            let handle = AnnotationGeometry.hitHandle(at: point, item: draft) {
@@ -1022,6 +1150,7 @@ import QuartzCore
     }
 
     private func finishBezierPath() {
+        pathTransform = nil
         guard let path = bezierDraft else { return }
         if let draft, !draft.points.isEmpty {
             if let original = bezierOriginal {
@@ -1039,7 +1168,7 @@ import QuartzCore
             guard let previous = bezierUndo.popLast() else { return }
             bezierRedo.append(path); bezierDraft = previous
             draft?.setBezier(previous); updatePenPreview()
-        } else { history.undo() }
+        } else { history.undo(); restoreTransformAfterHistory() }
         refresh()
     }
 
@@ -1048,11 +1177,12 @@ import QuartzCore
             guard let next = bezierRedo.popLast() else { return }
             bezierUndo.append(path); bezierDraft = next
             draft?.setBezier(next); updatePenPreview()
-        } else { history.redo() }
+        } else { history.redo(); restoreTransformAfterHistory() }
         refresh()
     }
 
     private var penHint: String? {
+        if pathTransform != nil { return L10n.text("拖动变换 · ⇧ 等比 · 回车结束", "Drag to transform · ⇧ constrain · Return to finish") }
         guard tool == .pen, !textSelection.isEnabled else { return nil }
         return penMode == .bezier
             ? L10n.text("单击加点 · 拖动手柄 · 右键结束", "Click / drag points · Right-click to finish")
@@ -1174,7 +1304,14 @@ import QuartzCore
 
     override func keyDown(with event: NSEvent) {
         let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
-        if event.keyCode == 53 { onCancel?(); return }
+        if event.keyCode == 53 {
+            guard !event.isARepeat else { return }
+            if pathTransform != nil {
+                if case .transformPath = interaction { interaction = nil; draft = nil }
+                pathTransform = nil; refresh()
+            } else { onCancel?() }
+            return
+        }
         guard !exportBusy else { return }
         if event.keyCode == 49, !event.modifierFlags.contains(.command), interaction == nil {
             spaceHeld = true
@@ -1185,6 +1322,9 @@ import QuartzCore
         guard interaction == nil else { return }
         if event.isARepeat && (event.keyCode == 36 || event.keyCode == 76 ||
             (event.modifierFlags.contains(.command) && ["c", "s"].contains(key))) { return }
+        if pathTransform != nil, event.keyCode == 36 || event.keyCode == 76 {
+            pathTransform = nil; refresh(); return
+        }
         if textSelection.isEnabled {
             if event.modifierFlags.contains(.command), key == "a" { textSelection.selectAll(); return }
             if event.keyCode == 36 || event.keyCode == 76 || (event.modifierFlags.contains(.command) && key == "c") {
@@ -1194,7 +1334,7 @@ import QuartzCore
         }
         if event.keyCode == 51 || event.keyCode == 117 {
             if bezierDraft?.nodes.isEmpty == false { undoMark(); return }
-            if let selectedID { history.remove(ids: [selectedID]); self.selectedID = nil; hoverID = nil; refresh() }
+            if let selectedID { history.remove(ids: [selectedID]); self.selectedID = nil; hoverID = nil; pathTransform = nil; refresh() }
             return
         }
         if event.modifierFlags.contains(.command) {
@@ -1240,6 +1380,7 @@ import QuartzCore
             return
         }
         if textSelection.isEnabled { addCursorRect(selection, cursor: .iBeam); return }
+        if pathTransform != nil { return }
         if tool == .pen { addCursorRect(selection, cursor: penDrawingCursor) }
         if tool == .eraser { addCursorRect(selection, cursor: CaptureCursor.eraser) }
         addCursorRect(CGRect(x: selection.minX - 6, y: selection.minY, width: 8, height: selection.height), cursor: .resizeLeftRight)

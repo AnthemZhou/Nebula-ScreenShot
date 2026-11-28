@@ -239,6 +239,98 @@ enum HarnessError: Error, CustomStringConvertible {
         try check(NSApp.sendAction(action, to: item.target, from: item), "Pen mode must be selectable from the toolbar")
     }
 
+    func runPathTransformChecks(outputURL: URL) throws {
+        try drag(from: initialCrop.origin, to: CGPoint(x: initialCrop.maxX, y: initialCrop.maxY))
+        try choosePenMode(.bezier)
+        let a = CGPoint(x: 200, y: 180), b = CGPoint(x: 400, y: 230), c = CGPoint(x: 330, y: 340)
+        try drag(from: a, to: CGPoint(x: 250, y: 100)); try click(b); try click(c)
+        var expected = Annotation(tool: .pen, points: [], lineWidth: 2.8)
+        expected.setBezier(BezierPath(nodes: [BezierNode(anchor: a, incoming: CGPoint(x: 150, y: 260), outgoing: CGPoint(x: 250, y: 100)), BezierNode(anchor: b), BezierNode(anchor: c)]))
+        func raster(_ item: Annotation) -> Data {
+            bytes(AnnotationRenderer.export(image: syntheticImage, canvasSize: canvas.bounds.size, selection: initialCrop, annotations: [item])!)
+        }
+        func doubleClick(_ p: CGPoint) throws { try click(p); try click(p, clickCount: 2) }
+        // A full native double-click sequence starts with a single click that
+        // would otherwise close an unfinished curve at its first anchor.
+        try doubleClick(a)
+        try check(canvas.pathTransformFrame != nil && !canvas.isInteracting, "Double-clicking a draft anchor must enter whole-path transform")
+        let beforeReturn = copyCount, beforeCancel = cancelCount
+        try key("\r", code: 36)
+        try check(canvas.pathTransformFrame == nil && copyCount == beforeReturn && cancelCount == beforeCancel,
+                  "Return exits transform without copying or closing capture")
+        try key("\r", code: 36, repeating: true)
+        try check(copyCount == beforeReturn, "Holding Return after transform must not copy")
+        try check(bytes(try copy()) == raster(expected), "Double-click must not close or append a segment to the original open path")
+        let original = expected, originalPixels = bytes(exported!)
+
+        // Double-clicking a completed endpoint must supersede click-to-continue.
+        try doubleClick(c)
+        guard let box = canvas.pathTransformFrame else { throw HarnessError.failed("Missing transform box") }
+        let moveStart = box.world(CGPoint(x: 20, y: 10)), moveEnd = CGPoint(x: moveStart.x + 35, y: moveStart.y + 20)
+        try check(canvas.pointerCursor(at: moveStart) === NSCursor.openHand, "Box interior advertises whole-path movement")
+        try drag(from: moveStart, to: moveEnd)
+        expected = expected.transformingPath(by: CGAffineTransform(translationX: 35, y: 20))
+        try check(canvas.selection == initialCrop, "Path movement must not move the screenshot crop")
+        let moved = bytes(try copy(commandC: true))
+        try check(moved == raster(expected), "Moving the box moves every node and tangent, with no controls in export")
+        try key("z", flags: [.command]); try check(bytes(try copy()) == originalPixels, "A whole-path drag is one undo step")
+        try key("z", flags: [.command, .shift]); try check(bytes(try copy()) == moved, "Whole-path redo restores exact exported geometry")
+
+        try doubleClick(expected.bezier!.nodes[1].anchor)
+        let scaleBox = canvas.pathTransformFrame!, corner = scaleBox.handles[4]
+        let fixed = scaleBox.handles[0]
+        let end = CGPoint(x: fixed.x + (corner.x - fixed.x) * 1.25, y: fixed.y + (corner.y - fixed.y) * 1.25)
+        try drag(from: corner, to: end, flags: [.shift])
+        let scale = CGAffineTransform(a: 1.25, b: 0, c: 0, d: 1.25, tx: -fixed.x * 0.25, ty: -fixed.y * 0.25)
+        expected = expected.transformingPath(by: scale)
+        try check(abs(canvas.pathTransformFrame!.size.width / canvas.pathTransformFrame!.size.height - scaleBox.size.width / scaleBox.size.height) < 0.00001,
+                  "Shift scaling preserves the box aspect ratio")
+        try check(bytes(try copy(commandC: true)) == raster(expected), "Scaling changes all nodes and their handles around the opposite corner")
+
+        try doubleClick(expected.bezier!.nodes[1].anchor)
+        let rotateBox = canvas.pathTransformFrame!, oldPivot = canvas.pathTransformPivot!
+        let pivot = CGPoint(x: oldPivot.x + 12, y: oldPivot.y - 8)
+        try drag(from: oldPivot, to: pivot)
+        try check(canvas.pathTransformPivot == pivot && canvas.pathTransformFrame == rotateBox, "Dragging the pivot does not move the path")
+        let rotateStart = rotateBox.world(CGPoint(x: rotateBox.size.width / 2 + 12, y: -rotateBox.size.height / 2 - 12))
+        try check(canvas.pointerCursor(at: rotateStart) === CaptureCursor.pathRotate, "Outside the box uses a curved rotation cursor")
+        let rotation = PathTransformFrame.rotation(.pi / 6, around: pivot)
+        try drag(from: rotateStart, to: rotateStart.applying(rotation))
+        expected = expected.transformingPath(by: rotation)
+        try check(abs(canvas.pathTransformFrame!.angle - .pi / 6) < 0.00001, "The transform box rotates with the path")
+        try check(canvas.pathTransformPivot.map { hypot($0.x - pivot.x, $0.y - pivot.y) < 0.00001 } == true, "Rotation preserves the adjusted pivot")
+        // Capture the actual controls before copy completes transform mode.
+        let preview = try renderedCanvasBitmap()
+        try preview.representation(using: .png, properties: [:])!.write(to: outputURL)
+        try check(bytes(try copy(commandC: true)) == raster(expected), "Rotation exports the same cubic and leaves no editing controls")
+        try key("z", flags: [.command]); try key("z", flags: [.command]); try key("z", flags: [.command])
+        try check(bytes(try copy()) == originalPixels, "Three drags undo to the original path; pivot movement adds no content history")
+        expected = original
+
+        try doubleClick(a)
+        let abortBox = canvas.pathTransformFrame!, start = abortBox.world(CGPoint(x: 20, y: 10))
+        canvas.mouseDown(with: try mouse(.leftMouseDown, start))
+        canvas.mouseDragged(with: try mouse(.leftMouseDragged, CGPoint(x: start.x + 60, y: start.y + 10)))
+        try key("", code: 53)
+        try key("", code: 53, repeating: true)
+        canvas.mouseUp(with: try mouse(.leftMouseUp, start))
+        try check(!canvas.isInteracting && canvas.pathTransformFrame == nil && cancelCount == beforeCancel,
+                  "Esc aborts an active transform gesture and keeps capture open; repeats do not escape")
+        try check(bytes(try copy()) == originalPixels, "Canceled transforms preserve the original path")
+        // Existing point edits and endpoint continuation are still available.
+        try hover(b); try drag(from: b, to: CGPoint(x: b.x + 10, y: b.y + 5))
+        expected = AnnotationGeometry.edited(original, handle: .anchor(1), from: b, to: CGPoint(x: b.x + 10, y: b.y + 5), within: canvas.bounds)
+        try check(bytes(try copy()) == raster(expected), "Single-node editing still works after leaving transform mode")
+        try doubleClick(c)
+        try click(CGPoint(x: 700, y: 430), right: true)
+        try check(canvas.pathTransformFrame == nil && cancelCount == beforeCancel, "Right-click inside finishes whole-path transform without exiting capture")
+        try doubleClick(c)
+        try click(CGPoint(x: 10, y: 10), right: true)
+        try check(cancelCount == beforeCancel + 1, "Right-click on the shade exits capture while transforming")
+        try check(!window.isVisible, "All transform fixtures remain offscreen")
+        print("PASS: whole-path double-click, move/scale/rotate/pivot, closure isolation, clean export, single-step undo, Esc/Return isolation and point-edit recovery")
+    }
+
     func runPenModeChecks(outputURL: URL) throws {
         try drag(from: initialCrop.origin, to: CGPoint(x: initialCrop.maxX, y: initialCrop.maxY))
         let blank = bytes(try copy()), blue = try referenceColor(.blue)
@@ -1669,6 +1761,8 @@ MainActor.assumeIsolated {
             let smallCrops = try CanvasHarness()
             try smallCrops.runSmallCropChecks()
         }
+        let transforms = try CanvasHarness()
+        try transforms.runPathTransformChecks(outputURL: URL(fileURLWithPath: CommandLine.arguments[1]).deletingPathExtension().appendingPathExtension("path-transform.png"))
         let harness = try CanvasHarness()
         let pens = try CanvasHarness()
         try pens.runPenModeChecks(outputURL: URL(fileURLWithPath: CommandLine.arguments[1]).deletingPathExtension().appendingPathExtension("pen.png"))

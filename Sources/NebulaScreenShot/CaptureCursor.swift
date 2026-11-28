@@ -7,6 +7,45 @@ import AppKit
     static let eraser = ring(diameter: 14)
     static func pen(width: CGFloat) -> NSCursor { penCursors[width <= 2 ? 0 : (width >= 6 ? 2 : 1)] }
 
+    private static let pathResizeCursors = (0..<4).map { transformCursor(angle: CGFloat($0) * .pi / 4, rotation: false) }
+    static let pathRotate = transformCursor(angle: 0, rotation: true)
+    static func pathResize(angle: CGFloat) -> NSCursor {
+        let index = (Int((angle / (.pi / 4)).rounded()) % 4 + 4) % 4
+        return pathResizeCursors[index]
+    }
+    private static func transformCursor(angle: CGFloat, rotation: Bool) -> NSCursor {
+        let image = NSImage(size: NSSize(width: 18, height: 18), flipped: true) { _ in
+            let path = NSBezierPath()
+            func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+                CGPoint(x: 9 + x * cos(angle) - y * sin(angle), y: 9 + x * sin(angle) + y * cos(angle))
+            }
+            if rotation {
+                let first: CGFloat = -.pi / 5, last: CGFloat = .pi * 1.2
+                for i in 0...24 {
+                    let a = first + (last - first) * CGFloat(i) / 24
+                    let point = p(5.5 * cos(a), 5.5 * sin(a))
+                    if i == 0 { path.move(to: point) } else { path.line(to: point) }
+                }
+                for (a, sign) in [(first, CGFloat(1)), (last, CGFloat(-1))] {
+                    let x = 5.5 * cos(a), y = 5.5 * sin(a)
+                    let dx = -sin(a) * sign, dy = cos(a) * sign
+                    path.move(to: p(x + dx * 3 - dy * 2, y + dy * 3 + dx * 2)); path.line(to: p(x, y))
+                    path.line(to: p(x + dx * 3 + dy * 2, y + dy * 3 - dx * 2))
+                }
+            } else {
+                path.move(to: p(-6, 0)); path.line(to: p(6, 0))
+                for sign: CGFloat in [-1, 1] {
+                    path.move(to: p(sign * 3, -3)); path.line(to: p(sign * 6, 0)); path.line(to: p(sign * 3, 3))
+                }
+            }
+            path.lineCapStyle = .round; path.lineJoinStyle = .round
+            NSColor.black.withAlphaComponent(0.85).setStroke(); path.lineWidth = 2.6; path.stroke()
+            NSColor.white.setStroke(); path.lineWidth = 1; path.stroke()
+            return true
+        }
+        return NSCursor(image: image, hotSpot: NSPoint(x: 9, y: 9))
+    }
+
     static let bezier = nib()
     static let bezierNode = nodeArrow(closing: false)
     static let bezierClose = nodeArrow(closing: true)

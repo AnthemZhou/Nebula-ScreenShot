@@ -6,6 +6,19 @@ MainActor.assumeIsolated {
 if CommandLine.arguments.contains("--permission-relaunch-helper") {
     exit(AppRelauncher.runHelper(arguments: CommandLine.arguments))
 }
+if CommandLine.arguments.contains("--login-item-status") {
+    // Read only: do not start AppDelegate, register a login item/hotkey,
+    // initialize capture, activate the app or ask for administrator privileges.
+    Task {
+        let state = await SystemLoginItemService().status()
+        let payload = ["application": "Nebula ScreenShot", "launchAtLogin": state.rawValue]
+        if let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]),
+           let json = String(data: data, encoding: .utf8) { print(json); exit(0) }
+        exit(1)
+    }
+    RunLoop.main.run()
+    exit(1)
+}
 let app = NSApplication.shared
 if let index = CommandLine.arguments.firstIndex(of: "--render-toolbar"), CommandLine.arguments.count > index + 1 {
     let preview = ToolbarPreview(availableWidth: CommandLine.arguments.contains("--compact") ? 372 : AnnotationToolbar.preferredWidth,

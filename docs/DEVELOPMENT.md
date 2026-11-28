@@ -6,7 +6,7 @@
 
 ## 从源码构建
 
-需要 Xcode 16 或更新版本，以及 Swift 6 工具链。工程使用 Swift Package Manager，可直接用 Xcode 打开 `Package.swift`。只依赖 macOS 系统框架，包括 AppKit、ScreenCaptureKit、Carbon、ImageIO、Vision、CoreText 和 Metal。液态玻璃着色器随应用内嵌，在后台编译并复用截图纹理；Metal 不可用时保留深色备用外观，第三方算法许可见 `THIRD_PARTY_NOTICES.md`。
+需要 Xcode 16 或更新版本，以及 Swift 6 工具链。工程使用 Swift Package Manager，可直接用 Xcode 打开 `Package.swift`。只依赖 macOS 系统框架，包括 AppKit、ScreenCaptureKit、Carbon、ImageIO、Vision、CoreText、Metal 和 ServiceManagement。液态玻璃着色器随应用内嵌，在后台编译并复用截图纹理；Metal 不可用时保留深色备用外观，第三方算法许可见 `THIRD_PARTY_NOTICES.md`。
 
 ```sh
 git clone https://github.com/AnthemZhou/Nebula-ScreenShot.git
@@ -16,6 +16,7 @@ swift test
 bash scripts/check-text-recognition.sh
 bash scripts/check-glass.sh
 ./scripts/check-sessions.sh
+bash scripts/check-login-items.sh
 python3 scripts/check-exclusion.py
 ./scripts/check-relaunch.sh
 bash scripts/check-permission-recovery.sh
@@ -60,6 +61,14 @@ log show --last 5m --style compact --predicate 'subsystem == "io.github.anthemzh
 ```
 
 `--capture` 在应用启动时直接开始一次截图；应用已运行时请使用快捷键。更新后若需命令行恢复，只重置此应用：`tccutil reset ScreenCapture io.github.anthemzhou.NebulaScreenShot`，然后重新启动并授权。
+
+### 只读查询登录启动状态
+
+```sh
+"$HOME/Applications/Nebula ScreenShot.app/Contents/MacOS/NebulaScreenShot" --login-item-status
+```
+
+输出包含应用名称与 `launchAtLogin` 状态：`enabled`、`notRegistered`、`requiresApproval` 或 `notFound`。此入口只读取 `SMAppService.mainApp.status`，不注册登录项、不启动截图、不请求管理员密码。日常诊断使用此入口，无需运行 `sfltool` 等系统管理工具。
 
 ## 示例画布与预览
 

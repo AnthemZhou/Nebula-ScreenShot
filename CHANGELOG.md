@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.1.9 — 2026-11-29
+
+- Add a read-only `--login-item-status` diagnostic using Service Management directly, without invoking privileged system diagnostic tools, starting capture or changing login settings.
+- Simplify the README with Chinese/English quick-start instructions and version, platform, architecture, license and build badges; retain detailed help in the user guide.
+
+- Add Settings → Launch at Login, enabled once by default using macOS Service Management. Start in the background and register the capture shortcut before asynchronous login-item work, without opening the main window or requesting screen access at login.
+- Read the system login-item state for the menu. Respect manual disable/removal in both Nebula and System Settings across launches and upgrades; native approval settings open only after an explicit click. Surface registration failures without pretending the option is enabled.
+- Add isolated login-item checks covering first-run defaults, retained choices, failed registration/removal, responsive startup, stale reads and native login/service Apple events.
+
+- Double-click a Bézier anchor to enter whole-path free transform. Drag inside the box to move, its eight handles to resize, or just outside to rotate. Shift constrains proportions; Command resizes around the movable pivot. Transform every anchor and tangent together, retaining closed paths and existing eraser masks.
+- Keep each transform drag as one undo step. Return, Escape or an inside right-click leaves transform mode without closing capture; Escape during a drag discards that uncommitted gesture. Preserve single-node editing, endpoint continuation, single-click closure and clean image exports.
+- Add affine geometry, transformed eraser pixel checks and real AppKit interaction coverage for double-click/closure conflicts, pivot transforms, undo/redo, keyboard isolation and returning to node editing.
+
 ## 1.1.8 — 2026-11-23
 
 - Add two pen modes: pull-circle smooth freehand is the initial default; select cubic Bézier paths from the pen dropdown or Shapes and settings. Match the icon to the selected mode and reduce pen widths by 20%.

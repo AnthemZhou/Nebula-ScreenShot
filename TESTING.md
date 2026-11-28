@@ -1,5 +1,26 @@
 # Manual acceptance checks
 
+## v1.1.9 packaging (build 61)
+
+Build 59 desktop path-transform behavior was accepted by the user. Build 60 login-item registration, windowless startup and hotkey registration were verified locally; real logout/reboot remains a manual check. Build 61 packages these features with a read-only login-status diagnostic. Run the bundled executable with `--login-item-status`: expect a JSON application label and status, then exit without a main process, window, new registration or permission prompt.
+
+## Launch at Login (development build 60)
+
+Local validation: isolated login-item checks and continuous-session checks passed. Installed build 60 is registered at the stable Applications path with system disposition `enabled, allowed`; one accessory process, no visible main window, and shortcut registration status 0 were observed. A real logout/reboot has not been performed.
+
+- Run `bash scripts/check-login-items.sh` for isolated service/default/error/race and background Apple-event checks, then `scripts/check-sessions.sh` for the first windowless shortcut and continuous capture. The login fixture never modifies real login items or opens Settings.
+- Install the bundled app at its stable Applications location. On the first launch of this feature, Settings → Launch at Login should be checked and macOS Login Items should list that exact app. On subsequent launches/upgrades, do not register again or restore an externally disabled item.
+- Turn the switch off, quit and reopen: it stays off and the current capture shortcut still works. Enable it again. Disable/remove it in System Settings: the menu must reflect the actual system state and leave that choice unchanged. If approval is needed, only an explicit menu click may open the native settings pane.
+- At the next real login/restart, expect one menu-bar instance, no main/About window, no screen-recording prompt until capture is requested, and a working first ⌃⇧⌘5 without clicking the desktop. Actual logout/reboot is a manual acceptance check; never disrupt an active user session to automate it.
+
+## Whole Bézier path transform (development build 59)
+
+- Double-click an anchor on an unfinished or finished curve. Expect a box with eight resize handles and a movable pivot. Double-clicking the first point of an unfinished path must not close it; double-clicking a finished endpoint must not append a segment.
+- Drag inside to move all nodes and tangents. Drag handles to scale; hold Shift for proportional scaling or Command to scale around the pivot. Move the pivot, then drag just outside the box to rotate around it. The screenshot crop must stay unchanged.
+- Undo/redo each move, scale or rotation in one step; moving the pivot alone must not create a content-history entry. Transform a locally erased curve and verify the holes remain attached to the path. Export must contain no box, pivot or control points.
+- Return or Escape finishes transform mode and leaves capture open; a subsequent deliberate Return copies the image. Holding either key must not trigger a second action. Escape during a transform drag discards that gesture. Right-click inside ends editing, while right-click on the shade exits capture. Resume single-node editing and endpoint continuation afterward.
+- Run `swift test`, `scripts/check-interactions.sh` and `scripts/check-sessions.sh`. These use synthetic/offscreen fixtures; validate actual pointer feel on the desktop separately.
+
 ## Pen paths and pull-circle freehand (v1.1.8, build 58)
 
 Build 57 passed desktop acceptance: compact cursors, native hold/drag/release menus and saved defaults all confirmed. Build 58 packages the same implementation as v1.1.8.
