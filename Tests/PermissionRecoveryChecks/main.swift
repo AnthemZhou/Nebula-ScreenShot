@@ -14,6 +14,14 @@ if arguments.count > 2, arguments[1] == "--child" {
     switch arguments[2] {
     case "exit": exit(Int32(arguments[3])!)
     case "slow": usleep(350_000); exit(0)
+    case "gated":
+        try String(getpid()).write(toFile: arguments[3], atomically: true, encoding: .utf8)
+        let deadline = ProcessInfo.processInfo.systemUptime + 10
+        while !FileManager.default.fileExists(atPath: arguments[4]) {
+            if ProcessInfo.processInfo.systemUptime >= deadline { exit(8) }
+            usleep(2_000)
+        }
+        exit(0)
     case "stubborn":
         signal(SIGTERM, SIG_IGN)
         try String(getpid()).write(toFile: arguments[3], atomically: true, encoding: .utf8)
@@ -39,17 +47,27 @@ if arguments.count > 2, arguments[1] == "--child" {
     }
     print("PASS: successful, failed and missing reset subprocesses complete")
 
-    var ticks = 0
-    let heartbeat = Task { @MainActor in
-        while !Task.isCancelled {
-            do { try await Task.sleep(for: .milliseconds(10)) } catch { return }
-            ticks += 1
-        }
+    let ready = directory.appendingPathComponent("responsive-ready")
+    let release = directory.appendingPathComponent("responsive-release")
+    let pendingReset = Task {
+        try await PermissionResetProcess().run(executable: executable,
+            arguments: ["--child", "gated", ready.path, release.path], timeout: 12)
     }
-    _ = try await PermissionResetProcess().run(executable: executable, arguments: ["--child", "slow"])
-    heartbeat.cancel()
-    try require(ticks >= 10, "Main actor must keep responding while reset runs")
-    print("PASS: main actor remains responsive during slow reset (\(ticks) ticks)")
+    defer { pendingReset.cancel() }
+    let readyDeadline = ProcessInfo.processInfo.systemUptime + 10
+    while !FileManager.default.fileExists(atPath: ready.path), ProcessInfo.processInfo.systemUptime < readyDeadline {
+        try await Task.sleep(for: .milliseconds(2))
+    }
+    try require(FileManager.default.fileExists(atPath: ready.path), "Responsive child must become ready")
+    // The child cannot finish successfully until a different main-actor task
+    // releases it. This proves responsiveness without counting short timers,
+    // which coalesce on loaded hosted runners.
+    let heartbeat = Task { @MainActor in try Data().write(to: release) }
+    try await heartbeat.value
+    let responsiveResult = try await pendingReset.value
+    try require(responsiveResult.status == 0 && !responsiveResult.wasSignaled,
+                "Main actor must release the child while reset is pending")
+    print("PASS: main actor releases a waiting subprocess without blocking")
 
     for mode in ["timeout", "cancel"] {
         let ready = directory.appendingPathComponent(mode)
